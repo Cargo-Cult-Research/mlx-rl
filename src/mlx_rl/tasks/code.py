@@ -1,11 +1,17 @@
 """MBPP code task — real, verifiable coding signal (disjoint from SWE-bench).
 
 Each example is a self-contained Python function spec + hidden unit-test asserts.
-Reward = 1.0 iff the model's function passes every assert (run in a sandboxed
-subprocess), else 0.0. A fixed seeded split holds out an eval set that sample()
-never draws — so the trainer's evaluate() (which uses eval_sample) never leaks.
+Reward = 1.0 iff the model's function passes every assert, else 0.0. A fixed
+seeded split holds out an eval set that sample() never draws — so the trainer's
+evaluate() (which uses eval_sample) never leaks.
 
-Dataset: sanitized MBPP (427 problems), data/mbpp_sanitized.json.
+⚠️ SECURITY: candidate code runs in a plain subprocess with a timeout — it is
+NOT sandboxed. Model-generated code executes with this process's privileges
+(filesystem, network). Run this task inside a container/VM if that matters
+to you. See the warning in README.md.
+
+Dataset: sanitized MBPP (427 problems), data/mbpp_sanitized.json — see
+data/README.md for provenance and license (CC BY 4.0, Google Research).
 """
 from __future__ import annotations
 
