@@ -256,6 +256,14 @@ Five tasks ship, all with programmatic rewards (`--task <name>`):
   model-generated code in a plain subprocess — NOT a sandbox.** It runs with
   your user's filesystem and network access; use a container/VM if that
   matters to you.
+- **`qa_abstain`** — calibrated factuality: answer a short factual question
+  in `<answer>` tags or reply `<abstain/>`. Reward: correct +1, abstain 0,
+  wrong/malformed −penalty — the penalty sets the implied confidence
+  threshold (default 3.0 → answer iff p(correct) > 0.75). Trains "know when
+  you don't know" with a fully verifiable reward. TriviaQA (Apache-2.0,
+  ~138k) to train; PopQA (MIT) as the out-of-distribution transfer eval.
+  `scripts/qa_calibrate.py` probes per-question pass@k so a `calib_file` +
+  `band_mix` curriculum can keep decision variance inside GRPO groups.
 - **`toolformat`** — canonical tool-call format + tool/arg correctness;
   doubles as a format regression detector for adapters.
 - **`mixture`** — samples a weighted mix of the above per example (e.g.
