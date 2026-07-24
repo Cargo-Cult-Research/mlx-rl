@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mlx-rl · live runs</title>
+<style>
+:root{
+  --surface:#fcfcfb; --page:#f9f9f7; --ink:#0b0b0b; --ink2:#52514e;
+  --muted:#898781; --grid:#e1e0d9; --axis:#c3c2b7;
+  --border:rgba(11,11,11,.10);
+  --s1:#2a78d6; --s2:#1baf7a; --s3:#eda100; --s4:#008300;
+  --s5:#4a3aa7; --s6:#e34948; --s7:#e87ba4; --s8:#eb6834;
+  --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --surface:#1a1a19; --page:#0d0d0d; --ink:#ffffff; --ink2:#c3c2b7;
+    --muted:#898781; --grid:#2c2c2a; --axis:#383835;
+    --border:rgba(255,255,255,.10);
+    --s1:#3987e5; --s2:#199e70; --s3:#c98500; --s4:#008300;
+    --s5:#9085e9; --s6:#e66767; --s7:#d55181; --s8:#d95926;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);
+  font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:12px 16px 48px}
+h1{font-size:17px;margin:8px 0 2px}
+h2{font-size:13px;font-weight:600;color:var(--ink2);margin:0 0 8px;
+  text-transform:uppercase;letter-spacing:.04em}
+.sub{color:var(--muted);font-size:12px;margin-bottom:12px}
+.card{background:var(--surface);border:1px solid var(--border);
+  border-radius:10px;padding:12px 14px;margin-bottom:14px}
+.runtabs{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 14px}
+.runtab{border:1px solid var(--border);background:var(--surface);color:var(--ink2);
+  border-radius:999px;padding:5px 12px;font-size:13px;cursor:pointer}
+.runtab.sel{color:var(--ink);border-color:var(--ink2);font-weight:600}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;
+  background:var(--muted);margin-right:6px;vertical-align:0}
+.dot.live{background:var(--good);animation:pulse 2s infinite}
+.dot.died{background:var(--critical);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.35}}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:12px;color:var(--ink2);border:1px solid var(--border);
+  border-radius:6px;padding:2px 8px;background:var(--page)}
+.chip b{color:var(--ink);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}
+.anom{display:flex;gap:10px;align-items:baseline;padding:6px 8px;border-radius:6px;
+  border-left:3px solid var(--muted);margin-bottom:4px;font-size:13px;background:var(--page)}
+.anom.error{border-left-color:var(--critical)}
+.anom.warn{border-left-color:var(--warning)}
+.anom.info{border-left-color:var(--s1)}
+.anom .lvl{font-weight:700;font-size:11px;min-width:52px;text-transform:uppercase}
+.anom.error .lvl{color:var(--critical)}
+.anom.warn .lvl{color:var(--serious)}
+.anom.info .lvl{color:var(--s1)}
+.anom .st{color:var(--muted);min-width:48px}
+.ok{color:var(--good);font-size:13px}
+svg{display:block;width:100%}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--ink2);margin-top:4px}
+.legend span::before{content:"";display:inline-block;width:10px;height:3px;
+  border-radius:2px;background:var(--c);margin-right:5px;vertical-align:3px}
+.tip{position:fixed;pointer-events:none;background:var(--surface);color:var(--ink);
+  border:1px solid var(--border);border-radius:8px;padding:6px 9px;font-size:12px;
+  box-shadow:0 4px 14px rgba(0,0,0,.18);display:none;z-index:9;min-width:130px}
+.tip b{display:block;margin-bottom:2px}
+.tip .row{display:flex;justify-content:space-between;gap:12px}
+.tip .row i{font-style:normal;color:var(--c)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{color:var(--muted);font-weight:500;text-align:left;padding:3px 8px;
+  border-bottom:1px solid var(--grid);font-size:12px}
+td{padding:4px 8px;border-bottom:1px solid var(--grid);
+  font-variant-numeric:tabular-nums;cursor:pointer}
+tr.sel td{background:var(--page);font-weight:600}
+tr:hover td{background:var(--page)}
+.badge{font-size:11px;border-radius:5px;padding:1px 6px;font-weight:600}
+.badge.pass{color:var(--good);border:1px solid var(--good)}
+.badge.zero{color:var(--muted);border:1px solid var(--border)}
+.badge.err{color:var(--critical);border:1px solid var(--critical)}
+.badge.sage{color:var(--s5);border:1px solid var(--s5)}
+.stepnav{display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.stepnav button,select{border:1px solid var(--border);background:var(--surface);
+  color:var(--ink);border-radius:6px;padding:4px 10px;font-size:13px;cursor:pointer}
+.trace{margin-top:10px}
+.trace .meta{font-size:13px;color:var(--ink2);margin-bottom:8px}
+.think,.reply{white-space:pre-wrap;word-break:break-word;border-radius:8px;
+  padding:10px 12px;font:12px/1.5 ui-monospace,Menlo,monospace;overflow-x:auto}
+.think{color:var(--muted);background:var(--page);border:1px dashed var(--axis);
+  max-height:300px;overflow-y:auto}
+.reply{color:var(--ink);background:var(--page);border:1px solid var(--s2);margin-top:8px}
+.noclose{border:1px solid var(--critical);border-radius:8px;padding:8px 12px;
+  color:var(--critical);font-size:13px;margin-top:8px}
+.seg{font-size:11px;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.05em;margin:8px 0 3px}
+details summary{cursor:pointer;color:var(--ink2);font-size:12px;margin:6px 0}
+.log{white-space:pre-wrap;font:11px/1.5 ui-monospace,Menlo,monospace;color:var(--ink2);
+  max-height:260px;overflow-y:auto;background:var(--page);border-radius:8px;padding:8px 10px}
+@media(max-width:700px){.wrap{padding:8px 8px 40px}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>mlx-rl · live runs</h1>
+  <div class="sub" id="status">connecting…</div>
+  <div class="runtabs" id="runtabs"></div>
+  <div class="card"><div class="chips" id="cfg"></div></div>
+  <div class="card"><h2>Anomalies</h2><div id="anoms"></div></div>
+  <div class="grid" id="charts"></div>
+  <div class="card trace">
+    <h2>Rollout traces</h2>
+    <div class="stepnav">
+      <button id="prev">‹</button>
+      <select id="stepsel"></select>
+      <button id="next">›</button>
+      <span id="tracemeta" class="meta"></span>
+    </div>
+    <div style="overflow-x:auto"><table id="comps"></table></div>
+    <div id="viewer"></div>
+  </div>
+  <div class="card"><h2>Run log tail</h2><div class="log" id="log">–</div></div>
+</div>
+<div class="tip" id="tip"></div>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const S = n => css('--s'+n);
+let runs = [], sel = null, data = null, selStep = null, selComp = 0, timer = null;
+
+const fmt = (v,d=2) => v==null ? '–' : (+v).toFixed(d).replace(/\.?0+$/,'') || '0';
+const age = s => s<90 ? `${Math.round(s)}s ago` : s<5400 ? `${Math.round(s/60)}m ago`
+                 : `${(s/3600).toFixed(1)}h ago`;
+
+async function j(url){ const r = await fetch(url); return r.json(); }
+
+async function refreshRuns(){
+  try{
+    const d = await j('/api/runs'); runs = d.runs;
+    if(!sel && runs.length) sel = runs[0].name;
+    renderTabs();
+    if(sel) await loadRun();
+    $('status').textContent = 'runs dir polled ' + new Date().toLocaleTimeString();
+  }catch(e){ $('status').textContent = 'connection lost — retrying'; }
+}
+
+function renderTabs(){
+  $('runtabs').innerHTML = '';
+  for(const r of runs){
+    const b = document.createElement('button');
+    b.className = 'runtab' + (r.name===sel ? ' sel':'');
+    b.innerHTML = `<span class="dot${r.died?' died':r.live?' live':''}"></span>${r.name}` +
+      (r.steps_cfg ? ` <span style="color:var(--muted)">${r.last_step}/${r.steps_cfg}</span>`:'') +
+      (r.died ? ' <span style="color:var(--critical);font-weight:700">✕ died</span>':'');
+    b.onclick = () => { sel = r.name; selStep = null; selComp = 0; renderTabs(); loadRun(); };
+    $('runtabs').appendChild(b);
+  }
+}
+
+async function loadRun(){
+  data = await j('/api/run/'+encodeURIComponent(sel));
+  renderConfig(); renderAnoms(); renderCharts(); renderTrace(); renderLog();
+}
+
+function renderConfig(){
+  const c = data.config || {};
+  const liveTxt = data.died ? '✕ DIED' : data.live ? 'LIVE' : 'idle';
+  const chips = [
+    [liveTxt, age(data.age_s)],
+    ['model', (c.model||'').split('/').pop()],
+    ['task', c.task], ['steps', c.steps], ['cap', c.max_new_tokens],
+    ['sage_r', c.sage_r], ['answer_reserve', c.sage_answer_reserve],
+    ['group', c.batch_prompts + '×' + c.group_size],
+    ['lr', c.lr], ['len_pen', c.length_penalty], ['seed', c.seed],
+  ];
+  $('cfg').innerHTML = chips.filter(x=>x[1]!==undefined&&x[1]!==null)
+    .map(([k,v])=>`<span class="chip">${k} <b>${v}</b></span>`).join('');
+}
+
+const TASKC = t => ({math:S(1), code:S(3), arithmetic:S(2)})[t] || css('--muted');
+
+function renderAnoms(){
+  const a = data.anomalies || [];
+  const sum = ((data.rollup||{}).summary||[]).filter(x=>x.n>0);
+  const sumHtml = sum.map(x => {
+    const pt = x.per_task ? ' — ' + Object.entries(x.per_task).map(([t,v]) =>
+      `<b style="color:${TASKC(t)}">${t} ${Math.round(v*100)}%</b>`).join(' · ') : '';
+    return `<div class="anom warn"><span class="lvl">${Math.round(x.rate*100)}%</span>` +
+      `<span class="st">${x.n}/${x.total}</span><span>${x.label}${pt}</span></div>`;
+  }).join('');
+  const aHtml = a.map(x =>
+    `<div class="anom ${x.level}"><span class="lvl">${x.level}</span>` +
+    `<span class="st">step ${x.step??'–'}</span><span>${x.msg}</span></div>`).join('');
+  $('anoms').innerHTML = (sumHtml + aHtml) || '<div class="ok">✓ no anomalies detected</div>';
+}
+
+/* ---------------- charts ---------------- */
+function series(ms, key){ return ms.filter(m => m[key]!=null && m.step!=null)
+  .map(m => [m.step, m[key]]); }
+
+function lineChart(title, sers, opts={}){
+  const W=520, H=190, L=38, R=10, T=12, B=22;
+  sers = sers.filter(s => s.pts.length);
+  if(!sers.length) return null;
+  const xs = sers.flatMap(s=>s.pts.map(p=>p[0]));
+  const ys = sers.flatMap(s=>s.pts.map(p=>p[1])).concat(opts.ref!=null?[opts.ref]:[]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs, x0+1);
+  let y0 = opts.zero===false ? Math.min(...ys) : 0;
+  let y1 = Math.max(...ys, opts.ymax ?? -Infinity);
+  if(y1===y0) y1 = y0+1;
+  const pad=(y1-y0)*0.06; y1+=pad; if(opts.zero===false) y0-=pad;
+  const X = v => L + (v-x0)/(x1-x0)*(W-L-R);
+  const Y = v => T + (1-(v-y0)/(y1-y0))*(H-T-B);
+  let g = '';
+  const ticks = 4;
+  for(let i=0;i<=ticks;i++){
+    const v = y0 + (y1-y0)*i/ticks, y = Y(v);
+    g += `<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="var(--grid)"/>` +
+         `<text x="${L-5}" y="${y+3.5}" text-anchor="end" fill="var(--muted)" font-size="10">${fmt(v, Math.abs(y1)<10?2:0)}</text>`;
+  }
+  const xt = [...new Set([x0, Math.round((x0+x1)/2), x1])];
+  for(const v of xt)
+    g += `<text x="${X(v)}" y="${H-6}" text-anchor="middle" fill="var(--muted)" font-size="10">${v}</text>`;
+  if(opts.ref!=null)
+    g += `<line x1="${L}" x2="${W-R}" y1="${Y(opts.ref)}" y2="${Y(opts.ref)}" stroke="var(--axis)" stroke-dasharray="4 3"/>` +
+         `<text x="${W-R}" y="${Y(opts.ref)-4}" text-anchor="end" fill="var(--muted)" font-size="10">${opts.refLabel||opts.ref}</text>`;
+  for(const s of sers){
+    const d = s.pts.map((p,i)=>(i?'L':'M')+X(p[0]).toFixed(1)+' '+Y(p[1]).toFixed(1)).join('');
+    g += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round"/>`;
+    if(s.pts.length<=24)
+      for(const p of s.pts)
+        g += `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="2.6" fill="${s.color}" stroke="var(--surface)" stroke-width="1.5"/>`;
+  }
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `<h2>${title}</h2>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet"></svg>` +
+    (sers.length>1 ? `<div class="legend">${sers.map(s =>
+      `<span style="--c:${s.color}">${s.name}</span>`).join('')}</div>` : '');
+  card.querySelector('svg').innerHTML = g +
+    `<line id="ch" y1="${T}" y2="${H-B}" stroke="var(--axis)" style="display:none"/>`;
+  const svg = card.querySelector('svg'), ch = svg.lastChild, tip = $('tip');
+  const steps = [...new Set(xs)].sort((a,b)=>a-b);
+  svg.addEventListener('mousemove', ev => {
+    const r = svg.getBoundingClientRect();
+    const vx = (ev.clientX-r.left)/r.width*W;
+    const step = steps.reduce((b,s)=>Math.abs(X(s)-vx)<Math.abs(X(b)-vx)?s:b, steps[0]);
+    ch.setAttribute('x1', X(step)); ch.setAttribute('x2', X(step));
+    ch.style.display = 'block';
+    const rows = sers.map(s => {
+      const p = s.pts.find(p=>p[0]===step);
+      return p ? `<div class="row" style="--c:${s.color}"><i>${s.name}</i><span>${fmt(p[1],3)}</span></div>` : '';
+    }).join('');
+    tip.innerHTML = `<b>step ${step}</b>${rows}`;
+    tip.style.display = 'block';
+    tip.style.left = Math.min(ev.clientX+14, innerWidth-170)+'px';
+    tip.style.top = (ev.clientY+12)+'px';
+  });
+  svg.addEventListener('mouseleave', ()=>{ ch.style.display='none'; $('tip').style.display='none'; });
+  return card;
+}
+
+/* Anomaly timeline: lane = anomaly kind, dot color = task. Answers "is the
+   starvation systematic by task" at a glance (grey = whole-batch metric). */
+const LANES = [
+  ['no_signal',       'no signal'],
+  ['len_capped',      '>50% capped'],
+  ['group_truncated', 'group @cap'],
+  ['zero_var_fail',   '0-var fail'],
+  ['zero_var_pass',   '0-var pass'],
+];
+function anomalyTimeline(ms){
+  const ev = ((data.rollup||{}).events||[]).filter(e => e.step!=null);
+  if(!ev.length) return null;
+  const lanes = LANES.filter(([k]) => ev.some(e=>e.kind===k));
+  const W=520, L=86, R=10, T=8, rowH=22, B=20, H=T+lanes.length*rowH+B;
+  const steps = ms.map(m=>m.step).filter(s=>s!=null).concat(ev.map(e=>e.step));
+  const x0 = Math.min(...steps), x1 = Math.max(...steps, x0+1);
+  const X = v => L + (v-x0)/(x1-x0)*(W-L-R);
+  let g = '';
+  lanes.forEach(([kind,label], i) => {
+    const y = T + i*rowH + rowH/2;
+    g += `<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="var(--grid)"/>` +
+      `<text x="${L-6}" y="${y+3.5}" text-anchor="end" fill="var(--ink2)" font-size="10">${label}</text>`;
+    for(const e of ev) if(e.kind===kind)
+      g += `<circle cx="${X(e.step)}" cy="${y}" r="3.2" fill="${TASKC(e.task)}"`+
+           ` fill-opacity=".85"><title>step ${e.step}${e.task?' · '+e.task:''}</title></circle>`;
+  });
+  for(const v of [...new Set([x0, Math.round((x0+x1)/2), x1])])
+    g += `<text x="${X(v)}" y="${H-5}" text-anchor="middle" fill="var(--muted)" font-size="10">${v}</text>`;
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `<h2>Anomaly timeline</h2>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${g}</svg>
+    <div class="legend">` +
+    ['math','code','arithmetic'].map(t=>`<span style="--c:${TASKC(t)}">${t}</span>`).join('') +
+    `<span style="--c:${css('--muted')}">whole batch</span></div>`;
+  return card;
+}
+
+function renderCharts(){
+  const ms = (data.metrics||[]);
+  const cap = (data.config||{}).max_new_tokens;
+  const host = $('charts'); host.innerHTML = '';
+  const add = c => c && host.appendChild(c);
+  add(anomalyTimeline(ms));
+  add(lineChart('Reward', [
+    {name:'mean', color:S(1), pts:series(ms,'reward_mean')},
+    {name:'sage', color:S(2), pts:series(ms,'reward_sage')},
+    {name:'sampled', color:S(3), pts:series(ms,'reward_sampled')},
+    {name:'eval', color:S(5), pts:series(ms,'eval_reward')},
+  ], {ymax:1}));
+  add(lineChart('Correctness & integrity (fractions)', [
+    {name:'correct', color:S(1), pts:series(ms,'frac_correct')},
+    {name:'format', color:S(2), pts:series(ms,'frac_format')},
+    {name:'think closed', color:S(4), pts:series(ms,'frac_think_closed')},
+    {name:'len-capped', color:S(6), pts:series(ms,'frac_len_capped')},
+  ], {ymax:1}));
+  add(lineChart('Lengths (tokens)', [
+    {name:'mean', color:S(1), pts:series(ms,'mean_len')},
+    {name:'think (sage)', color:S(2), pts:series(ms,'mean_think_len')},
+    {name:'sage', color:S(5), pts:series(ms,'mean_len_sage')},
+    {name:'sampled', color:S(3), pts:series(ms,'mean_len_sampled')},
+  ], cap ? {ref:cap, refLabel:'cap '+cap} : {}));
+  add(lineChart('RFCS — first-correct-step ratio (1 = stop at the answer)', [
+    {name:'rollouts', color:S(1), pts:series(ms,'rfcs_mean')},
+    {name:'eval', color:S(5), pts:series(ms,'eval_rfcs')},
+    {name:'samples (post-hoc)', color:S(3), pts:series(ms,'rfcs_sample_mean')},
+  ], {ymax:1}));
+  add(lineChart('Step time (s)', [
+    {name:'generate', color:S(1), pts:series(ms,'gen_s')},
+    {name:'update', color:S(2), pts:series(ms,'update_s')},
+  ]));
+  add(lineChart('Decode throughput (tok/s)', [
+    {name:'gen tok/s', color:S(1), pts:series(ms,'gen_tok_s')},
+  ]));
+  add(lineChart('Memory (GB)', [
+    {name:'MLX step peak', color:S(1), pts:series(ms,'peak_gb')},
+    {name:'swap growth', color:S(6), pts:series(ms,'swap_gb')},
+  ]));
+  add(lineChart('KL / policy grad', [
+    {name:'kl', color:S(1), pts:series(ms,'kl')},
+    {name:'pg', color:S(2), pts:series(ms,'pg')},
+  ], {zero:false}));
+  add(lineChart('Active groups & rollout economy', [
+    {name:'active', color:S(1), pts:series(ms,'active_groups')},
+    {name:'skipped @stage1', color:S(6), pts:series(ms,'groups_skipped_stage1')},
+    {name:'pruned rollouts', color:S(3), pts:series(ms,'rollouts_pruned')},
+  ]));
+  add(lineChart('Exploration — sampled-token NLL (nats)', [
+    {name:'gen NLL', color:S(2), pts:series(ms,'gen_nll')},
+  ], {zero:false}));
+}
+
+/* ---------------- trace browser ---------------- */
+function renderTrace(){
+  const smp = data.samples||[];
+  const selEl = $('stepsel'); selEl.innerHTML = '';
+  if(!smp.length){ $('comps').innerHTML=''; $('viewer').innerHTML=''; $('tracemeta').textContent='no samples yet'; return; }
+  if(selStep==null || !smp.some(s=>s.step===selStep)) selStep = smp[smp.length-1].step;
+  smp.forEach(s => {
+    const o = document.createElement('option');
+    o.value = s.step; o.textContent = 'step '+s.step+' · '+(s.meta?._task||'');
+    if(s.step===selStep) o.selected = true;
+    selEl.appendChild(o);
+  });
+  const s = smp.find(x=>x.step===selStep);
+  const m = s.meta||{};
+  $('tracemeta').textContent = (m._task||'') +
+    (m.expr ? ` · ${m.expr} = ${m.answer}` : '') +
+    (m.tool ? ` · tool ${m.tool}` : '') + (m.name ? ` · ${m.name}` : '');
+  const cap = (data.config||{}).max_new_tokens;
+  const rows = (s.completions||[]).map((c,i) => {
+    const closed = (c.parts||{}).think_closed;
+    const badges =
+      (c.sage?'<span class="badge sage">sage</span> ':'') +
+      (c.reward>0?`<span class="badge pass">${fmt(c.reward)}</span>`:'<span class="badge zero">0</span>') +
+      (closed===0.0?' <span class="badge err">no close</span>':'') +
+      (cap && c.len>=cap?' <span class="badge err">capped</span>':'') +
+      (cap && c.think_len>cap?' <span class="badge err">think&gt;cap</span>':'');
+    const rf = (c.parts||{}).rfcs ?? c.rfcs;
+    return `<tr data-i="${i}" class="${i===selComp?'sel':''}"><td>${i}</td>` +
+      `<td>${badges}</td><td>${c.len??''}</td><td>${c.think_len??'–'}</td>` +
+      `<td>${c.finish??''}</td><td>${fmt((c.parts||{}).correct,0)}</td>` +
+      `<td>${rf!=null?fmt(rf):'–'}</td></tr>`;
+  }).join('');
+  $('comps').innerHTML =
+    `<tr><th>#</th><th>reward</th><th>len</th><th>think</th><th>finish</th><th>correct</th><th>rfcs</th></tr>` + rows;
+  $('comps').querySelectorAll('tr[data-i]').forEach(tr =>
+    tr.onclick = () => { selComp = +tr.dataset.i; renderTrace(); });
+  renderViewer(s);
+}
+
+function esc(t){ return t.replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+function renderViewer(s){
+  const c = (s.completions||[])[selComp];
+  if(!c){ $('viewer').innerHTML=''; return; }
+  const t = c.text||'', i = t.lastIndexOf('</think>');
+  let html = '';
+  if(i>=0){
+    html += `<div class="seg">think (${c.think_len??'?'} tok)</div><div class="think">${esc(t.slice(0,i))}</div>`;
+    const reply = t.slice(i+8);
+    html += `<div class="seg">visible reply — what the grader sees</div>` +
+      (reply.trim() ? `<div class="reply">${esc(reply)}</div>`
+                    : `<div class="noclose">think closed but ZERO visible answer tokens (budget exhausted) → reward 0</div>`);
+  } else {
+    html += `<div class="noclose">⚠ think block never closed — nothing visible, reward 0 by contract</div>` +
+      `<details open><summary>unclosed think content</summary><div class="think">${esc(t)}</div></details>`;
+  }
+  $('viewer').innerHTML = html;
+}
+
+$('prev').onclick = () => nav(-1);
+$('next').onclick = () => nav(1);
+$('stepsel').onchange = e => { selStep = +e.target.value; selComp = 0; renderTrace(); };
+function nav(d){
+  const steps = (data.samples||[]).map(s=>s.step);
+  const i = steps.indexOf(selStep);
+  if(i+d>=0 && i+d<steps.length){ selStep = steps[i+d]; selComp = 0; renderTrace(); }
+}
+
+async function renderLog(){
+  try{
+    const d = await j('/api/log?n=80');
+    $('log').textContent = (d.lines||[]).join('\n') || '–';
+    $('log').scrollTop = $('log').scrollHeight;
+  }catch(e){}
+}
+
+refreshRuns();
+timer = setInterval(refreshRuns, 5000);
+</script>
+</body>
+</html>

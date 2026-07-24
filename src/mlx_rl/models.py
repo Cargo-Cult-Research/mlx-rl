@@ -1,0 +1,146 @@
+"""Model loading, LoRA attachment, reference-policy switching, checkpoints."""
+
+from __future__ import annotations
+
+import json
+from contextlib import contextmanager
+from pathlib import Path
+
+import mlx.core as mx
+import mlx.nn as nn
+from huggingface_hub import snapshot_download
+from mlx.utils import tree_flatten
+from mlx_lm import load as mlx_load
+from mlx_lm.tuner.utils import linear_to_lora_layers
+
+from .config import DEFAULT_LORA_KEYS, LoraConfig
+from .memory import assert_fits, estimate_run_gb, model_disk_gb
+
+
+def resolve_model_path(model_id: str) -> Path:
+    """Local path passes through; a HF repo id is downloaded (cache-first)
+    so the memory guard can size the weights BEFORE anything is loaded."""
+    p = Path(model_id).expanduser()
+    if p.exists():
+        return p
+    return Path(snapshot_download(model_id))
+
+
+def load_policy(
+    model_id: str,
+    lora: LoraConfig,
+    headroom_gb: float = 4.0,
+    grad_checkpoint: bool = False,
+):
+    """Load base weights, freeze them, attach trainable LoRA adapters.
+
+    Returns (model, tokenizer, info). Raises MemoryGuardError instead of
+    loading a model that would not fit next to what is already resident.
+    """
+    path = resolve_model_path(model_id)
+    weights_gb = model_disk_gb(path)
+    assert_fits(estimate_run_gb(weights_gb, headroom_gb))
+
+    model, tokenizer = mlx_load(str(path))
+    model.freeze()
+    num_layers = lora.num_layers if lora.num_layers > 0 else len(model.layers)
+    linear_to_lora_layers(
+        model,
+        num_layers,
+        {
+            "rank": lora.rank,
+            "scale": lora.scale,
+            "dropout": lora.dropout,
+            "keys": lora.keys or DEFAULT_LORA_KEYS,
+        },
+    )
+    # Training mode matters beyond dropout: switch_layers only stop-grads the
+    # expert-routing indices when self.training is set, and without that the
+    # backward pass dies in GatherQMM::vjp ("gradient wrt the indices").
+    model.train()
+    if grad_checkpoint:
+        from mlx_lm.tuner.trainer import grad_checkpoint as _ckpt
+
+        # _ckpt patches type(layer).__call__ — once per distinct layer class
+        # (hybrid models like qwen3_5_moe mix GatedDeltaNet and full-attn
+        # blocks), never twice, or the wrapper nests.
+        seen: set[type] = set()
+        for layer in model.layers:
+            if type(layer) not in seen:
+                _ckpt(layer)
+                seen.add(type(layer))
+    n_trainable = sum(v.size for _, v in tree_flatten(model.trainable_parameters()))
+    info = {
+        "model_path": str(path),
+        "weights_gb": round(weights_gb, 2),
+        "trainable_params": n_trainable,
+        "lora_layers": num_layers,
+        "grad_checkpoint": grad_checkpoint,
+    }
+    return model, tokenizer, info
+
+
+def selective_logprobs(
+    model, inp: mx.array, tgt_sel: mx.array, sel_idx: mx.array
+) -> mx.array:
+    """Per-token logprobs at selected positions only.
+
+    Runs the trunk on the full sequence (attention needs every position),
+    then gathers hidden states at `sel_idx` [B, K] BEFORE the vocab
+    projection — so the 248k-vocab logits/softmax slab is [B, K, V] instead
+    of [B, L, V]. `tgt_sel` [B, K] must be pre-gathered with the same
+    indices. Numerically identical per position to the dense path (softmax
+    is row-wise); only the head's input shrinks.
+    """
+    # VLM-style wrappers (qwen3_5/qwen3_5_moe) nest the CausalLM one level
+    # down as .language_model; plain models (qwen3_next) ARE the CausalLM.
+    lm = getattr(model, "language_model", model)
+    h = lm.model(inp)  # [B, L, hidden] — full-seq trunk, incl. final norm
+    h = mx.take_along_axis(h, sel_idx[..., None], axis=1)  # [B, K, hidden]
+    if getattr(lm.args, "tie_word_embeddings", False):
+        logits = lm.model.embed_tokens.as_linear(h)
+    else:
+        logits = lm.lm_head(h)
+    return -nn.losses.cross_entropy(logits, tgt_sel, reduction="none")
+
+
+def lora_modules(model):
+    return [m for _, m in model.named_modules() if hasattr(m, "lora_a") and hasattr(m, "scale")]
+
+
+@contextmanager
+def adapters_disabled(model):
+    """Zero every adapter's multiplicative scale: the forward pass becomes the
+    frozen base model, which is exactly the GRPO reference policy — no second
+    copy of the weights in memory."""
+    mods = lora_modules(model)
+    saved = [m.scale for m in mods]
+    for m in mods:
+        m.scale = 0.0
+    try:
+        yield
+    finally:
+        for m, s in zip(mods, saved):
+            m.scale = s
+
+
+def save_adapter(model, out_dir: str | Path, lora: LoraConfig, model_id: str, step: int) -> Path:
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    fname = out / f"adapter-{step:05d}.safetensors"
+    mx.save_safetensors(str(fname), dict(tree_flatten(model.trainable_parameters())))
+    (out / "adapter_config.json").write_text(
+        json.dumps(
+            {
+                "model": model_id,
+                "rank": lora.rank,
+                "scale": lora.scale,
+                "dropout": lora.dropout,
+                "num_layers": lora.num_layers,
+                "keys": lora.keys or DEFAULT_LORA_KEYS,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    return fname

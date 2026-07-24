@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Environments
+.venv/
+venv/
+.env
+
+# Training artifacts / run outputs
+runs/
+adapters/
+checkpoints/
+fits/
+wandb/
+*.safetensors
+*.npz
+*.jsonl
+
+# OS
+.DS_Store
