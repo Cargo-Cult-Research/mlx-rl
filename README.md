@@ -264,6 +264,8 @@ Five tasks ship, all with programmatic rewards (`--task <name>`):
   ~138k) to train; PopQA (MIT) as the out-of-distribution transfer eval.
   `scripts/qa_calibrate.py` probes per-question pass@k so a `calib_file` +
   `band_mix` curriculum can keep decision variance inside GRPO groups.
+  Prior work and positioning:
+  [docs/qa-abstain-related-work.md](docs/qa-abstain-related-work.md).
 - **`toolformat`** — canonical tool-call format + tool/arg correctness;
   doubles as a format regression detector for adapters.
 - **`mixture`** — samples a weighted mix of the above per example (e.g.
@@ -306,6 +308,9 @@ Technical notes in [docs/](docs/):
   cause and the serial-scan fix (34.3 → 2.37 GiB per layer @4096).
 - [sage-paper-notes.md](docs/sage-paper-notes.md) — close reading of the SAGE
   paper and the exact algorithm this repo implements.
+- [qa-abstain-related-work.md](docs/qa-abstain-related-work.md) — prior work
+  on abstention/calibration training and what the `qa_abstain` task does and
+  does not add.
 
 Standalone instruments in [scripts/](scripts/): `probe_backward.py`
 (memory-vs-length probe), `anatomy_gdn.py` / `anatomy_sched.py` (per-layer
