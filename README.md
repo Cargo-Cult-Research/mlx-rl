@@ -75,8 +75,11 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
 
-Models are downloaded from the Hugging Face Hub on first use; local model paths
-default to `~/models/mlx` and can be overridden with `MLX_RL_MODELS_DIR`.
+The default model (`tiny` profile, Qwen2.5-0.5B) downloads from the Hugging
+Face Hub on first use. The big-model profiles (`qwen36`, `gemma26`) point at
+**local** MLX 4-bit model directories under `MLX_RL_MODELS_DIR` (default
+`~/models/mlx`) — convert or download those yourself first (e.g. with
+`mlx_lm.convert`); see `src/mlx_rl/profiles.py`.
 
 ## Quickstart
 
@@ -103,27 +106,33 @@ just the curves), and `adapters/` checkpoints.
 ## SAGE-RL (arXiv 2602.08354)
 
 **Premise:** reasoning models already "know" when to stop thinking — rank
-candidate continuations by Φ = length-normalized cumulative logprob (mean
+candidate reasoning chains by Φ = length-normalized cumulative logprob (mean
 per-token logprob of the whole chain) and the end-of-thinking token scores
 near the top long before greedy decoding would pick it (locally, one more
-sentence of reasoning always wins). **SAGE** is a beam-style decode: keep the
-top-m candidates by Φ, and stop the thinking phase when the end-of-think
-token enters the top-m cutoff (within `tol` nats of slack). **SAGE-RL**
-injects r SAGE-decoded members into each GRPO group of G; the verifier
-rewards their short-correct chains and the group-relative advantage teaches
-the policy to make that its default — at inference you run plain sampling,
-no beam.
+sentence of reasoning always wins). **SAGE** is a step-wise beam over
+reasoning steps (`\n\n`-delimited): keep the top-m candidate chains by Φ;
+each iteration expands every candidate with 2m sampled steps and accepts a
+step ending in `</think>` when it ranks **within the top-h by Φ**, where
+`h = round(TR · 2m)` (`--sage-tr`, the paper's tolerance ratio) — a
+confidence gate against low-confidence early stops. **SAGE-RL** injects r
+SAGE-decoded members into each GRPO group of G; the verifier rewards their
+short-correct chains and the group-relative advantage teaches the policy to
+make that its default — at inference you run plain sampling, no beam.
 
 Implementation notes (`engine.py::sage_completion`):
 
 - Beams fork the KV cache with the same copy-on-write clone as group prompt
-  sharing; forwards run at B=1 per beam (m is small).
-- With `--sage-think-temp > 0` (default 1.0), per-beam candidates are
-  proposed by Gumbel-top-m sampling of the tempered distribution instead of
-  a deterministic arg-top-m, so the r SAGE members of a group are not
-  byte-identical. Φ ranking always uses the true logprobs.
-- If the gate hasn't fired by `--max-think-tokens`, the end-of-think token is
-  force-committed (budget compliance by construction).
+  sharing. The default batched variant runs all 2m² step expansions as rows
+  of one batched forward per token — ~4× over the per-beam reference (kept
+  as `batched=False`); sparse-MoE expert routing caps the win below a dense
+  model's, see `docs/memory-and-compute-anatomy.md`.
+- Steps are sampled at `--sage-think-temp` (default 1.0, the paper's
+  setting), so the r SAGE members of a group are not byte-identical; Φ
+  ranking always uses the true (untempered) logprobs.
+- Reasoning is hard-bounded at `max_new_tokens − --sage-answer-reserve`; if
+  the gate hasn't fired by then (or by `--sage-max-steps`), the end-of-think
+  token is force-committed, so the answer phase always has room and the
+  completion can never exceed `--max-new-tokens`.
 - The end-of-think token comes from the model profile (`think_end`): qwen36
   `</think>` = 248069 (thinking mode is switched on automatically when
   `--sage-r > 0`); gemma26 `<channel|>` = 101. Gating on a turn-terminal
@@ -131,84 +140,58 @@ Implementation notes (`engine.py::sage_completion`):
   completion then ends at the commit.
 
 ```sh
-# The Ep10 run: qwen36 thinking mode, 2 of 8 members SAGE-decoded
+# qwen36 thinking mode, 2 of 8 group members SAGE-decoded
 .venv/bin/mlx-rl-train --profile qwen36 --steps 16 --batch-prompts 3 \
-  --group-size 8 --sage-r 2 --sage-m 2 --sage-tol 0.02 \
-  --micro-batch 1 --max-new-tokens 576 --max-think-tokens 384 \
+  --group-size 8 --sage-r 2 --sage-m 2 --sage-tr 0.5 \
+  --micro-batch 1 --max-new-tokens 1024 --sage-answer-reserve 256 \
   --lora-layers 12 --no-normalize-std \
   --task-kwargs '{"n_operands": 7, "max_operand": 9999, "format_reward": 0.0}' \
-  --eval-every 4 --eval-n 16 --out runs/sage1-qwen36
+  --eval-every 4 --eval-n 16 --out runs/sage-qwen36
 ```
 
 Hybrid-run metrics add `mean_len`, `mean_len_sage` / `mean_len_sampled`,
 `mean_think_len`, `reward_sage` / `reward_sampled`, and evals add
 `eval_mean_len` — the deployment metric (greedy, no beam).
 
-### What the Ep10 run showed (runs/sage1-qwen36, 2026-07-07)
+### Reward design: "answer appears in tags" is not "answers and stops"
 
-qwen36 in thinking mode at a 576-token budget scores **0/18 at baseline** —
-every completion truncates inside `<think>`. 16 hybrid steps lifted held-out
-**plain-greedy eval from 0.00 to 0.44** (mean length 576 → 528). The
-mechanism, visible in `samples.jsonl`:
+GRPO will find any hole in a reward. The canonical hole on thinking-mode
+tasks: a reward that greps for answer tags *anywhere* lets the policy
+**draft the tags inside the think block and ramble to the token ceiling** —
+reward collected, rumination fully intact, zero terminating completions. On
+the reward curve it looks like a triumph; a vanilla-GRPO arm once "won" an
+A/B exactly this way, with more measured reward than the SAGE-RL arm and
+not a single completion that actually stopped.
 
-| phase | sampled members | SAGE members |
-|---|---|---|
-| steps 1–9 | all 0.0, all truncate at 576 | gate never fires; force-cut at think 384, answer phase sometimes recovers (reward 1.0 at steps 3, 4, 6, 7) — the **only** reward source |
-| steps 10–12 | first success at step 12 | gate starts firing naturally, earlier each step: think 333 → 319 → 195 → 163 |
-| steps 13–16 | ~half succeed at 300–540 tokens | gate fires at **think 1** — the policy now top-ranks its trained empty-think pattern; hasty misses appear (a 99-token wrong answer at step 15) |
+Defenses built into this trainer:
 
-The stopping point SAGE surfaces *moves* over training: from "never" through
-progressively earlier natural stops to the model's built-in skip-thinking
-escape hatch. Group contrast (not SAGE correctness — late SAGE members do
-miss) is what carries the signal.
-
-### The control arm's verdict (runs/vanilla2-qwen36): both arms hacked, differently
-
-Vanilla GRPO (same config, `--sage-r 0`) got MORE reward — held-out 0.00 →
-0.875 — and it is the more instructive result. Its eval_mean_len is **576.0
-at every eval**: the model never terminates. The raw samples show why: it
-learned to **draft the answer tags inside the think block** ("…
-`<answer>9592</answer>` … Check for any possible pitfalls: …" until the
-budget cuts it). The reward greps for tags anywhere, so "embed the tags and
-keep rambling" is the minimal-KL edit that collects it — rumination fully
-intact, every query still pays the whole budget, output ends mid-sentence.
-
-So on this reward the honest comparison is:
-
-| arm | held-out reward | terminates? | what it learned |
-|---|---|---|---|
-| vanilla GRPO | 0.875 | never (576.0 at ceiling) | inject tags into the ramble |
-| SAGE-RL (r=2) | 0.44 | partially (mean 528, real EOS endings) | actually stop, then answer |
-
-Neither number is "clean accuracy" — the reward admits the tag-in-ramble
-exploit for both arms. The lesson is reward design, not algorithm choice:
-**"answer appears in tags" is not "answers and stops."** Next iteration
-gates reward on termination (`finish_reason == "stop"`), which closes the
-exploit and makes the two arms comparable on the thing we actually care
-about. (This is the third distinct reward hack this project has caught by
-reading samples.jsonl — curves alone would have called the vanilla arm a
-triumph.)
+- Thinking-mode completions are graded **only on the visible reply after the
+  final think-close marker** (`_visible_reply` in `train.py`); an unclosed
+  think block is reward 0.
+- Runtime tripwires print a loud `[BUG]` line on positive reward with an
+  unclosed think (grader leak) and on SAGE budget breaches.
+- The optional length penalty (`--length-penalty`) is correctness-gated and
+  counts **total** tokens, so relocating reasoning out of `<think>` into
+  visible prose buys nothing.
+- `samples.jsonl` gets the first prompt's whole completion group every step.
+  Every reward hack this project caught was found by reading samples —
+  none by curves. Look at your samples.
 
 **Model applicability:** gemma26 is currently *not* a SAGE-RL patient — under
-in-process mlx-lm it degenerates at temp 1 (0/24 even on 3-operand ≤999,
-char runs, broken arithmetic) and its stop-token confidence never enters the
-top-m in 1000+ tokens. That is a serving-stack root cause to fix (the
-vllm-mlx side needed the PR-610 stack for the same family), not a task knob.
+in-process mlx-lm it degenerates at temp 1 (broken arithmetic, character
+runs) and its stop-token confidence never enters the top-m in 1000+ tokens.
+That is a serving-stack root cause to fix, not a task knob.
 
-## Validation results (2026-07-06/07, this box)
+## Validation results (96 GB M3 Ultra)
 
-Machine state per row matters — the lease displaces the ~65 GB host inference
-server only when needed:
-
-| run | model | machine state | result |
-|---|---|---|---|
-| toy convergence | Qwen2.5-0.5B (1.7 GB peak) | co-resident with a loaded backend | held-out greedy 0.56 → 0.88 by step 10 |
-| control #3 (positive control) | qwen36, nothink, 7-op ≤9999, 384 budget | host server displaced by lease | **0.00 → 1.00 by step 10**; killed at 26 (post-saturation swap: all-40-layer LoRA peaked 85.5 GB) |
-| sage1 (SAGE-RL) | qwen36, thinking, 576 budget, last-12 LoRA | host server displaced by lease | **0.00 → 0.44** plain-greedy, len 576 → 528, updates peak 49.4 GB |
-| vanilla2 (control) | same, `--sage-r 0` | host server displaced by lease | 0.00 → 0.875 reward but **zero termination** (len 576.0 flat) — tag-in-ramble reward hack; see control-arm verdict above |
+| run | model | result |
+|---|---|---|
+| toy convergence | Qwen2.5-0.5B (1.7 GB peak) | held-out greedy 0.56 → 0.88 by step 10 |
+| positive control | qwen36, no thinking, 7-operand arithmetic, 384 budget | **0.00 → 1.00 by step 10** (all-40-layer LoRA peaked 85.5 GB — use `--lora-layers 12`) |
+| 180-step mixture run | qwen36, math+code+arithmetic, cap 2560 | eval_correct 0.56 → 0.66, plateau from ~step 40; see `docs/memory-and-compute-anatomy.md` |
 
 **Batched engine (`engine.py`), 4 prompts × group 8, vs one-at-a-time**
-(rollout-only, host server displaced):
+(rollout-only):
 
 | Model | Batched wall | Sequential | Speedup | Peak (rollout) | Peak (training, all-layer LoRA) |
 |---|---|---|---|---|---|
@@ -226,8 +209,10 @@ a name gets **promoted to an adapter library** (defaults to
 `~/models/adapters/<name>/`):
 
 ```sh
-uv run python -m mlx_rl.promote runs/sage1 --name sage-arith
+uv run python -m mlx_rl.promote runs/myrun --name sage-arith
 ```
+
+(The library location can be overridden with `MLX_RL_ADAPTERS_DIR`.)
 
 This writes the adapter in **mlx-lm's native adapter format** — directly
 consumable by `mlx_lm.server --adapter-path` and `mlx_lm.load(adapter_path=...)`
@@ -253,18 +238,35 @@ Measure the base model on the same server first, so a tier-1/2 delta is
 attributable to the adapter and not the serving stack. Record results by
 ticking the manifest checklist with numbers and run-dir pointers.
 
-## Adding a task
+## Tasks
+
+Five tasks ship, all with programmatic rewards (`--task <name>`):
+
+- **`arithmetic`** — toy multi-operand integer arithmetic with difficulty
+  knobs (`n_operands`, `max_operand`). The reward reads the LAST answer-tag
+  match so thinking-mode drafts don't confuse it.
+- **`math`** — competition math from
+  [agentica-org/DeepScaleR-Preview-Dataset](https://huggingface.co/datasets/agentica-org/DeepScaleR-Preview-Dataset)
+  (MIT; fetched from the HF Hub on first use, filtered to ~25k numerically
+  verifiable answers, fixed held-out split). Reward: last `\boxed{}` value
+  matches the reference exactly.
+- **`code`** — sanitized MBPP (427 problems, shipped in `data/` — see
+  [data/README.md](data/README.md) for provenance/license). Reward: the
+  model's function passes the hidden asserts. ⚠️ **This executes
+  model-generated code in a plain subprocess — NOT a sandbox.** It runs with
+  your user's filesystem and network access; use a container/VM if that
+  matters to you.
+- **`toolformat`** — canonical tool-call format + tool/arg correctness;
+  doubles as a format regression detector for adapters.
+- **`mixture`** — samples a weighted mix of the above per example (e.g.
+  `{"weights": {"math": 0.35, "code": 0.35, "arithmetic": 0.3}}`), so the
+  policy isn't shaped by a single distribution.
+
+### Adding a task
 
 Implement `sample(rng) -> Example` and `reward(example, completion) ->
 RewardResult` in `src/mlx_rl/tasks/`, decorate with `@register`, import it in
 `tasks/__init__.py`. Rewards must be verifiable (computed, not judged).
-
-Tasks shipped: `arithmetic` (toy, difficulty knobs; reward reads the LAST
-answer-tag match so thinking-mode drafts don't confuse it) and `toolformat`
-(canonical tool-call format + tool/arg correctness — doubles as a format
-regression detector; qwen36 measured 100% canonical at baseline 2026-07-06).
-Candidate next: **tool-call groundedness** (penalize confabulated calls) —
-gated on first demonstrating the failure exists in a trainable model.
 
 ## Scaling notes (96 GB unified memory)
 
@@ -273,8 +275,41 @@ gated on first demonstrating the failure exists in a trainable model.
 - qwen36 / gemma26 class (~16–22 GB 4-bit): a configured lease displaces and
   restores a co-resident server automatically. Use `--lora-layers 12` (see
   correctness detail 5) and `--micro-batch 1` for ≥384-token budgets.
+- For sequence budgets past ~1536, `--grad-checkpoint` (recompute instead of
+  retaining activations) and the serial GatedDeltaNet backward (`gdn_serial`,
+  on by default for qwen36-class models) are what make it fit: the full
+  memory anatomy, measured, is in
+  [docs/memory-and-compute-anatomy.md](docs/memory-and-compute-anatomy.md) —
+  with them, an 8192-token backward costs less than a 2560-token one did
+  stock.
 - gpt-oss-120b (~59 GB): out of reach for training on 96 GB; don't try.
+
+`mlx-rl-train --help` documents the full CLI, including the
+efficiency levers (`--group-stage1`/`--stage1-skip`, `--update-adv-frac`,
+`--token-subset-frac`) and the length-shaping reward knobs
+(`--length-penalty`, `--length-budget`).
+
+## Docs & scripts
+
+Technical notes in [docs/](docs/):
+
+- [memory-and-compute-anatomy.md](docs/memory-and-compute-anatomy.md) — where
+  backward memory actually goes on a hybrid-attention MoE; the GDN-scan root
+  cause and the serial-scan fix (34.3 → 2.37 GiB per layer @4096).
+- [sage-paper-notes.md](docs/sage-paper-notes.md) — close reading of the SAGE
+  paper and the exact algorithm this repo implements.
+
+Standalone instruments in [scripts/](scripts/): `probe_backward.py`
+(memory-vs-length probe), `anatomy_gdn.py` / `anatomy_sched.py` (per-layer
+GDN measurements behind the serial-scan fix), `bench_rollout.py` (batched vs
+sequential rollout), `oracle_sage.py` / `think_length.py` /
+`math_calibrate.py` (decode-quality and dataset-difficulty probes),
+`dashboard.py` (stdlib live run dashboard over `runs/`), `sage_server.py`
+(OpenAI-compatible server that decodes with SAGE). Each has a docstring with
+usage.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). The MBPP dataset in `data/` is CC BY 4.0 from
+Google Research and is **not** covered by the MIT license — see
+[data/README.md](data/README.md).

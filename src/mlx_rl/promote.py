@@ -1,6 +1,6 @@
 """Promote a run's adapter checkpoint to an adapter library.
 
-    uv run python -m mlx_rl.promote runs/sage1 --name sage-arith
+    uv run python -m mlx_rl.promote runs/myrun --name sage-arith
     uv run python -m mlx_rl.promote runs/foo --step 8      # non-final checkpoint
 
 Writes <library>/<name>/ in **mlx-lm's native adapter format**

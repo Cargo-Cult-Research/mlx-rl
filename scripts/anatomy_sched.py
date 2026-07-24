@@ -1,7 +1,7 @@
 """Scheduler-mechanism repro: can a segmented reverse-scan backward be
 memory-bounded in MLX, and what does it take?
 
-Context (anatomy_gdn.py, 2026-07-14): the training-mode GDN scan backward
+Context (anatomy_gdn.py): the training-mode GDN scan backward
 holds ~4 fp32 state temporaries x every timestep live (~17 GiB @2048 for ONE
 layer). Segmenting with mx.checkpoint leaves a ~10 GiB floor; a custom-VJP
 with mx.depends chaining left ~17 GiB. Question: is the floor the lazy
@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 
@@ -28,7 +29,9 @@ import mlx.core as mx
 from mlx_lm.models import gated_delta
 from mlx_lm.models.gated_delta import gated_delta_ops
 
-CONFIG = Path.home() / "models/mlx/Qwen3.6-35B-A3B-4bit/config.json"
+CONFIG = (Path(os.environ.get("MLX_RL_MODELS_DIR",
+                              str(Path.home() / "models/mlx")))
+          / "Qwen3.6-35B-A3B-4bit" / "config.json")
 
 
 def seg_fn(st, qc, kc, vc, gc, bc):

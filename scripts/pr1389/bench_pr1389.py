@@ -1,21 +1,23 @@
-"""Benchmark upstream PR #1389 (chunk-parallel UT/WY gated delta) against
-mlx-rl's gdn_serial on the anatomy harness: one training-mode GDN
-DecoderLayer, real qwen36 dims, peak GiB + wall time + grad numerics.
+"""Benchmark upstream ml-explore/mlx-lm PR #1389 (chunk-parallel UT/WY gated
+delta) against mlx-rl's gdn_serial on the anatomy harness: one training-mode
+GDN DecoderLayer, real qwen36 dims, peak GiB + wall time + grad numerics.
 
 Decision input for: adopt #1389 locally vs keep gdn_serial until it merges.
 """
 
 import importlib.util
 import json
+import os
 import sys
 import time
 from pathlib import Path
 
+_REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_REPO / "src"))
+sys.path.insert(0, str(_REPO / "scripts"))
+
 import mlx.core as mx
 import mlx.nn as nn
-
-sys.path.insert(0, str(Path.home() / "code/mlx-rl/src"))
-sys.path.insert(0, str(Path.home() / "code/mlx-rl/scripts"))
 
 import mlx_lm.models.qwen3_5 as q35
 from mlx_lm.models.qwen3_5 import DecoderLayer, TextModelArgs
@@ -28,7 +30,9 @@ spec = importlib.util.spec_from_file_location(
 gd1389 = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gd1389)
 
-CONFIG = Path.home() / "models/mlx/Qwen3.6-35B-A3B-4bit/config.json"
+CONFIG = (Path(os.environ.get("MLX_RL_MODELS_DIR",
+                              str(Path.home() / "models/mlx")))
+          / "Qwen3.6-35B-A3B-4bit" / "config.json")
 
 
 def measure(fn, x):

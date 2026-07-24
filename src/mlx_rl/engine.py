@@ -112,7 +112,8 @@ def _sage_batched(model, prompt_ids, think_end, *, eos, m, tr, max_new_tokens,
                   answer_temperature, answer_reserve=256,
                   prefill_step_size=2048) -> Completion:
     """Batched SAGE beam: all 2m^2 expansions share one B-row forward per token
-    (decode is weight-bandwidth-bound, so B rows ~= B=1 wall-time -> ~5x). Steps
+    (~3.9x at B=8 on qwen36; the sparse-MoE expert union limits the win below
+    a dense model's — see docs/memory-and-compute-anatomy.md). Steps
     are fixed `step_tokens` chunks (rectangular batch; </think> detected mid-chunk).
     merge()=fork to batched, filter(idxs)=replicate/prune. Same top-h Φ acceptance
     as the unbatched reference (docs/sage-paper-notes.md).
@@ -120,7 +121,7 @@ def _sage_batched(model, prompt_ids, think_end, *, eos, m, tr, max_new_tokens,
     Reasoning is HARD-BOUNDED by `max_new_tokens - answer_reserve`: an
     iteration only starts if its worst-case chunk still fits, so the answer
     phase always has >= answer_reserve tokens of budget and the completion
-    can never exceed max_new_tokens (sage2-codemix bug: unbounded reasoning
+    can never exceed max_new_tokens (observed bug: unbounded reasoning
     produced think_len 2069 > cap 2048 with zero answer tokens)."""
     h = max(1, round(tr * 2 * m))
     think_budget = max(1, max_new_tokens - answer_reserve)
@@ -267,7 +268,7 @@ def sage_completion(
     """SAGE decoding — faithful to arXiv 2602.08354 (see docs/sage-paper-notes.md).
 
     `batched=True` (default) runs `_sage_batched` — all 2m^2 expansions in one
-    B-row forward per token (~5x on qwen36). `batched=False` is the unbatched
+    B-row forward per token (~4x on qwen36). `batched=False` is the unbatched
     step-wise reference below (B=1 per expansion); both use the same top-h Φ gate.
 
     Step-wise beam over reasoning steps ('\\n\\n'-delimited). Each iteration:
@@ -281,8 +282,10 @@ def sage_completion(
     `max_new_tokens - answer_reserve` (so the answer phase always has room
     and the completion can never exceed `max_new_tokens`).
 
-    This replaces the old token-wise/eager-stop/384-cap decoder that produced the
-    sage1 reasoning-relocation collapse. Answer phase: sample to EOS.
+    Do not "simplify" this to a token-wise beam with an eager tolerance stop
+    and a small hard think cap: those shortcuts cause premature stops that RL
+    then reinforces into a reasoning-relocation collapse — see the pitfalls
+    table in docs/sage-paper-notes.md. Answer phase: sample to EOS.
     """
     if batched:
         return _sage_batched(

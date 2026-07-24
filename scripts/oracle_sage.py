@@ -1,11 +1,11 @@
 """The SAGE oracle: is there a there there, before any RL?
 
-Honesty check requested 2026-07-12. The training runs so far decoded under a
-BINDING budget (1024: the confidence gate never fired on arithmetic/code —
-we force-closed the model's thinking early, then trained on the result,
-which can make the model WORSE, not better). This script measures the base
-model (no adapter) on the SAME held-out problem stream the A/B eval uses
-(seed+100000), at a non-binding 4096 budget, under four decode conditions:
+Honesty check: early training runs decoded under a BINDING budget (1024:
+the confidence gate never fired on arithmetic/code — we force-closed the
+model's thinking early, then trained on the result, which can make the
+model WORSE, not better). This script measures the base model (no adapter)
+on the SAME held-out problem stream the trainer's eval uses (seed+100000),
+at a non-binding 4096 budget, under four decode conditions:
 
   greedy1024   temp 0, cap 1024 — quantifies what the old cap cost us
   greedy4096   temp 0, cap 4096 — the deployment default, unconstrained

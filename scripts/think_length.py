@@ -1,15 +1,16 @@
 """How long does the model WANT to think, and does SAGE compress it?
 
-Requested 2026-07-15. v8 refuted the truncation hypothesis (cap 4096: the
-model grew to fill the room, plateau unchanged), which re-centers the question
-on the think-length distribution itself. The 07-12 oracle run can't answer it:
-its budget bound (4096, and SAGE's step budget censored thinking at exactly
-3073 = 64x48+1), its mixture predates the math task, and rollout_groups never
-populated think_len for non-SAGE completions (all zeros in samples.jsonl).
+Motivation: a cap-doubling run refuted the truncation hypothesis (at cap
+4096 the model grew to fill the room and the learning plateau did not move),
+which re-centers the question on the think-length distribution itself. The
+earlier oracle probe can't answer it: its budget bound (4096, and SAGE's
+step budget censored thinking at exactly 3073 = 64x48+1), its mixture
+predates the math task, and rollout_groups never populated think_len for
+non-SAGE completions.
 
-This script measures the base model on the v8 eval stream (same task_kwargs,
-same seed+100000 stream => the same held-out problems v8's eval_correct 0.656
-was scored on), at a non-binding budget (default 8192), under:
+This script measures the base model on the trainer's held-out eval stream
+(task_kwargs below, seed+100000 => the same held-out problems evaluate()
+scores), at a non-binding budget (default 8192), under:
 
   greedy<B>    temp 0, k=1  — the deployment decode
   sampled<B>   temp 1, k=4  — what vanilla GRPO rollouts see
@@ -27,8 +28,8 @@ we are delusional; 6k->3k maybe close; 3k->2k already there.
 Output: runs/<out>/config.json + samples.jsonl (dashboard-browsable) +
 summary.json + a distribution table on stdout.
 
-Usage (memory lease taken by the wrapper; coexists with the host server):
-    .venv/bin/python scripts/think_length.py --no-manage-machine \
+Usage:
+    .venv/bin/python scripts/think_length.py \
         --out runs/think-length-YYYYMMDD
 """
 
@@ -55,7 +56,7 @@ from mlx_rl.train import (
 )
 from mlx_rl.rollout import encode_prompt
 
-# v8's mixture, verbatim (runs/v8-cap4096/config.json)
+# the reference mixture the validation runs trained on
 TASK_KWARGS = {"weights": {"math": 0.35, "code": 0.35, "arithmetic": 0.3}}
 
 

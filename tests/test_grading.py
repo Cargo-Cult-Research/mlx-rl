@@ -1,6 +1,6 @@
 """Think-aware grading + SAGE budget regressions.
 
-Both bug classes were observed in runs/sage2-codemix (2026-07-11):
+Both bug classes were observed in a real training run:
 1. Step-3 arithmetic: rollouts that hit the token cap INSIDE an unclosed
    <think> block were graded as passes off draft <answer> tags written in
    the CoT (reward 1.0 with no visible reply at all).
@@ -30,7 +30,7 @@ def _grade(text, think_close=THINK):
     return res.total, closed
 
 
-# --------- the sage2-codemix step-3 failure shapes, distilled ---------
+# --------- observed real-run failure shapes, distilled ---------
 
 def test_draft_tags_inside_unclosed_think_grade_zero():
     # Hit the cap mid-CoT, never closed think, but drafted the right tags:

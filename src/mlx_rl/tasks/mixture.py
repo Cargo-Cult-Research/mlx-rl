@@ -1,7 +1,8 @@
 """MixtureTask — samples one sub-task per example by weight and routes the
 reward back to it. Diverse real tasks in one RL run (code + arithmetic +
-toolformat) so the policy isn't shaped by a single distribution (the arithmetic
-mono-task is what let sage1 overfit to a length hack).
+toolformat) so the policy isn't shaped by a single distribution
+(single-distribution training invites degenerate shortcuts, e.g. pure
+length hacks).
 
 task_kwargs, e.g.:
   {"weights": {"code": 0.5, "arithmetic": 0.25, "toolformat": 0.25},

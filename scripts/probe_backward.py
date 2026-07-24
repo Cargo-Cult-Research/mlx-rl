@@ -1,14 +1,13 @@
 """Backward-memory probe: where is the swap cliff, really?
 
 One fwd and one fwd+bwd of the exact training path (profile model, rank-16
-LoRA on the last 12 layers, micro_batch 1 — the A/B setting) at several total
-sequence lengths, with mx.clear_cache() between measurements (matching the
-trainer since the sage3 swap-creep fix). Prints per-length wall time, MLX
-peak GiB, and system swap growth.
+LoRA on the last 12 layers, micro_batch 1) at several total sequence
+lengths, with mx.clear_cache() between measurements (matching the trainer's
+cache discipline). Prints per-length wall time, MLX peak GiB, and system
+swap growth.
 
-The 2026-07-11 probe that produced the "cliff at ~1792" table ran with
-asitop's ~18 GB leak resident and no cache clearing — its numbers are
-pessimistic. This re-run sizes the v4 cap.
+Run it on a quiet machine: other memory-hungry resident processes make the
+numbers pessimistic.
 
 Usage:
     .venv/bin/python scripts/probe_backward.py            # 1536,1792,2048,2304

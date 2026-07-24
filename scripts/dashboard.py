@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Live run dashboard for mlx-rl — stdlib only, tailnet-friendly.
+"""Live run dashboard for mlx-rl — stdlib only.
 
 Serves an interactive page (scripts/dashboard_page.html) plus a small JSON
 API over the run dirs in runs/: metric curves, per-rollout trace browser,
-and a server-side anomaly scan tuned to the failure classes we have
-actually been bitten by (sage2-codemix 2026-07-11):
+and a server-side anomaly scan tuned to the failure classes real runs have
+actually been bitten by:
 
   * think_len > max_new_tokens        -> SAGE budget breach        (error)
   * reward > 0 with unclosed think    -> grader leak / reward hack (error)
-  * swap growth / update_s blowup     -> the 07-11 swap cliff      (warn)
+  * swap growth / update_s blowup     -> the swap cliff            (warn)
 
 The high-frequency warn classes (whole group at the cap, active_groups == 0,
 >50% len-capped, zero-variance groups) are ROLLED UP into rates with a
@@ -16,8 +16,9 @@ per-task split (anomaly_rollup) + a per-step event timeline, instead of one
 row per occurrence — a 120-step run used to bury the panel in ~100 warns.
 
 Run:      .venv/bin/python scripts/dashboard.py [--port 8377] [--runs runs]
-Expose:   tailscale serve --bg --https=8444 http://127.0.0.1:8377
-          (tailnet-only; NEVER funnel — traces contain raw model text)
+Expose:   binds loopback only. If you need remote access, front it with an
+          authenticated proxy or VPN — NEVER expose it publicly; traces
+          contain raw model text.
 """
 from __future__ import annotations
 
@@ -224,8 +225,8 @@ def scan_anomalies(
     a: list[dict] = []
     cap = cfg.get("max_new_tokens") or 0
 
-    # Death detection (the sage3 lesson: a swap-guard kill at step 8 was
-    # invisible — the run just stopped while its sibling progressed).
+    # Death detection (a swap-guard kill is otherwise invisible — the run
+    # just stops progressing with nothing in-band to say why).
     aborted = run_dir / "ABORTED" if run_dir else None
     if aborted and aborted.exists():
         reason = aborted.read_text().strip().splitlines()
@@ -360,7 +361,7 @@ class Handler(BaseHTTPRequestHandler):
         })
 
     def _log_tail(self, q: dict) -> None:
-        name = (q.get("name") or ["ab_sage_v2.log"])[0]
+        name = (q.get("name") or ["train.log"])[0]
         n = int((q.get("n") or ["120"])[0])
         p = (self.runs_dir / name).resolve()
         if (p.parent != self.runs_dir.resolve() or p.suffix != ".log"
@@ -374,7 +375,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--port", type=int, default=8377)
     ap.add_argument("--host", default="127.0.0.1",
-                    help="bind address (keep loopback; tailscale serve proxies)")
+                    help="bind address (keep loopback; front with an "
+                         "authenticated proxy for remote access)")
     ap.add_argument("--runs", default=str(RUNS))
     args = ap.parse_args()
     Handler.runs_dir = Path(args.runs).resolve()

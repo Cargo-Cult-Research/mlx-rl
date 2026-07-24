@@ -63,8 +63,8 @@ def acquire(required_gb: float, wait_s: float = 0, note: str = "") -> str | None
     ensure-gb is inflated to required/SAFETY_FRACTION: assert_fits() later
     demands required <= available * SAFETY_FRACTION, so the lease must make
     that much room or the guard refuses a run the lease thought it had
-    cleared (an early A/B arm died exactly this way: lease saw
-    65.7 >= 65.6 needed and left the room short; the guard then required 65.6/0.9).
+    cleared (a run died exactly this way: the lease saw 65.7 >= 65.6 needed
+    and left the room short; the guard then required 65.6/0.9).
     """
     if not _enabled():
         print(

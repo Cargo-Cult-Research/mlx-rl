@@ -47,8 +47,8 @@ def available_gb() -> float:
 
 def write_abort_marker(out_dir_or_path: Path | None, reason: str) -> None:
     """Drop runs/<name>/ABORTED so death is visible in-band (the dashboard
-    raises an error on it). The sage3 swap-guard kill was only discoverable
-    by noticing the run had silently stopped progressing — not loud enough."""
+    raises an error on it). One swap-guard kill was only discoverable by
+    noticing the run had silently stopped progressing — not loud enough."""
     if out_dir_or_path is None:
         return
     p = Path(out_dir_or_path)
@@ -83,12 +83,12 @@ class SwapGuard:
 
     On a 96 GB box a long-sequence MoE backward can push activation memory past
     physical RAM; macOS then pages to SSD and a ~6 s step silently becomes
-    40 min–2 h (measured 2026-07-11). That slowness is worse than a crash — you
+    40 min–2 h (measured). That slowness is worse than a crash — you
     can't tell it from a hang. This samples system swap on a daemon thread and,
     if swap grows more than `margin_gb` above the baseline captured at start(),
     prints a banner and hard-exits (`os._exit`, so the thrashing mx.eval can't
-    swallow the signal). The memory lease is PID-tied and stale-reaped, so a
-    hard exit still gets the host server restored by the next acquirer.
+    swallow the signal). A PID-aware external lease command (see machine.py)
+    can still detect the dead holder and restore whatever it displaced.
     """
 
     def __init__(

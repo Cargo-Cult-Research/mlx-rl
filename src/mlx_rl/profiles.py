@@ -1,10 +1,16 @@
 """Model profiles: the per-model facts the trainer needs.
 
 Two first-class citizens (both MoE, both trainable within the ~30 GB weight
-ceiling this box measured, both potential daily drivers): qwen36 and gemma26.
-Building for both from the start keeps the engine honest — qwen36 exercises
-the hybrid GatedDeltaNet/ArraysCache path, gemma26 the sliding-window
-RotatingKVCache path.
+ceiling a 96 GB machine affords): qwen36 and gemma26. Building for both
+keeps the engine honest — qwen36 exercises the hybrid
+GatedDeltaNet/ArraysCache path, gemma26 the sliding-window RotatingKVCache
+path.
+
+NOTE: the qwen36/gemma26 profiles point at LOCAL model directories under
+MLX_RL_MODELS_DIR (default ~/models/mlx) — they expect you to have converted
+or downloaded MLX 4-bit weights there yourself (e.g. with mlx_lm.convert).
+Only the `tiny` profile references a Hugging Face repo id that downloads
+automatically.
 """
 
 from __future__ import annotations
@@ -64,7 +70,7 @@ PROFILES: dict[str, ModelProfile] = {
     ),
     # Gemma 4 26B-A4B (gemma4): sliding-window RotatingKVCache + periodic
     # full attention; standard proj names. extra_eos carries the config EOS
-    # list {1, 106, 50} — the PR-610 lesson: lose it and <turn|> runs away.
+    # list {1, 106, 50} — lose it and generation never stops (<turn|> runaway).
     # ALWAYS thinks: the mlx conversion's chat template ignores
     # enable_thinking (and thinking-off gemma26 is the known-pathological
     # serving mode anyway), and it ruminates — budget max_new_tokens >= 768

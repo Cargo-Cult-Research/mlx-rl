@@ -16,13 +16,13 @@ Request extensions:
   "sage":    {"m": 2, "tr": 0.5, "max_steps": 64, "max_step_tokens": 256,
               "answer_reserve": 256}          — per-request overrides
   "adapter": "<run-name>"                     — mlx-rl LoRA from --adapters-dir
-              (e.g. "sage4-codemix"); null/absent = base model
+              (e.g. "my-sage-run"); null/absent = base model
 
 Single-flight: one generation at a time (beam owns the GPU); requests queue
 on the lock. All mx work runs on ONE worker thread (MLX streams are
 per-thread state — the 0.31.x lesson).
 
-Run:  .venv/bin/python scripts/sage_server.py [--port 8084]
+Run:  .venv/bin/python scripts/sage_server.py [--port 8080]
 """
 from __future__ import annotations
 
@@ -234,7 +234,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--profile", default="qwen36")
     ap.add_argument("--served-name", default="qwen36-sagedecode")
-    ap.add_argument("--port", type=int, default=8084)
+    ap.add_argument("--port", type=int, default=8080)
     ap.add_argument("--adapters-dir",
                     default=str(Path(__file__).resolve().parent.parent / "runs"),
                     help="mlx-rl runs/ dir: request ext \"adapter\": "

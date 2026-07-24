@@ -105,11 +105,10 @@ def _think_close_marker(tokenizer, cfg: TrainConfig, task) -> str | None:
 def _visible_reply(text: str, think_close: str | None) -> tuple[str, bool]:
     """What a user of the model would actually see, and whether the think
     block closed. Thinking-mode completions are graded ONLY on the text after
-    the FINAL think-close marker: the sage2-codemix step-3 lesson was that
-    rollouts which hit the token cap inside an unclosed <think> still graded
-    as passes off draft `<answer>` tags inside the CoT — a reward-hack vector
-    (ramble forever, drop tags in the ramble). Unclosed think = no visible
-    reply = reward 0."""
+    the FINAL think-close marker: rollouts that hit the token cap inside an
+    unclosed <think> can otherwise grade as passes off draft `<answer>` tags
+    inside the CoT — a reward-hack vector (ramble forever, drop tags in the
+    ramble). Unclosed think = no visible reply = reward 0."""
     if not think_close:
         return text, True
     if think_close in text:
@@ -185,7 +184,7 @@ def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
         )
     if sage_r and examples:
         # the sampled rollouts' KV buffers are dead now; don't run the SAGE
-        # beams on top of them (the sage4 step-1 swap stack)
+        # beams on top of them (the two phases stack in memory otherwise)
         mx.clear_cache()
         eos = set(getattr(tokenizer, "eos_token_ids", None) or [tokenizer.eos_token_id])
         eos |= set(cfg.extra_eos)
@@ -216,8 +215,8 @@ def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
             text = _completion_text(tokenizer, comp)
             visible, closed = _visible_reply(text, think_close)
             res = graded.get(id(comp)) or task.reward(ex, visible)
-            # Correctness-gated total-length efficiency (kills the sage1
-            # reasoning-relocation hack) + a relocation monitor for BOTH runs.
+            # Correctness-gated total-length efficiency (kills the
+            # reasoning-relocation hack) + a relocation monitor for BOTH arms.
             ntok = len(comp.tokens)
             budget = cfg.length_budget or cfg.max_new_tokens
             len_norm = min(1.0, ntok / max(1, budget))
@@ -236,7 +235,7 @@ def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
                 if r is not None:
                     parts["rfcs"] = round(r, 4)
             gated = res.total * (1.0 - cfg.length_penalty * len_norm)
-            # Tripwires for the two sage2-codemix bug classes — cheap, loud.
+            # Tripwires for two previously-observed bug classes — cheap, loud.
             if comp.think_len is not None and comp.think_len > cfg.max_new_tokens:
                 print(f"[BUG] think_len {comp.think_len} > max_new_tokens "
                       f"{cfg.max_new_tokens} — SAGE budget breached", flush=True)
@@ -408,8 +407,8 @@ def train(cfg: TrainConfig, out_dir: str | Path) -> Path:
 
 def _rotate(path: Path) -> None:
     """One run per file: move a previous run's file aside instead of
-    appending. Mixed-run jsonl is what turned the sage2-codemix analysis
-    into archaeology (the 'bimodal think_len' spanned two different runs)."""
+    appending. Mixed-run jsonl turns analysis into archaeology (an apparent
+    'bimodal' metric can turn out to span two different runs)."""
     if path.exists() and path.stat().st_size:
         stamp = time.strftime(
             "%Y%m%d-%H%M%S", time.localtime(path.stat().st_mtime))
@@ -443,7 +442,7 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
     print(f"loaded {cfg.model}: {info}")
     pad_id = next(iter(sorted(tokenizer.eos_token_ids)))
 
-    # Fail loud, not slow: hard-abort if a backward spills to swap (2026-07-11).
+    # Fail loud, not slow: hard-abort if a backward spills to swap.
     swap_guard = SwapGuard(
         margin_gb=cfg.swap_guard_margin_gb, abort_marker=out / "ABORTED"
     ).start()
@@ -476,9 +475,8 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
         t_gen = time.time() - t0
         # Phase boundary: generation KV buffers are dead weight during the
         # backward. Without this the pre-update high-water is the SUM of the
-        # phases — eval KV + rollout KV + SAGE beams + backward peak is what
-        # swap-killed sage4 at step 1 (+7.6 GB in one jump) while vanilla4
-        # (no SAGE phase) fit at the same cap.
+        # phases — eval KV + rollout KV + SAGE beams + backward peak, easily
+        # +7-8 GB, enough to push a borderline run into swap.
         mx.clear_cache()
 
         if not rollouts:  # every group abandoned at stage 1
@@ -533,7 +531,7 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
         # Return the backward peak's buffers to the OS. MLX's buffer cache
         # keeps freed allocations resident indefinitely, so after each 65-70
         # GiB update the process stays that large; over ~an hour macOS starts
-        # paging — the slow swap creep that killed sage3-codemix at step 8.
+        # paging (slow swap creep).
         mx.clear_cache()
 
         rec = {
@@ -675,6 +673,11 @@ def main() -> None:
     p.add_argument("--update-adv-frac", type=float, default=d.update_adv_frac,
                    help="skip the backward for rollouts with |adv| < frac * "
                         "group max (denominator stays full-batch); 0 = off")
+    p.add_argument("--token-subset-frac", type=float, default=d.token_subset_frac,
+                   help="S-GRPO token-subset backprop: compute the surrogate on "
+                        "this fraction of each rollout's completion tokens "
+                        "(unbiased, denom-scaled); 0 = off, 1.0 = selective "
+                        "path over all tokens")
     p.add_argument("--micro-batch", type=int, default=d.micro_batch)
     p.add_argument("--epochs-per-batch", type=int, default=d.epochs_per_batch)
     p.add_argument("--max-new-tokens", type=int, default=d.max_new_tokens)
@@ -768,6 +771,7 @@ def main() -> None:
         group_stage1=a.group_stage1,
         stage1_skip=a.stage1_skip,
         update_adv_frac=a.update_adv_frac,
+        token_subset_frac=a.token_subset_frac,
         micro_batch=a.micro_batch,
         epochs_per_batch=a.epochs_per_batch,
         max_new_tokens=a.max_new_tokens,

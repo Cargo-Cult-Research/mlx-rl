@@ -1,13 +1,13 @@
 """Memory-bounded GatedDeltaNet scan for training — the sequence-memory fix.
 
-Root cause (docs/memory-and-compute-anatomy.md, 2026-07-14): in training mode
+Root cause (docs/memory-and-compute-anatomy.md): in training mode
 `GatedDeltaNet.__call__` dispatches `use_kernel=not self.training`, so every
 GDN layer abandons the fused Metal kernel (no VJP) and runs `gated_delta_ops`
 — a Python loop over all T timesteps whose per-step fp32 recurrent state is
 [B, Hv, Dv, Dk] = 2.10 MB/token on qwen36. The backward retains every step's
 state (~4 temporaries deep): 34.3 GiB @4096 for ONE of the 30 GDN layers, vs
 3.1 GiB for a full-attention layer. That scan — not attention, not the vocab
-slab — was the wall probe_backward measured.
+slab — is the sequence-memory wall probe_backward measures.
 
 The fix: the scan becomes an mx.custom_function. Forward is opaque to
 autodiff, so it can run the fused kernel (training forward = serving

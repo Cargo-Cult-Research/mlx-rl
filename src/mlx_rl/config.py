@@ -86,28 +86,28 @@ class TrainConfig:
     sage_think_temperature: float = 1.0  # step-sampling temp (paper: 1.0)
     # Answer-phase token reserve: SAGE reasoning is capped at
     # max_new_tokens - sage_answer_reserve so the answer phase always has
-    # room. Without it the reasoning loop could fill (or overshoot — the
-    # sage2-codemix think_len 2069 > cap 2048 bug) the whole budget and emit
+    # room. Without it the reasoning loop could fill (or overshoot — an
+    # observed think_len 2069 > cap 2048 bug) the whole budget and emit
     # ZERO visible answer tokens, which grades 0 under think-aware reward.
     sage_answer_reserve: int = 256
     think_end: int | None = None  # end-of-thinking token id (profile)
-    # Correctness-gated total-length efficiency (anti reasoning-relocation hack,
-    # 2026-07-11): final = base * (1 - length_penalty * min(1, tokens/budget)).
+    # Correctness-gated total-length efficiency (anti reasoning-relocation
+    # hack): final = base * (1 - length_penalty * min(1, tokens/budget)).
     # Length only helps when the answer is CORRECT (wrong stays 0, so it can't be
     # gamed by truncation-guessing) and it counts TOTAL tokens (so moving reasoning
-    # out of <think> into prose buys nothing — the hack that broke sage1).
+    # out of <think> into prose buys nothing — a hack RL reliably finds).
     length_penalty: float = 0.0  # 0 = off
     length_budget: int = 0       # 0 = use max_new_tokens
     # Gradient checkpointing (mlx_lm.tuner.trainer.grad_checkpoint): recompute
     # layer forwards during backward instead of retaining activations.
     # Numerically identical; trades ~one extra forward through the adapted
-    # layers for the activation mass that put the plain backward at 83 GiB
-    # for a single 1536-token sequence (probe 2026-07-12) — the enabler for
-    # caps past 1024 on 96 GiB.
+    # layers for the activation mass that puts the plain backward at 83 GiB
+    # for a single 1536-token sequence (scripts/probe_backward.py) — the
+    # enabler for caps past 1024 on 96 GiB.
     grad_checkpoint: bool = False
     # Serial GDN scan (gdn_serial.py): custom-VJP GatedDeltaNet backward,
     # memory bounded at ~one chunk of scan states instead of 2.1 MB x S per
-    # GDN layer — the 2026-07-14 root-cause fix for the sequence-memory wall
+    # GDN layer — the root-cause fix for the sequence-memory wall
     # (34.3 -> 2.37 GiB per layer @4096 in isolation). Also makes training
     # forwards (old_lp/ref_lp scoring, prefill) use the fused kernel.
     gdn_serial: bool = True

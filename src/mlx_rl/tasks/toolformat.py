@@ -5,12 +5,11 @@ The model's own chat template specifies exactly one canonical call format
 optional reasoning BEFORE the call, "NO suffix" after). This task rewards
 exactly that form via a STRICT parser, plus correct tool choice and args.
 
-History: built 2026-07-06 to train away qwen36's May format drift (three
-parser-patch bandaids) — and the baseline measurement showed the current
-stack is already 100% canonical, so there was nothing to train. Kept as a
-verifiable-reward E2E test task (tools-in-template, multi-turn scenarios)
-and as a drift *detector*: a sub-1.0 canonical baseline on a future stack
-is a regression signal, to be root-caused at the serving layer, not here.
+Besides being a trainable task, this doubles as a format-drift *detector*
+(e.g. for regression-testing promoted adapters): a sub-1.0 canonical
+baseline on a given model/serving stack is a regression signal, to be
+root-caused at the serving layer, not trained away here. (qwen36 measures
+100% canonical at baseline.)
 
 Reward: 1.0 canonical + right tool + required args match;
         0.7 canonical + right tool, wrong/missing args;

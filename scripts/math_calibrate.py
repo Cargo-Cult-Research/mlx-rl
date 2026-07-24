@@ -1,9 +1,9 @@
 """Per-problem difficulty calibration of the DeepScaleR math corpus.
 
-Requested 2026-07-15, after the think-length probe showed the math task is
-bimodal (half the eval problems never close thinking at 16k) and the paper
-comparison showed why: SAGE-RL trains at 8,192 tokens on models whose MATH-500
-baseline is ~4.9k think — while we trained at cap 4096 on uniform DeepScaleR
+Motivation: a think-length probe showed the math task is bimodal (half the
+eval problems never close thinking at 16k) and the paper comparison showed
+why: SAGE-RL trains at 8,192 tokens on models whose MATH-500 baseline is
+~4.9k think — while training at cap 4096 on uniform DeepScaleR
 (AIME/Olympiad-heavy, measured median >=16k). The corpus carries no usable
 difficulty label (the `solution` field is empty for the median row), so
 difficulty must be measured against OUR model.
@@ -19,8 +19,8 @@ variant filters the train pool to the band where GRPO gets variance (thinks
 Output: runs/<out>/config.json + calib.jsonl (one row per problem) +
 summary.json + a band x pass table on stdout.
 
-Usage (memory lease taken by the wrapper; coexists with the host server):
-    .venv/bin/python scripts/math_calibrate.py --no-manage-machine \
+Usage:
+    .venv/bin/python scripts/math_calibrate.py \
         --out runs/math-calib-YYYYMMDD
 """
 

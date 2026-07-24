@@ -1,7 +1,7 @@
 """GDN-scan backward memory isolation — testing THE hypothesis for where
 the training memory goes.
 
-Finding that motivates this (2026-07-14): `GatedDeltaNet.__call__` dispatches
+Finding that motivates this: `GatedDeltaNet.__call__` dispatches
 `use_kernel=not self.training` — in TRAINING mode every GDN layer abandons the
 fused Metal kernel (not differentiable) and runs `gated_delta_ops`, a Python
 loop over all T timesteps whose per-step fp32 recurrent state is
@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 
@@ -41,7 +42,9 @@ from mlx_lm.models import gated_delta
 from mlx_lm.models.gated_delta import gated_delta_ops, gated_delta_update
 from mlx_lm.models.qwen3_5 import DecoderLayer, TextModelArgs
 
-CONFIG = Path.home() / "models/mlx/Qwen3.6-35B-A3B-4bit/config.json"
+CONFIG = (Path(os.environ.get("MLX_RL_MODELS_DIR",
+                              str(Path.home() / "models/mlx")))
+          / "Qwen3.6-35B-A3B-4bit" / "config.json")
 
 
 def build_layer(args: TextModelArgs, layer_idx: int, quantize_moe: bool):
