@@ -1,8 +1,7 @@
 # SAGE paper notes — arXiv 2602.08354
 
-**Self-Aware Guided Efficient Reasoning.** Read in full 2026-07-11 to check our
-implementation. Source of the spec we implement against. Verbatim quotes marked
-with "…".
+**Self-Aware Guided Efficient Reasoning.** The spec this repo's implementation
+is checked against. Verbatim quotes marked with "…".
 
 ## Thesis
 
@@ -52,35 +51,34 @@ Models: DS-1.5B, DeepScaleR, DS-7B, Qwen3-8B. Benchmarks: MATH-500, AIME 24/25,
 AMC23, OlympiadBench, Minerva (math only). Headline: MATH-500 +1.6% acc /
 −1967 tok; AIME24 +3.7% / −5057 tok. Token-efficiency +71–111%.
 
-**SAGE-RL operating point (re-checked in the HTML 2026-07-15, for the dataset
-calibration):** RL **training budget 8,192 tokens**; evaluation reported at
+**SAGE-RL operating point (from the paper):** RL **training budget 8,192
+tokens**; evaluation reported at
 **32,768**. G=8 with SAGE(2,2) (2 SAGE + 6 sampled). No curriculum or
 difficulty filtering mentioned. Baseline (pre-RL) response lengths for
 DS-1.5B: **MATH-500 ≈ 4,882 tok → 2,921 after SAGE-GSPO; AIME25 ≈ 11,669 →
 7,167** — i.e. ~1.6× compression, matching our measured 1.5–2× on solvable
 math. Implication for us: the paper never demands thinking fit 4,096 —
-even its easiest benchmark baseline (4.9k) would blow our v8 cap; our
+even its easiest benchmark baseline (4.9k) would blow our 4096 cap; our
 uniform-DeepScaleR sampling is AIME/Olympiad-heavy relative to the MATH-500
 regime the headline numbers come from.
 
-## Where our old `engine.py:sage_completion` diverged (the sage1 bug)
+## Implementation pitfalls — plausible shortcuts that break the algorithm
 
-| aspect | paper | our old impl | consequence |
+| aspect | paper | plausible shortcut | consequence |
 |---|---|---|---|
-| granularity | step-wise (`\n\n`) | **token-wise** | different search |
-| stop rule | `</think>` in **top-h** by Φ ("ranks first") | `best_stop.Φ ≥ cutoff − tol` (weakest-of-top-m − 0.02 nats) | **low-confidence early stop** — the exact thing top-h prevents |
-| budget | `T_max` reasoning steps (~10k+ tok) | hard **`max_think_tokens=384`** force | forced truncation (sage1 think_len median = 384 = the cap) |
-| Φ | cumulative mean log-prob | ✅ cumulative | (this part was right) |
+| granularity | step-wise (`\n\n`) | token-wise beam | different search |
+| stop rule | `</think>` in **top-h** by Φ ("ranks first") | eager tolerance stop (`best_stop.Φ ≥ cutoff − tol`) | **low-confidence early stop** — the exact thing top-h prevents |
+| budget | `T_max` reasoning steps (~10k+ tok) | small hard think-token cap | forced truncation (think_len median pinned at the cap) |
+| Φ | cumulative mean log-prob | marginal single-token prob | wrong ranking signal |
 
-Net: our SAGE members were short by **premature/forced stopping**, not genuine
-confidence. RL reinforced them (correct on easy arithmetic) → policy learned to
-slam `</think>` shut and relocate CoT into visible prose (think_len 384→1
-collapse). Downstream: agentic degrade (non-terminating think runaways OOD).
-
-## Correctness target for the rewrite
+These are not hypothetical: an implementation with the first three shortcuts
+produces SAGE members that are short by **premature/forced stopping**, not
+genuine confidence. RL then reinforces them (correct on easy tasks) and the
+policy learns to slam `</think>` shut and relocate its CoT into visible prose
+— degrading downstream behavior. The shipped decoder is the faithful version:
 
 Faithful `SAGE(m, tr)`: step-wise `\n\n` beam, `2m` step-expansions/candidate,
 Φ ranking, top-h `</think>` acceptance (h = round(TR·2m)), `T_max` *step* budget
 with a large token safety ceiling (not a small think cap). Log **RFCS**. Reward
-stays pure RLVR (no length term) to match the paper — the fixed decoder should
-remove the relocation incentive by itself.
+stays pure RLVR (no length term) to match the paper — the faithful decoder
+removes the relocation incentive by itself.
