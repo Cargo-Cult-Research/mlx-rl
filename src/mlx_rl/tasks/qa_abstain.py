@@ -32,6 +32,9 @@ the trainer grades only the visible post-think reply; hedged prose fails
 strict tag parsing; garbage output scores like a wrong answer, not like an
 abstention. The residual risk to WATCH in samples.jsonl is abstain-collapse
 (abstaining on everything) — visible immediately as frac_answered -> 0.
+Defended two ways: injected_completion() is the per-question calibration
+oracle (see its docstring), and the trainer's --abort-inactive-window kills
+a run whose groups have gone flat instead of burning steps at zero gradient.
 """
 from __future__ import annotations
 
@@ -101,7 +104,8 @@ def load_triviaqa() -> list[dict]:
             aliases.append(r["answer"]["value"])
         if r["question"] and aliases:
             rows.append({"qid": r["question_id"], "question": r["question"].strip(),
-                         "aliases": aliases})
+                         "aliases": aliases,
+                         "gold": r["answer"].get("value") or aliases[0]})
     return rows
 
 
@@ -118,7 +122,7 @@ def load_popqa() -> list[dict]:
             if r["question"] and aliases:
                 rows.append({"qid": f"popqa_{r['id']}",
                              "question": r["question"].strip(),
-                             "aliases": aliases})
+                             "aliases": aliases, "gold": aliases[0]})
     return rows
 
 
@@ -154,22 +158,24 @@ class QAAbstainTask:
         # a shared "unprobed" pool drawn with the residual weight mass.
         self._bands: dict[str, list[dict]] | None = None
         self._band_mix = band_mix
+        self._rates: dict[str, float] = {}
         if calib_file:
-            rates = {}
             with open(calib_file) as f:
                 for line in f:
                     r = json.loads(line)
-                    rates[r["qid"]] = float(r["pass_rate"])
+                    self._rates[r["qid"]] = float(r["pass_rate"])
             self._bands = {"known": [], "uncertain": [], "unknown": [], "unprobed": []}
             for row in self._train:
-                key = _band(rates[row["qid"]]) if row["qid"] in rates else "unprobed"
+                key = (_band(self._rates[row["qid"]])
+                       if row["qid"] in self._rates else "unprobed")
                 self._bands[key].append(row)
             self._band_mix = dict(band_mix or {"known": 0.25, "uncertain": 0.5, "unknown": 0.25})
 
     def _example(self, row: dict) -> Example:
         return Example(
             messages=[{"role": "user", "content": PROMPT.format(q=row["question"])}],
-            meta={"qid": row["qid"], "question": row["question"], "aliases": row["aliases"]},
+            meta={"qid": row["qid"], "question": row["question"],
+                  "aliases": row["aliases"], "gold": row.get("gold", row["aliases"][0])},
         )
 
     def _draw(self, rng: random.Random) -> dict:
@@ -188,9 +194,21 @@ class QAAbstainTask:
         return self._example(rng.choice(self._eval))
 
     def injected_completion(self, example: Example) -> str:
-        """Off-policy demonstration for --inject-r: the base policy almost
-        never samples an abstention (measured 0/152 pilot rollouts), so
-        without injection there is no gradient toward it."""
+        """Off-policy demonstration for --inject-r: the calibration-oracle
+        action for this question. Injection must be SYMMETRIC — one-sided
+        abstain injection makes all-abstain an absorbing state (all-abstain
+        group + injected abstain = zero variance = dropped = no gradient,
+        forever). With the oracle action injected, both collapse directions
+        self-correct: an all-abstain group on a known question contains a
+        +1 answered member, an all-wrong group contains a 0 abstainer.
+
+        Gold answers are injected only on known-band questions (probed
+        pass rate >= 0.8), where the model already produces them — the
+        demonstration carries the answer/abstain DECISION, not new facts.
+        Without a calib file every question rates 0.0 and injection is
+        abstain-only; pass one for any real run."""
+        if _band(self._rates.get(example.meta["qid"], 0.0)) == "known":
+            return f"<answer>{example.meta['gold']}</answer>"
         return "<abstain/>"
 
     def reward(self, example: Example, completion: str) -> RewardResult:

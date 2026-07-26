@@ -11,6 +11,7 @@ import argparse
 import json
 import random
 import time
+from collections import deque
 from dataclasses import asdict, replace
 from pathlib import Path
 
@@ -461,6 +462,27 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
         margin_gb=cfg.swap_guard_margin_gb, abort_marker=out / "ABORTED"
     ).start()
 
+    # Dead-run watchdog (config.abort_inactive_window): a collapsed policy
+    # produces near-zero active groups indefinitely — steps still burn full
+    # rollout compute but carry no gradient. Windowed rate, not consecutive
+    # zeros: collapsed runs still emit stray active groups.
+    activity_window: deque[int] = deque(maxlen=cfg.abort_inactive_window or 1)
+
+    def watch_activity(n_active: int) -> None:
+        if not cfg.abort_inactive_window:
+            return
+        activity_window.append(n_active)
+        if len(activity_window) < cfg.abort_inactive_window:
+            return
+        floor = 0.02 * cfg.abort_inactive_window * cfg.batch_prompts
+        if sum(activity_window) < floor:
+            msg = (f"policy collapse: {sum(activity_window)} active groups in "
+                   f"the last {cfg.abort_inactive_window} steps "
+                   f"(< 2% of {cfg.abort_inactive_window * cfg.batch_prompts})")
+            (out / "ABORTED").write_text(msg + "\n")
+            swap_guard.stop()
+            raise SystemExit(f"ABORTED — {msg}")
+
     optimizer = optim.Adam(learning_rate=cfg.lr)
 
     def loss_fn(model, inp, tgt, mask, old_lp, ref_lp, adv, denom,
@@ -500,6 +522,7 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
             metrics_f.flush()
             print(f"step {step:4d}  all {cfg.batch_prompts} groups dead at "
                   "stage 1 — nothing to train on", flush=True)
+            watch_activity(0)
             continue
 
         # rows = SURVIVING groups (may be < batch_prompts under group_stage1)
@@ -655,6 +678,7 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
             + "\n"
         )
         samples_f.flush()
+        watch_activity(int(active.sum()))
 
         if cfg.checkpoint_every and step % cfg.checkpoint_every == 0:
             save_adapter(model, out / "adapters", cfg.lora, cfg.model, step)
@@ -710,6 +734,11 @@ def main() -> None:
     p.add_argument("--inject-r", type=int, default=d.inject_r,
                    help="off-policy demonstration members per group, from the "
                         "task's injected_completion() (0 = off)")
+    p.add_argument("--abort-inactive-window", type=int,
+                   default=d.abort_inactive_window,
+                   help="abort when <2%% of groups were active over this many "
+                        "steps — the policy has collapsed to zero variance "
+                        "(0 = off)")
     p.add_argument("--sage-m", type=int, default=d.sage_m, help="SAGE beam/exploration width")
     p.add_argument("--sage-tr", type=float, default=d.sage_tr,
                    help="tolerance ratio TR=h/(2m): </think> accepted in top-h by Φ")
@@ -805,6 +834,7 @@ def main() -> None:
         normalize_std=a.normalize_std,
         sage_r=a.sage_r,
         inject_r=a.inject_r,
+        abort_inactive_window=a.abort_inactive_window,
         sage_m=a.sage_m,
         sage_tr=a.sage_tr,
         sage_max_reasoning_steps=a.sage_max_steps,

@@ -97,7 +97,19 @@ class TrainConfig:
     # cannot reinforce what is never sampled. Legal for the same reason SAGE
     # members are: old_lp is recomputed teacher-forced, so injected members
     # enter the clipped surrogate at ratio 1 (correctness detail 2).
+    # The task's demonstrations should be SYMMETRIC (cover every action the
+    # policy could collapse onto), or the uncovered collapse is absorbing:
+    # once every sampled member matches the injected one, the group is
+    # zero-variance, dropped, and gradient-free forever.
     inject_r: int = 0
+    # Dead-run watchdog: abort (ABORTED marker + nonzero exit) when fewer
+    # than 2% of groups were active over the last N steps — the policy has
+    # collapsed into a zero-variance state and further steps are free heat.
+    # A collapsed observed run produced 27/1600 active groups (1.7%) with
+    # stray actives every 10-130 steps, so a consecutive-zero test never
+    # fires; the windowed rate does. 0 = off; N should exceed any healthy
+    # cold-start (the same run's recovery took ~15 steps).
+    abort_inactive_window: int = 0
     think_end: int | None = None  # end-of-thinking token id (profile)
     # Correctness-gated total-length efficiency (anti reasoning-relocation
     # hack): final = base * (1 - length_penalty * min(1, tokens/budget)).

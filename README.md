@@ -266,9 +266,16 @@ Five tasks ship, all with programmatic rewards (`--task <name>`):
   `band_mix` curriculum can keep decision variance inside GRPO groups.
   Use `--inject-r 1` with this task: the base policy almost never samples
   `<abstain/>` (measured 0 in 152 pilot rollouts), and GRPO cannot reinforce
-  what is never sampled — injection supplies the off-policy abstention
-  demonstration, made legal by the recomputed-old_lp invariant
-  (correctness detail 2).
+  what is never sampled — injection supplies the missing off-policy
+  demonstration, made legal by the recomputed-old_lp invariant (correctness
+  detail 2). The injected member is the per-question *calibration oracle*
+  (gold answer on high-pass-rate questions, `<abstain/>` otherwise), not a
+  blanket abstention: one-sided injection makes all-abstain an absorbing
+  state — every group matches the demonstration, goes zero-variance, and is
+  dropped, so the collapse is gradient-free and permanent (measured: a
+  200-step run frozen from step 4). Symmetric demonstrations make both
+  collapse directions self-correcting; pair with
+  `--abort-inactive-window 30` as the backstop.
   Prior work and positioning:
   [docs/qa-abstain-related-work.md](docs/qa-abstain-related-work.md).
 - **`toolformat`** — canonical tool-call format + tool/arg correctness;

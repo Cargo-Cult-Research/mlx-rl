@@ -56,13 +56,14 @@ def _task(wrong_penalty=3.0, **kw) -> QAAbstainTask:
     t.wrong_penalty = wrong_penalty
     t._bands = None
     t._band_mix = None
+    t._rates = kw.get("rates", {})
     t._train = kw.get("train", [])
     t._eval = kw.get("eval", [])
     return t
 
 
 EX = Example(messages=[], meta={"qid": "q1", "question": "?",
-                               "aliases": ["paris"]})
+                               "aliases": ["paris"], "gold": "Paris"})
 
 
 def test_reward_structure():
@@ -77,11 +78,20 @@ def test_reward_structure():
     assert t.reward(EX, "<abstain/>").parts["answered"] == 0.0
 
 
-def test_injected_completion_roundtrip():
-    t = _task()
+def test_injected_completion_is_the_calibration_oracle():
+    # Known-band question: inject the gold answer (reward +1); everything
+    # else (uncertain, unknown, unprobed): inject abstain (reward 0). Both
+    # directions covered = neither collapse is an absorbing state.
+    t = _task(rates={"q1": 1.0})
     text = t.injected_completion(EX)
-    assert parse_reply(text) == ("abstain", None)
-    assert t.reward(EX, text).total == 0.0
+    assert parse_reply(text) == ("answer", "Paris")
+    assert t.reward(EX, text).total == 1.0
+
+    for rates in ({"q1": 0.5}, {"q1": 0.0}, {}):
+        t = _task(rates=rates)
+        text = t.injected_completion(EX)
+        assert parse_reply(text) == ("abstain", None)
+        assert t.reward(EX, text).total == 0.0
 
 
 def test_band_cutoffs():
