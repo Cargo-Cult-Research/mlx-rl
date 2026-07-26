@@ -264,6 +264,11 @@ Five tasks ship, all with programmatic rewards (`--task <name>`):
   ~138k) to train; PopQA (MIT) as the out-of-distribution transfer eval.
   `scripts/qa_calibrate.py` probes per-question pass@k so a `calib_file` +
   `band_mix` curriculum can keep decision variance inside GRPO groups.
+  Use `--inject-r 1` with this task: the base policy almost never samples
+  `<abstain/>` (measured 0 in 152 pilot rollouts), and GRPO cannot reinforce
+  what is never sampled — injection supplies the off-policy abstention
+  demonstration, made legal by the recomputed-old_lp invariant
+  (correctness detail 2).
   Prior work and positioning:
   [docs/qa-abstain-related-work.md](docs/qa-abstain-related-work.md).
 - **`toolformat`** — canonical tool-call format + tool/arg correctness;

@@ -187,6 +187,12 @@ class QAAbstainTask:
     def eval_sample(self, rng: random.Random) -> Example:
         return self._example(rng.choice(self._eval))
 
+    def injected_completion(self, example: Example) -> str:
+        """Off-policy demonstration for --inject-r: the base policy almost
+        never samples an abstention (measured 0/152 pilot rollouts), so
+        without injection there is no gradient toward it."""
+        return "<abstain/>"
+
     def reward(self, example: Example, completion: str) -> RewardResult:
         kind, value = parse_reply(completion)
         if kind == "abstain":

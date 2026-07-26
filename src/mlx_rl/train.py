@@ -22,7 +22,7 @@ from mlx.utils import tree_map
 
 from . import machine
 from .config import LoraConfig, TrainConfig
-from .engine import rollout_groups, sage_completion
+from .engine import Completion, rollout_groups, sage_completion
 from .grpo import (
     active_groups,
     group_advantages,
@@ -145,7 +145,8 @@ def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
     they'd be dropped as zero-variance at update time anyway.
     """
     sage_r = cfg.sage_r if cfg.think_end is not None else 0
-    n_sampled = cfg.group_size - sage_r
+    inject_r = cfg.inject_r
+    n_sampled = cfg.group_size - sage_r - inject_r
     think_close = _think_close_marker(tokenizer, cfg, task)
     graded: dict[int, object] = {}  # id(Completion) -> RewardResult (no double-grade)
     skipped = 0
@@ -209,6 +210,15 @@ def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
                         answer_reserve=cfg.sage_answer_reserve,
                     )
                 )
+    if inject_r and examples:
+        # Off-policy demonstrations at fixed group slots (see config.inject_r).
+        # Tokens end with EOS so grading/packing treat them like sampled stops.
+        eos_id = next(iter(sorted(tokenizer.eos_token_ids)))
+        for ex, group in zip(examples, groups):
+            text = task.injected_completion(ex)
+            toks = tokenizer.encode(text, add_special_tokens=False) + [eos_id]
+            for _ in range(inject_r):
+                group.append(Completion(list(toks), [0.0] * len(toks), "stop"))
     rollouts: list[Rollout] = []
     for ex, prompt, group in zip(examples, prompts, groups):
         for gi, comp in enumerate(group):
@@ -251,7 +261,8 @@ def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
                     reward=gated,
                     reward_parts=parts,
                     meta=ex.meta,
-                    sage=gi >= n_sampled,
+                    sage=n_sampled <= gi < n_sampled + sage_r,
+                    injected=gi >= n_sampled + sage_r,
                     think_len=comp.think_len,
                     finish=comp.finish_reason,
                 )
@@ -429,6 +440,9 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
     rng = random.Random(cfg.seed)
     subset_rng = np.random.default_rng(cfg.seed)  # token-subset draws
     task = get_task(cfg.task, **cfg.task_kwargs)
+    if cfg.inject_r and not hasattr(task, "injected_completion"):
+        raise SystemExit(
+            f"--inject-r needs task {cfg.task!r} to define injected_completion()")
 
     if cfg.gdn_serial:
         from . import gdn_serial
@@ -578,12 +592,16 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
         # the (4-bit) policy — the exploration/entropy proxy. Quantization
         # noise raises it; watch it fall as the policy sharpens.
         nll = [-float(np.mean(r.sampling_logprobs)) for r in rollouts
-               if not r.sage and r.sampling_logprobs]
+               if not r.sage and not r.injected and r.sampling_logprobs]
         if nll:
             rec["gen_nll"] = round(float(np.mean(nll)), 4)
+        if cfg.inject_r:
+            inj = [r.reward for r in rollouts if r.injected]
+            if inj:
+                rec["reward_injected"] = float(np.mean(inj))
         if cfg.sage_r:
             sage_rs = [r for r in rollouts if r.sage]
-            samp_rs = [r for r in rollouts if not r.sage]
+            samp_rs = [r for r in rollouts if not r.sage and not r.injected]
             rec["mean_len_sage"] = float(
                 np.mean([len(r.completion_tokens) for r in sage_rs])
             )
@@ -624,6 +642,7 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
                             "reward": r.reward,
                             "parts": r.reward_parts,
                             "sage": r.sage,
+                            "injected": r.injected,
                             "think_len": r.think_len,
                             "len": len(r.completion_tokens),
                             "finish": r.finish,
@@ -688,6 +707,9 @@ def main() -> None:
     p.add_argument("--no-normalize-std", dest="normalize_std", action="store_false")
     p.add_argument("--sage-r", type=int, default=d.sage_r,
                    help="SAGE-decoded members per group (0 = vanilla GRPO)")
+    p.add_argument("--inject-r", type=int, default=d.inject_r,
+                   help="off-policy demonstration members per group, from the "
+                        "task's injected_completion() (0 = off)")
     p.add_argument("--sage-m", type=int, default=d.sage_m, help="SAGE beam/exploration width")
     p.add_argument("--sage-tr", type=float, default=d.sage_tr,
                    help="tolerance ratio TR=h/(2m): </think> accepted in top-h by Φ")
@@ -745,11 +767,12 @@ def main() -> None:
     )
     base_kwargs = dict(prof.chat_kwargs) if prof else {}
     think_end = a.think_end if a.think_end is not None else (prof.think_end if prof else None)
+    if a.sage_r + a.inject_r >= a.group_size:
+        p.error("--sage-r plus --inject-r must leave at least one "
+                "ordinarily-sampled group member")
     if a.sage_r > 0:
         if think_end is None:
             p.error("--sage-r needs an end-of-thinking token: use a profile with think_end or pass --think-end")
-        if a.sage_r >= a.group_size:
-            p.error("--sage-r must leave at least one ordinarily-sampled group member")
         if prof:
             base_kwargs.update(prof.think_chat_kwargs)  # SAGE trains the thinking policy
     chat_kwargs = {**base_kwargs, **json.loads(a.chat_kwargs)}
@@ -781,6 +804,7 @@ def main() -> None:
         clip_eps=a.clip_eps,
         normalize_std=a.normalize_std,
         sage_r=a.sage_r,
+        inject_r=a.inject_r,
         sage_m=a.sage_m,
         sage_tr=a.sage_tr,
         sage_max_reasoning_steps=a.sage_max_steps,

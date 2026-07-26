@@ -90,6 +90,14 @@ class TrainConfig:
     # observed think_len 2069 > cap 2048 bug) the whole budget and emit
     # ZERO visible answer tokens, which grades 0 under think-aware reward.
     sage_answer_reserve: int = 256
+    # Off-policy demonstration injection: the last inject_r members of every
+    # group are replaced by the task's `injected_completion(example)` text
+    # (e.g. qa_abstain injects "<abstain/>"). Solves the exploration gap when
+    # a rewarded behavior has ~zero probability under the base policy — GRPO
+    # cannot reinforce what is never sampled. Legal for the same reason SAGE
+    # members are: old_lp is recomputed teacher-forced, so injected members
+    # enter the clipped surrogate at ratio 1 (correctness detail 2).
+    inject_r: int = 0
     think_end: int | None = None  # end-of-thinking token id (profile)
     # Correctness-gated total-length efficiency (anti reasoning-relocation
     # hack): final = base * (1 - length_penalty * min(1, tokens/budget)).

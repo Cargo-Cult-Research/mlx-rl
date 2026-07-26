@@ -77,6 +77,13 @@ def test_reward_structure():
     assert t.reward(EX, "<abstain/>").parts["answered"] == 0.0
 
 
+def test_injected_completion_roundtrip():
+    t = _task()
+    text = t.injected_completion(EX)
+    assert parse_reply(text) == ("abstain", None)
+    assert t.reward(EX, text).total == 0.0
+
+
 def test_band_cutoffs():
     assert _band(1.0) == "known"
     assert _band(0.8) == "known"
