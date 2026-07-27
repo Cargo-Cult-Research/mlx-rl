@@ -22,6 +22,8 @@ wandb/
 *.safetensors
 *.npz
 *.jsonl
+# curated eval sets are source, not run artifacts
+!data/fictional_probe.jsonl
 
 # OS
 .DS_Store

@@ -130,3 +130,20 @@ def test_dataset_loads_and_splits():
     ex = t.eval_sample(random.Random(0))
     assert "<answer>" in ex.messages[0]["content"] or "answer tags" in ex.messages[0]["content"]
     assert ex.meta["aliases"]
+
+
+def test_chat_probe_scoring():
+    import importlib.util, pathlib
+    spec = importlib.util.spec_from_file_location(
+        "qa_chat_probe", pathlib.Path("scripts/qa_chat_probe.py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+
+    assert m.contains_alias("It's the Adder, I think.", ["adder", "adders"])
+    assert not m.contains_alias("Madder music!", ["adder"])  # word boundary
+    assert m.contains_alias("Harry S. Truman was president",
+                            ["harry s truman"])
+    assert m.hedged("Honestly, I'm not sure about that one.")
+    assert m.hedged("I'd have to guess here.")
+    assert not m.hedged("The capital is Paris.")
+    assert m._TAG_BLEED.search("<abstain/>") and m._TAG_BLEED.search("<ANSWER>x")
