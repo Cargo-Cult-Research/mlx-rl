@@ -161,3 +161,16 @@ def test_chat_probe_scoring():
     assert m.paper_verdict("Interesting title!") == "other"
 
     assert m._TAG_BLEED.search("<abstain/>") and m._TAG_BLEED.search("<ANSWER>x")
+
+
+def test_introspect_auroc():
+    import importlib.util, pathlib
+    spec = importlib.util.spec_from_file_location(
+        "qa_introspect", pathlib.Path("scripts/qa_introspect.py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+
+    # perfect separation -> 1.0; anti-separation -> 0.0; random-ish -> ~0.5
+    assert m.auroc([0.1, 0.2, 0.8, 0.9], [False, False, True, True]) == 1.0
+    assert m.auroc([0.9, 0.8, 0.2, 0.1], [False, False, True, True]) == 0.0
+    assert m.auroc([0.5, 0.5, 0.5, 0.5], [False, True, False, True]) == 0.5
