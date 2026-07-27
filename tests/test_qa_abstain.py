@@ -143,7 +143,21 @@ def test_chat_probe_scoring():
     assert not m.contains_alias("Madder music!", ["adder"])  # word boundary
     assert m.contains_alias("Harry S. Truman was president",
                             ["harry s truman"])
-    assert m.hedged("Honestly, I'm not sure about that one.")
-    assert m.hedged("I'd have to guess here.")
-    assert not m.hedged("The capital is Paris.")
+
+    assert m.classify("Honestly, I'm not sure about that one.") == "hedge"
+    assert m.classify("I'd have to guess here.") == "hedge"
+    assert m.classify("The capital is Paris.") == "answer"
+    # a confident negative is a DENIAL, not calibrated ignorance — and it
+    # wins even when wrapped in hedging language
+    assert m.classify("There is no such physicist.") == "denial"
+    assert m.classify("She doesn't exist, as far as I know.") == "denial"
+    assert m.classify("I'm not sure, but that person appears to be "
+                      "invented.") == "denial"
+
+    long_summary = ("This paper introduces a novel framework for " * 10)
+    assert m.paper_verdict(long_summary) == "fabricated"
+    assert m.paper_verdict("I can't access external links, and this paper "
+                           "is after my knowledge cutoff.") == "disclaimed"
+    assert m.paper_verdict("Interesting title!") == "other"
+
     assert m._TAG_BLEED.search("<abstain/>") and m._TAG_BLEED.search("<ANSWER>x")

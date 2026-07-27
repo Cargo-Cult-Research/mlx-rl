@@ -1,0 +1,30 @@
+{"id": "paper_post_2601.05242", "title": "GDPO: Group reward-Decoupled Normalization Policy Optimization for Multi-reward RL Optimization", "url": "https://arxiv.org/abs/2601.05242", "control": false}
+{"id": "paper_post_2602.00919", "title": "Green-VLA: Staged Vision-Language-Action Model for Generalist Robots", "url": "https://arxiv.org/abs/2602.00919", "control": false}
+{"id": "paper_post_2603.15031", "title": "Attention Residuals", "url": "https://arxiv.org/abs/2603.15031", "control": false}
+{"id": "paper_post_2606.19236", "title": "STARE: Surprisal-Guided Token-Level Advantage Reweighting for Policy Entropy Stability", "url": "https://arxiv.org/abs/2606.19236", "control": false}
+{"id": "paper_post_2603.14473", "title": "AI Can Learn Scientific Taste", "url": "https://arxiv.org/abs/2603.14473", "control": false}
+{"id": "paper_post_2603.26164", "title": "DataFlex: A Unified Framework for Data-Centric Dynamic Training of Large Language Models", "url": "https://arxiv.org/abs/2603.26164", "control": false}
+{"id": "paper_post_2605.11800", "title": "ROMER: Expert Replacement and Router Calibration for Robust MoE LLMs on Analog Compute-in-Memory Systems", "url": "https://arxiv.org/abs/2605.11800", "control": false}
+{"id": "paper_post_2601.14260", "title": "End-to-End Transformer Acceleration Through Processing-in-Memory Architectures", "url": "https://arxiv.org/abs/2601.14260", "control": false}
+{"id": "paper_post_2601.23265", "title": "PaperBanana: Automating Academic Illustration for AI Scientists", "url": "https://arxiv.org/abs/2601.23265", "control": false}
+{"id": "paper_post_2605.19282", "title": "Rethinking Muon Beyond Pretraining: Spectral Failures and High-Pass Remedies for VLA and RLVR", "url": "https://arxiv.org/abs/2605.19282", "control": false}
+{"id": "paper_post_2605.08605", "title": "Lattice Deduction Transformers", "url": "https://arxiv.org/abs/2605.08605", "control": false}
+{"id": "paper_post_2602.07274", "title": "TermiGen: High-Fidelity Environment and Robust Trajectory Synthesis for Terminal Agents", "url": "https://arxiv.org/abs/2602.07274", "control": false}
+{"id": "paper_post_2602.02276", "title": "Kimi K2.5: Visual Agentic Intelligence", "url": "https://arxiv.org/abs/2602.02276", "control": false}
+{"id": "paper_post_2604.02176", "title": "Adam's Law: Textual Frequency Law on Large Language Models", "url": "https://arxiv.org/abs/2604.02176", "control": false}
+{"id": "paper_post_2602.05400", "title": "OPUS: Towards Efficient and Principled Data Selection in Large Language Model Pre-training in Every Iteration", "url": "https://arxiv.org/abs/2602.05400", "control": false}
+{"id": "paper_post_2601.17058", "title": "Can LLMs Clean Up Your Mess? A Survey of Application-Ready Data Preparation with LLMs", "url": "https://arxiv.org/abs/2601.17058", "control": false}
+{"id": "paper_post_2605.09375", "title": "A 14.08-to-135.69 Token/s ReRAM-on-Logic Stacked Outlier-Free LLM Accelerator with Block-Clustered Weight-Compression and Adaptive Parallel-Speculative-Decoding", "url": "https://arxiv.org/abs/2605.09375", "control": false}
+{"id": "paper_post_2607.00152", "title": "GRPO, Dr. GRPO, and DAPO Are Three Operations on One Number: The Group-Standard-Deviation Identity", "url": "https://arxiv.org/abs/2607.00152", "control": false}
+{"id": "paper_post_2602.04705", "title": "ERNIE 5.0 Technical Report", "url": "https://arxiv.org/abs/2602.04705", "control": false}
+{"id": "paper_post_2604.13902", "title": "DiPO: Disentangled Perplexity Policy Optimization for Fine-grained Exploration-Exploitation Trade-Off", "url": "https://arxiv.org/abs/2604.13902", "control": false}
+{"id": "paper_famous_1706.03762", "title": "Attention Is All You Need", "url": "https://arxiv.org/abs/1706.03762", "control": true}
+{"id": "paper_famous_1810.04805", "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding", "url": "https://arxiv.org/abs/1810.04805", "control": true}
+{"id": "paper_famous_2005.14165", "title": "Language Models are Few-Shot Learners", "url": "https://arxiv.org/abs/2005.14165", "control": true}
+{"id": "paper_famous_1512.03385", "title": "Deep Residual Learning for Image Recognition", "url": "https://arxiv.org/abs/1512.03385", "control": true}
+{"id": "paper_famous_1412.6980", "title": "Adam: A Method for Stochastic Optimization", "url": "https://arxiv.org/abs/1412.6980", "control": true}
+{"id": "paper_famous_2106.09685", "title": "LoRA: Low-Rank Adaptation of Large Language Models", "url": "https://arxiv.org/abs/2106.09685", "control": true}
+{"id": "paper_famous_2203.02155", "title": "Training language models to follow instructions with human feedback", "url": "https://arxiv.org/abs/2203.02155", "control": true}
+{"id": "paper_famous_2203.15556", "title": "Training Compute-Optimal Large Language Models", "url": "https://arxiv.org/abs/2203.15556", "control": true}
+{"id": "paper_famous_2302.13971", "title": "LLaMA: Open and Efficient Foundation Language Models", "url": "https://arxiv.org/abs/2302.13971", "control": true}
+{"id": "paper_famous_2305.18290", "title": "Direct Preference Optimization: Your Language Model is Secretly a Reward Model", "url": "https://arxiv.org/abs/2305.18290", "control": true}
