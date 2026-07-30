@@ -128,6 +128,16 @@ def _stage1_dead(rewards: list[float], mode: str) -> bool:
     return mode == "uniform" or min(rewards) >= 0.99
 
 
+def _grade_batch(task, pairs):
+    """Grade [(example, visible_text), ...] -> [RewardResult, ...], through
+    task.batch_reward when the task defines it (one judge call per batch for
+    judge-graded frames) and per-item reward() otherwise."""
+    br = getattr(task, "batch_reward", None)
+    if br is not None:
+        return br([ex for ex, _ in pairs], [v for _, v in pairs])
+    return [task.reward(ex, v) for ex, v in pairs]
+
+
 def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
     """Sample group_size completions per example and score them.
     Returns (rollouts, stats, groups_skipped).
@@ -156,17 +166,16 @@ def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
         groups, prompts, stats = _sample_batched(
             model, tokenizer, examples, cfg, g1, cfg.temperature, task
         )
-        live: list[int] = []
-        for i, (ex, group) in enumerate(zip(examples, groups)):
-            rs = []
-            for comp in group:
-                visible, _ = _visible_reply(
-                    _completion_text(tokenizer, comp), think_close)
-                res = task.reward(ex, visible)
-                graded[id(comp)] = res  # code grading = subprocess; cache it
-                rs.append(res.total)
-            if not _stage1_dead(rs, cfg.stage1_skip):
-                live.append(i)
+        flat = [(ex, comp) for ex, group in zip(examples, groups)
+                for comp in group]
+        results = _grade_batch(task, [
+            (ex, _visible_reply(_completion_text(tokenizer, comp),
+                                think_close)[0]) for ex, comp in flat])
+        for (_, comp), res in zip(flat, results):
+            graded[id(comp)] = res  # judge/code grading is costly; cache it
+        live = [i for i, (_, group) in enumerate(zip(examples, groups))
+                if not _stage1_dead([graded[id(c)].total for c in group],
+                                    cfg.stage1_skip)]
         skipped = len(examples) - len(live)
         examples = [examples[i] for i in live]
         groups = [groups[i] for i in live]
@@ -220,12 +229,22 @@ def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
             toks = tokenizer.encode(text, add_special_tokens=False) + [eos_id]
             for _ in range(inject_r):
                 group.append(Completion(list(toks), [0.0] * len(toks), "stop"))
+    # Grade everything not covered by stage 1 in one batch (one judge call
+    # per rollout batch for judge-graded frames).
+    pending = [(ex, comp) for ex, group in zip(examples, groups)
+               for comp in group if id(comp) not in graded]
+    if pending:
+        results = _grade_batch(task, [
+            (ex, _visible_reply(_completion_text(tokenizer, comp),
+                                think_close)[0]) for ex, comp in pending])
+        for (_, comp), res in zip(pending, results):
+            graded[id(comp)] = res
     rollouts: list[Rollout] = []
     for ex, prompt, group in zip(examples, prompts, groups):
         for gi, comp in enumerate(group):
             text = _completion_text(tokenizer, comp)
             visible, closed = _visible_reply(text, think_close)
-            res = graded.get(id(comp)) or task.reward(ex, visible)
+            res = graded[id(comp)]
             # Correctness-gated total-length efficiency (kills the
             # reasoning-relocation hack) + a relocation monitor for BOTH arms.
             ntok = len(comp.tokens)
@@ -365,14 +384,15 @@ def evaluate(model, tokenizer, task, cfg: TrainConfig):
     examples = [esample(rng) for _ in range(cfg.eval_n)]
     groups, _, _ = _sample_batched(model, tokenizer, examples, cfg, 1, 0.0, task)
     think_close = _think_close_marker(tokenizer, cfg, task)
-    results = []
+    visibles = [_visible_reply(_completion_text(tokenizer, group[0]),
+                               think_close) for group in groups]
+    results = _grade_batch(task, [(ex, vis) for ex, (vis, _)
+                                  in zip(examples, visibles)])
     closed_rates = []
     rfcs_vals = []
-    for ex, group in zip(examples, groups):
+    for ex, group, (visible, closed), res in zip(examples, groups,
+                                                 visibles, results):
         text = _completion_text(tokenizer, group[0])
-        visible, closed = _visible_reply(text, think_close)
-        res = task.reward(ex, visible)
-        results.append(res)
         closed_rates.append(float(closed))
         if (res.parts.get("correct") == 1.0 and closed and think_close
                 and think_close in text and "answer" in ex.meta):

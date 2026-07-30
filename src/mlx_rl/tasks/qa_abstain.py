@@ -133,6 +133,18 @@ PROMPT = (
     "Question: {q}"
 )
 
+# Chat frames: the same questions with NO abstain affordance and no format.
+# The 2026-07-29 papers probe showed the tag-trained policy is gated on the
+# affordance (in-format abstain 0.96 on unknowable entities, ~0.01 in free
+# chat) — these frames make the reward land in the deployment distribution.
+# Deliberately DISJOINT from scripts/qa_chat_probe.py's eval-only frames.
+CHAT_FRAMES = [
+    "{q}",
+    "Quick trivia question for you: {q}",
+    "Someone at work asked me this and I completely blanked: {q}",
+    "Do you happen to know — {q}",
+]
+
 
 @register
 class QAAbstainTask:
@@ -145,9 +157,21 @@ class QAAbstainTask:
         seed: int = 12345,
         calib_file: str | None = None,
         band_mix: dict | None = None,
+        chat_frac: float = 0.0,
+        judge_cache: str = "runs/judge/qa-abstain-cache.jsonl",
+        judge_model: str = "opus",
         **_,
     ):
         self.wrong_penalty = wrong_penalty
+        # Frame mixture: chat_frac of examples are asked in free-chat frames
+        # and graded by the commitment-parser judge (see mlx_rl.judge); the
+        # rest keep the verifiable tag format. The judge cache is shared
+        # across runs on purpose — identical short replies are common.
+        self.chat_frac = chat_frac
+        self._judge = None
+        if chat_frac > 0.0:
+            from ..judge import Judge
+            self._judge = Judge(cache_path=judge_cache, model=judge_model)
         rows = {"triviaqa": load_triviaqa, "popqa": load_popqa}[dataset]()
         rng = random.Random(seed)
         rng.shuffle(rows)
@@ -171,11 +195,17 @@ class QAAbstainTask:
                 self._bands[key].append(row)
             self._band_mix = dict(band_mix or {"known": 0.25, "uncertain": 0.5, "unknown": 0.25})
 
-    def _example(self, row: dict) -> Example:
+    def _example(self, row: dict, rng: random.Random) -> Example:
+        chat = rng.random() < self.chat_frac
+        if chat:
+            content = rng.choice(CHAT_FRAMES).format(q=row["question"])
+        else:
+            content = PROMPT.format(q=row["question"])
         return Example(
-            messages=[{"role": "user", "content": PROMPT.format(q=row["question"])}],
+            messages=[{"role": "user", "content": content}],
             meta={"qid": row["qid"], "question": row["question"],
-                  "aliases": row["aliases"], "gold": row.get("gold", row["aliases"][0])},
+                  "aliases": row["aliases"], "gold": row.get("gold", row["aliases"][0]),
+                  "frame": "chat" if chat else "tag"},
         )
 
     def _draw(self, rng: random.Random) -> dict:
@@ -188,10 +218,10 @@ class QAAbstainTask:
         return rng.choice(self._bands[rng.choices(names, weights=weights, k=1)[0]])
 
     def sample(self, rng: random.Random) -> Example:
-        return self._example(self._draw(rng))
+        return self._example(self._draw(rng), rng)
 
     def eval_sample(self, rng: random.Random) -> Example:
-        return self._example(rng.choice(self._eval))
+        return self._example(rng.choice(self._eval), rng)
 
     def injected_completion(self, example: Example) -> str:
         """Off-policy demonstration for --inject-r: the calibration-oracle
@@ -206,12 +236,76 @@ class QAAbstainTask:
         pass rate >= 0.8), where the model already produces them — the
         demonstration carries the answer/abstain DECISION, not new facts.
         Without a calib file every question rates 0.0 and injection is
-        abstain-only; pass one for any real run."""
-        if _band(self._rates.get(example.meta["qid"], 0.0)) == "known":
+        abstain-only; pass one for any real run.
+
+        Chat frames get the natural-language oracle actions — the judge
+        parses them like any sampled reply (and the shared cache makes the
+        repeated strings free after first sight)."""
+        known = _band(self._rates.get(example.meta["qid"], 0.0)) == "known"
+        if example.meta.get("frame") == "chat":
+            if known:
+                return f"It's {example.meta['gold']}."
+            return "I don't know off the top of my head."
+        if known:
             return f"<answer>{example.meta['gold']}</answer>"
         return "<abstain/>"
 
+    def batch_reward(self, examples: list[Example],
+                     completions: list[str]) -> list[RewardResult]:
+        """Grade a batch: tag frames locally, chat frames through one judge
+        call. The trainer prefers this over reward() when it exists."""
+        out: list[RewardResult | None] = [None] * len(examples)
+        chat_idx = [i for i, ex in enumerate(examples)
+                    if ex.meta.get("frame") == "chat"]
+        for i, (ex, comp) in enumerate(zip(examples, completions)):
+            if i not in chat_idx:
+                out[i] = self.reward(ex, comp)
+        if chat_idx:
+            if self._judge is None:
+                raise RuntimeError("chat-frame examples but no judge configured")
+            verdicts = self._judge.verdicts(
+                [{"question": examples[i].meta["question"],
+                  "reply": completions[i]} for i in chat_idx])
+            for i, v in zip(chat_idx, verdicts):
+                out[i] = self._chat_reward(examples[i], v)
+        return out  # type: ignore[return-value]
+
+    def _chat_reward(self, example: Example, verdict: dict) -> RewardResult:
+        """answer -> graded vs aliases; abstain -> 0; denial -> wrong_penalty
+        (every training entity is real, so asserted nonexistence is a false
+        claim — this is what trains away fabricated negatives)."""
+        kind = verdict["kind"]
+        if kind == "abstain":
+            return RewardResult(0.0, {"format": 1.0, "answered": 0.0,
+                                      "correct": 0.0, "wrong": 0.0,
+                                      "chat": 1.0, "denial": 0.0})
+        if kind == "denial":
+            return RewardResult(-self.wrong_penalty,
+                                {"format": 1.0, "answered": 1.0,
+                                 "correct": 0.0, "wrong": 1.0,
+                                 "chat": 1.0, "denial": 1.0})
+        ok = self._grade_loose(verdict["value"], example.meta["aliases"])
+        return RewardResult(
+            1.0 if ok else -self.wrong_penalty,
+            {"format": 1.0, "answered": 1.0, "correct": float(ok),
+             "wrong": float(not ok), "chat": 1.0, "denial": 0.0},
+        )
+
+    @staticmethod
+    def _grade_loose(value: str, aliases: list[str]) -> bool:
+        """EM first; else word-boundary containment of an alias in the
+        extracted value ("Sunderland A.F.C." should match alias
+        "sunderland" — the judge extracts phrases, not normalized keys)."""
+        if grade(value, aliases):
+            return True
+        val = f" {' '.join(normalize(value).split())} "
+        return any(na and f" {na} " in val
+                   for na in (normalize(a) for a in aliases))
+
     def reward(self, example: Example, completion: str) -> RewardResult:
+        if example.meta.get("frame") == "chat":
+            raise RuntimeError("chat-frame examples must go through "
+                               "batch_reward() (judge-graded)")
         kind, value = parse_reply(completion)
         if kind == "abstain":
             return RewardResult(0.0, {"format": 1.0, "answered": 0.0,
