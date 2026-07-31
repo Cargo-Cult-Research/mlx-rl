@@ -30,8 +30,10 @@ training-weak machine is good at.
   same box (e.g. a local inference server), point `MLX_RL_MEMLEASE_CMD` at an
   external coordinator command and the trainer will call it to make room before
   loading and hand it back on release — even on crash, if your command is
-  PID-aware (see `machine.py` for the exact CLI). This is **off by default**;
-  with nothing configured, runs proceed unmanaged. Either way the in-process
+  PID-aware (see `machine.py` for the exact CLI). When the env var is unset,
+  `~/code/housekeeping/memlease.py` is used if it exists (so on this box every
+  launcher is managed by default); with neither, runs proceed unmanaged.
+  Either way the in-process
   guard (`memory.py`) is the final backstop — it refuses runs that don't fit
   and a swap watchdog hard-aborts a run that starts paging to disk.
 
