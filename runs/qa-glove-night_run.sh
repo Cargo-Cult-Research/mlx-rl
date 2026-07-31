@@ -32,7 +32,11 @@ tg(){
 }
 
 promote(){  # promote <run_dir> <name>: mlx_lm-loadable layout
-    local run=$1 name=$2 dst="$HOME/models/adapters/$name"
+    # (separate statements: bash 3.2 expands ALL args of one `local` before
+    # any assignment, so $name in dst= was unbound and set -u killed the
+    # driver after arm B — cost B its probes on the 07-31 night run)
+    local run=$1 name=$2
+    local dst="$HOME/models/adapters/$name"
     mkdir -p "$dst"
     cp "$run/adapters/adapter-00200.safetensors" "$dst/adapters.safetensors"
     cat > "$dst/adapter_config.json" <<'JSON'
