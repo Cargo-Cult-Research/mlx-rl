@@ -126,6 +126,20 @@ def load_popqa() -> list[dict]:
     return rows
 
 
+# The "glove": a general honesty-about-uncertainty system prompt that ships
+# WITH the LoRA adapter (train with it, deploy with it). It moves the abstain
+# affordance out of per-question instructions into a register that carries to
+# any task — the 07-30 chatmix run showed the policy gradient cannot lift a
+# ~1% decline propensity from rare negative-reward groups alone; the glove
+# raises the baseline propensity so RL's job is calibration, not invention.
+# Single source of truth — probes import it (--system honesty).
+HONESTY_SYSTEM = (
+    "Honesty about uncertainty beats guessing. If you do not reliably know "
+    "the answer, plainly say you don't know — declining is always "
+    "acceptable. Never present a guess as fact, and never claim something "
+    "does not exist just because you don't recognize it."
+)
+
 PROMPT = (
     "Answer this question with a short factual answer, wrapped in answer "
     "tags like <answer>Paris</answer>. If you do not reliably know the "
@@ -158,6 +172,8 @@ class QAAbstainTask:
         calib_file: str | None = None,
         band_mix: dict | None = None,
         chat_frac: float = 0.0,
+        chat_band_mix: dict | None = None,
+        system: str | None = None,
         judge_cache: str = "runs/judge/qa-abstain-cache.jsonl",
         judge_model: str = "opus",
         **_,
@@ -168,6 +184,14 @@ class QAAbstainTask:
         # rest keep the verifiable tag format. The judge cache is shared
         # across runs on purpose — identical short replies are common.
         self.chat_frac = chat_frac
+        # Per-frame curriculum: chat frames may draw bands with their own mix
+        # (unknown-heavy so decline-signal groups fire every step — with the
+        # tag-tuned 0.65-known mix only ~1 in 4 chat groups contained a wrong
+        # answer and the 07-30 run learned nothing in chat).
+        self._chat_band_mix = chat_band_mix
+        # system="honesty" selects HONESTY_SYSTEM; any other string is used
+        # verbatim as the system message; None = no system message.
+        self.system = HONESTY_SYSTEM if system == "honesty" else system
         self._judge = None
         if chat_frac > 0.0:
             from ..judge import Judge
@@ -195,30 +219,39 @@ class QAAbstainTask:
                 self._bands[key].append(row)
             self._band_mix = dict(band_mix or {"known": 0.25, "uncertain": 0.5, "unknown": 0.25})
 
-    def _example(self, row: dict, rng: random.Random) -> Example:
-        chat = rng.random() < self.chat_frac
+    def _example(self, row: dict, rng: random.Random,
+                 chat: bool | None = None) -> Example:
+        if chat is None:
+            chat = rng.random() < self.chat_frac
         if chat:
             content = rng.choice(CHAT_FRAMES).format(q=row["question"])
         else:
             content = PROMPT.format(q=row["question"])
+        messages = [{"role": "user", "content": content}]
+        if self.system:
+            messages.insert(0, {"role": "system", "content": self.system})
         return Example(
-            messages=[{"role": "user", "content": content}],
+            messages=messages,
             meta={"qid": row["qid"], "question": row["question"],
                   "aliases": row["aliases"], "gold": row.get("gold", row["aliases"][0]),
                   "frame": "chat" if chat else "tag"},
         )
 
-    def _draw(self, rng: random.Random) -> dict:
+    def _draw(self, rng: random.Random, mix: dict | None = None) -> dict:
         if not self._bands:
             return rng.choice(self._train)
-        names = [n for n in self._band_mix if self._bands.get(n)]
-        weights = [self._band_mix[n] for n in names]
+        mix = mix or self._band_mix
+        names = [n for n in mix if self._bands.get(n)]
+        weights = [mix[n] for n in names]
         if not names:  # calib file matched nothing usable
             return rng.choice(self._train)
         return rng.choice(self._bands[rng.choices(names, weights=weights, k=1)[0]])
 
     def sample(self, rng: random.Random) -> Example:
-        return self._example(self._draw(rng), rng)
+        # Frame first, then band: chat frames may use their own band mix.
+        chat = rng.random() < self.chat_frac
+        mix = self._chat_band_mix if (chat and self._chat_band_mix) else None
+        return self._example(self._draw(rng, mix), rng, chat)
 
     def eval_sample(self, rng: random.Random) -> Example:
         return self._example(rng.choice(self._eval), rng)
@@ -245,7 +278,17 @@ class QAAbstainTask:
         if example.meta.get("frame") == "chat":
             if known:
                 return f"It's {example.meta['gold']}."
-            return "I don't know off the top of my head."
+            # Vary the decline phrasing (deterministic per question so the
+            # judge cache still hits) — a single fixed sentence would train
+            # a verbatim tic rather than a decline register.
+            declines = (
+                "I don't know off the top of my head.",
+                "I'm not sure — I don't want to guess on this one.",
+                "Honestly, I don't reliably know the answer to that.",
+                "I can't say with confidence; I'd rather not guess.",
+            )
+            # (builtin hash() is salted per process — byte sum is stable)
+            return declines[sum(example.meta["qid"].encode()) % len(declines)]
         if known:
             return f"<answer>{example.meta['gold']}</answer>"
         return "<abstain/>"

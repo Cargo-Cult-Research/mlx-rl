@@ -137,16 +137,27 @@ def main() -> None:
                          "and parse <answer>/<abstain/> tags")
     ap.add_argument("--out", default=f"runs/papers-recall-{time.strftime('%Y%m%d')}")
     ap.add_argument("--no-manage-machine", action="store_true")
+    ap.add_argument("--system", default=None,
+                    help="system message for every item; the literal "
+                         "'honesty' selects qa_abstain.HONESTY_SYSTEM")
     a = ap.parse_args()
+
+    system = a.system
+    if system == "honesty":
+        from mlx_rl.tasks.qa_abstain import HONESTY_SYSTEM
+        system = HONESTY_SYSTEM
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     prof = get_profile(a.profile)
     items = build_items(in_format=a.in_format)
+    if system:
+        for it in items:
+            it["messages"].insert(0, {"role": "system", "content": system})
     (out / "config.json").write_text(json.dumps({
         "papers_recall_probe": True, "model": prof.model,
         "adapter": a.adapter, "k": a.k, "n_items": len(items),
-        "in_format": a.in_format,
+        "in_format": a.in_format, "system": system,
     }, indent=2) + "\n")
 
     think_close = None
