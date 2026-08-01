@@ -11,6 +11,8 @@ scenario (two big models on 96 GB).
 from __future__ import annotations
 
 import os
+import re
+import subprocess
 import sys
 import threading
 import time
@@ -42,7 +44,29 @@ def estimate_run_gb(weights_gb: float, headroom_gb: float = 4.0) -> float:
 
 
 def available_gb() -> float:
-    return psutil.virtual_memory().available / 1e9
+    """psutil available + macOS speculative pages.
+
+    On macOS, psutil's `available` excludes *speculative* pages — read-ahead
+    file cache the kernel reclaims instantly under allocation pressure. A
+    bulk file copy (e.g. the 2026-07-31 rsync disk migration) parks tens of
+    GB there and made the guard refuse a run that genuinely fit, twice.
+    Speculative pages are as reclaimable as free ones for our purposes;
+    count them. (Purgeable is already inside psutil's available.)"""
+    avail = psutil.virtual_memory().available / 1e9
+    if sys.platform == "darwin":
+        try:
+            out = subprocess.run(["vm_stat"], capture_output=True, text=True,
+                                 timeout=10).stdout
+            page = 16384
+            m = re.search(r"page size of (\d+) bytes", out)
+            if m:
+                page = int(m.group(1))
+            m = re.search(r"Pages speculative:\s+(\d+)", out)
+            if m:
+                avail += int(m.group(1)) * page / 1e9
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            pass  # fall back to the conservative number
+    return avail
 
 
 def write_abort_marker(out_dir_or_path: Path | None, reason: str) -> None:
