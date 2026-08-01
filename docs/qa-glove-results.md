@@ -85,10 +85,21 @@ for judge-heavy runs — the per-step judge subprocess ratchets stale swap
 ~50 MB/step without thrashing), inactive-window abort, memlease
 displacement of the serving stack.
 
+## Arm C (known-side pressure) — the deliverable (added 2026-08-01)
+
+Single variable vs A: chat bands 0.35/0.35/0.30. C-200 keeps A's
+fabrication protection (fictional-people 0.95, papers-post 0.92, arXiv
+post-year 0.88, famous 1.00/0.95) while cutting known-hedging 0.29->0.21
+and recovering chat-known correct to 0.46 (base level). Binding improves:
+pearson -0.497, AUROC 0.738, decline 0.021 known vs 0.347 unknown — a 16x
+per-item separation (A-200: 4.6x). Cost: real-obscure hedging 0.33 (A:
+0.50), post-cutoff-author 0.65 (A: 0.78). **qa-gloveC-200-20260731 +
+HONESTY_SYSTEM is the current deliverable pair.**
+
 ## Open
 
-- Over-hedging on knowns (0.29 at A-200): Arm C (chat bands
-  0.35/0.35/0.30, single variable) in flight.
+- Seed-1 replication of Arm C (in flight 2026-08-01) — every result above
+  is a single run.
 - Famous-paper summarization-without-disclaimer untouched (0.95) — a
   chapter-1 detector target, not a reward-shape target.
 - c=1 (TruthRL threshold) arm; capability regression gates (coding
