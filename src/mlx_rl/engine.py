@@ -19,6 +19,18 @@ from dataclasses import dataclass, field
 
 import mlx.core as mx
 from mlx_lm.generate import BatchGenerator, BatchStats
+
+from .dashtap import load_tap
+
+_TAP = None
+
+
+def _tap():
+    """Lazy singleton — probed once, no-op when the dashboard is absent."""
+    global _TAP
+    if _TAP is None:
+        _TAP = load_tap()
+    return _TAP
 from mlx_lm.models import cache as cache_mod
 from mlx_lm.sample_utils import make_sampler
 
@@ -370,6 +382,7 @@ def rollout_groups(
     """
     eos = set(getattr(tokenizer, "eos_token_ids", None) or [tokenizer.eos_token_id])
     eos |= set(extra_eos)
+    tap = _tap()
 
     gen = BatchGenerator(
         model,
@@ -382,10 +395,12 @@ def rollout_groups(
     )
     groups = [[Completion() for _ in range(group_size)] for _ in prompts]
     uid_to: dict[int, tuple[int, int]] = {}
+    tap_st: dict[int, dict] = {}   # uid -> {rid, emitted (chars), flushed (toks)}
     stats = BatchStats()
     try:
         with gen.stats(stats):
             for pi, prompt in enumerate(prompts):
+                ptail = tokenizer.decode(prompt[-120:])[-400:]
                 if share_prompt and len(prompt) > 1:
                     base = prefill_cache(model, prompt, prefill_step_size)
                     uids = gen.insert(
@@ -396,6 +411,11 @@ def rollout_groups(
                     uids = gen.insert([list(prompt) for _ in range(group_size)])
                 for gi, u in enumerate(uids):
                     uid_to[u] = (pi, gi)
+                    tap_st[u] = {
+                        "rid": tap.start(model=f"rollout p{pi}g{gi}",
+                                         prompt=ptail, ptok=len(prompt)),
+                        "emitted": 0, "flushed": 0,
+                    }
 
             done, total = 0, len(prompts) * group_size
             while done < total:
@@ -407,9 +427,27 @@ def rollout_groups(
                     comp = groups[pi][gi]
                     comp.tokens.append(int(r.token))
                     comp.logprobs.append(float(r.logprobs[r.token]))
+                    st = tap_st[r.uid]
+                    if (len(comp.tokens) - st["flushed"] >= 16
+                            or r.finish_reason is not None):
+                        text = tokenizer.decode(comp.tokens)
+                        tap.text(st["rid"], text[st["emitted"]:])
+                        st["emitted"] = len(text)
+                        st["flushed"] = len(comp.tokens)
                     if r.finish_reason is not None:
                         comp.finish_reason = r.finish_reason
+                        tap.end(st["rid"], tok=len(comp.tokens),
+                                finish=r.finish_reason)
                         done += 1
     finally:
         gen.close()
+        for u, (pi, gi) in uid_to.items():   # blocks left open by an abort
+            if groups[pi][gi].finish_reason is None:
+                tap.end(tap_st[u]["rid"],
+                        tok=len(groups[pi][gi].tokens), finish="aborted")
+        tap.note(f"batch done: {len(prompts)}x{group_size} rollouts, "
+                 f"{stats.generation_tokens} tok @ "
+                 f"{stats.generation_tps:.0f} t/s aggregate decode, "
+                 f"prompt {stats.prompt_tps:.0f} t/s, "
+                 f"peak {stats.peak_memory:.1f} GB")
     return groups, stats
