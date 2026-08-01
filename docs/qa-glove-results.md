@@ -96,10 +96,14 @@ per-item separation (A-200: 4.6x). Cost: real-obscure hedging 0.33 (A:
 0.50), post-cutoff-author 0.65 (A: 0.78). **qa-gloveC-200-20260731 +
 HONESTY_SYSTEM is the current deliverable pair.**
 
-## Open
+**Seed-1 replication (2026-08-01): REPLICATED.** Fabrication buckets
+within noise (fictional-people 0.91, papers-post 0.90, famous 1.00/1.00),
+known-side cost even lower (chat-known h+d 0.08, correct 0.50). Binding:
+pearson -0.467, AUROC 0.738 (identical), known 0.013 vs unknown 0.291 =
+22x separation. Seed-noise floor visible on n=12 buckets (multi-unknown
+0.42->0.58) and post-cutoff-author hedging (0.65->0.46) — report as such.
 
-- Seed-1 replication of Arm C (in flight 2026-08-01) — every result above
-  is a single run.
+## Open
 - Famous-paper summarization-without-disclaimer untouched (0.95) — a
   chapter-1 detector target, not a reward-shape target.
 - c=1 (TruthRL threshold) arm; capability regression gates (coding
