@@ -103,8 +103,20 @@ pearson -0.467, AUROC 0.738 (identical), known 0.013 vs unknown 0.291 =
 22x separation. Seed-noise floor visible on n=12 buckets (multi-unknown
 0.42->0.58) and post-cutoff-author hedging (0.65->0.46) — report as such.
 
+## c=1 threshold arm (2026-08-01) — the penalty sweep point
+
+Same recipe as C, wrong_penalty 1.0 (implicit threshold 0.5 vs 0.75).
+Prediction confirmed: the whole operating point slides toward answering —
+hedging drops on every bucket (real-obscure 0.33->0.08, arXiv post-auth
+0.65->0.44, post-year 0.88->0.68, fictional-people 0.95->0.82) AND
+known-side cost drops (chat-known 0.17, multi-known 0.00 at 0.67
+correct); famous papers 1.00/0.975. Binding: known 0.014 / unknown 0.182
+(13x), AUROC 0.70 — per-item discrimination survives; c selects the point
+on the coverage/caution frontier, not the quality of the calibration.
+C-200 glove-OFF inertness also confirmed (at/below base every bucket).
+
 ## Open
 - Famous-paper summarization-without-disclaimer untouched (0.95) — a
   chapter-1 detector target, not a reward-shape target.
-- c=1 (TruthRL threshold) arm; capability regression gates (coding
-  slices); multi-seed replication; alias-grading noise floor.
+- Capability regression gates (coding slices with the adapter served);
+  alias-grading noise floor; more seeds on the marginal buckets.
