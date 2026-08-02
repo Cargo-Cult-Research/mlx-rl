@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>mlx-rl — RL on a Mac · Cargo Cult Research</title>
+<meta name="description" content="GRPO LoRA reinforcement learning on Apple Silicon — and a live duel between the base model and its RL-trained calibrated-honesty adapter.">
+<style>
+  :root {
+    --bg: #4a525a; --ink: #dddddd; --bright: #ffffff;
+    --dim: #a8b0b8; --link: #9ec1de; --rule: #5d666f;
+    --panel: #3f474e; --accent: #b8d4a8;
+  }
+  * { margin: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: Scala, "FF Scala", "Palatino Linotype", Palatino, Georgia, serif;
+    font-size: 17px; line-height: 1.65;
+    max-width: 46em; margin: 0 auto; padding: 8vh 1.3rem 4rem;
+  }
+  header { text-align: center; margin-bottom: 2.4rem; }
+  h1 {
+    color: var(--bright); font-size: 1.55rem; font-weight: normal;
+    font-variant: small-caps; letter-spacing: .14em;
+  }
+  h1 a { color: var(--bright); text-decoration: none; }
+  .sub { color: var(--dim); font-style: italic; margin-top: .2rem; }
+  h2 {
+    color: var(--bright); font-size: 1.1rem; font-weight: normal;
+    font-variant: small-caps; letter-spacing: .1em;
+    margin: 2.6rem 0 .7rem; border-bottom: 1px solid var(--rule);
+    padding-bottom: .25rem;
+  }
+  p { margin: .7rem 0; }
+  a { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
+  a:hover { color: var(--bright); }
+  .dimtext { color: var(--dim); }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: .85em; }
+
+  /* duel */
+  .chips { display: flex; flex-wrap: wrap; gap: .45rem; margin: .8rem 0; }
+  .chips button {
+    background: var(--panel); color: var(--ink); border: 1px solid var(--rule);
+    border-radius: 999px; padding: .25rem .8rem; font: inherit;
+    font-size: .82em; cursor: pointer;
+  }
+  .chips button:hover { border-color: var(--link); color: var(--bright); }
+  .promptrow { display: flex; gap: .5rem; }
+  #prompt {
+    flex: 1; background: var(--panel); color: var(--bright);
+    border: 1px solid var(--rule); border-radius: 6px;
+    padding: .5rem .7rem; font: inherit; font-size: .95em;
+  }
+  #go {
+    background: var(--panel); color: var(--bright); border: 1px solid var(--rule);
+    border-radius: 6px; padding: .5rem 1.1rem; font: inherit; cursor: pointer;
+  }
+  #go:hover { border-color: var(--accent); }
+  #go:disabled { opacity: .45; cursor: default; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin-top: 1rem; }
+  @media (max-width: 640px) { .cols { grid-template-columns: 1fr; } }
+  .col {
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 8px;
+    padding: .7rem .9rem; min-height: 7rem;
+  }
+  .col h3 {
+    font-size: .8em; font-weight: normal; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--dim); margin-bottom: .4rem;
+  }
+  .col.rl h3 { color: var(--accent); }
+  .out { white-space: pre-wrap; font-size: .92em; min-height: 4rem; }
+  .cursor::after { content: "▋"; color: var(--dim); animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  #offline, #err {
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 8px;
+    color: var(--dim); font-style: italic; padding: .7rem .9rem; margin-top: 1rem;
+    display: none;
+  }
+  #flagrow { display: none; margin-top: .8rem; }
+  #flagrow span { color: var(--dim); font-size: .85em; margin-right: .4rem; }
+  #flagrow button {
+    background: none; color: var(--link); border: 1px solid var(--rule);
+    border-radius: 999px; padding: .15rem .7rem; font: inherit; font-size: .8em;
+    cursor: pointer; margin-right: .3rem;
+  }
+  #flagrow button:hover { color: var(--bright); border-color: var(--link); }
+  #flagged { color: var(--accent); font-size: .85em; display: none; }
+
+  /* results */
+  table { border-collapse: collapse; margin: .8rem 0; font-size: .88em; width: 100%; }
+  th, td { border: 1px solid var(--rule); padding: .3rem .6rem; text-align: left; }
+  th { color: var(--bright); font-weight: normal; }
+  td.num { font-family: ui-monospace, Menlo, monospace; font-size: .92em; }
+  dt { color: var(--bright); margin-top: 1.1rem; }
+  dd { color: var(--dim); }
+  footer { margin-top: 4rem; color: var(--dim); font-size: .85rem; text-align: center; }
+</style>
+</head>
+<body>
+  <header>
+    <h1><a href="https://strawrunway.com/">Cargo Cult Research</a></h1>
+    <div class="sub">mlx-rl — reinforcement learning on a Mac</div>
+  </header>
+
+  <p><a href="https://github.com/Cargo-Cult-Research/mlx-rl">mlx-rl</a> is a
+  GRPO harness that RL-trains LoRA adapters on a single Apple Silicon
+  machine — no cluster, no cloud. One M3 Ultra (96&nbsp;GB) trains a
+  35B-parameter model against verifiable rewards: 64 sampled completions per
+  step, judge-graded, ~4&nbsp;hours per 200-step run.</p>
+
+  <h2>base vs RL, live</h2>
+  <p class="dimtext">The same 35B model answers twice: once as its pristine
+  base self, once with an RL-trained <em>calibrated honesty</em> adapter
+  (4.3M LoRA parameters — 0.01% of the model). The adapter was trained on
+  trivia only; hedging on unanswerable questions transfers to people and
+  papers it has never seen. Try to break it — flag what you find.</p>
+
+  <div class="chips" id="chips"></div>
+  <div class="promptrow">
+    <input id="prompt" maxlength="400" placeholder="ask something unknowable — or something famous">
+    <button id="go">duel</button>
+  </div>
+  <div id="offline">The live demo is offline — the machine's one model slot
+  is busy with a research run. The GPU only fits one of us at a time;
+  try again later.</div>
+  <div id="err"></div>
+  <div class="cols">
+    <div class="col"><h3>base — Qwen3.6-35B</h3><div class="out" id="out-base"></div></div>
+    <div class="col rl"><h3>+ RL calibrated honesty</h3><div class="out" id="out-rl"></div></div>
+  </div>
+  <div id="flagrow">
+    <span>verdict:</span>
+    <button data-v="rl_wrong">RL side got it wrong</button>
+    <button data-v="base_better">base was better</button>
+    <button data-v="both_wrong">both wrong</button>
+    <button data-v="interesting">interesting case</button>
+    <span id="flagged">logged — thanks, this feeds the next training round</span>
+  </div>
+
+  <h2>why this matters</h2>
+  <p>Language models answer confidently whether or not they know. The RL
+  recipe here teaches a model to act on its own uncertainty <em>in free
+  conversation</em>: hedge on the unknowable, answer the known, stop
+  asserting things that don't exist. Post-cutoff paper questions go from
+  3% hedged (base) to 88% — while famous-paper recall stays at 95–100%
+  and an agentic-coding benchmark shows <strong>zero capability
+  cost</strong> (45/72 vs 45/72, same harness, adapter the only
+  variable).</p>
+  <table>
+    <tr><th></th><th>base</th><th>+RL adapter</th></tr>
+    <tr><td>hedges on made-up people</td><td class="num">0.20</td><td class="num">0.95</td></tr>
+    <tr><td>hedges on post-cutoff papers</td><td class="num">0.50</td><td class="num">0.92</td></tr>
+    <tr><td>still answers famous papers</td><td class="num">1.00</td><td class="num">1.00</td></tr>
+    <tr><td>reads its own per-item uncertainty</td><td class="num">—</td><td class="num">AUROC 0.74</td></tr>
+    <tr><td>SWE-bench-style coding (of 72)</td><td class="num">45</td><td class="num">45</td></tr>
+  </table>
+  <p class="dimtext">Replicated across seeds; the adapter is inert without
+  its system prompt (register-bound by construction, so it cannot leak
+  hedging into contexts that didn't opt in).</p>
+
+  <h2>built on this harness</h2>
+  <dl>
+    <dt>Calibrated abstention (the demo above)</dt>
+    <dd>The glove program: trivia-trained honesty that transfers to authors,
+    years, and people it never saw. 16–22× per-item known/unknown
+    separation.</dd>
+    <dt>SAGE replication</dt>
+    <dd>Independent reproduction of SAGE-RL against vanilla GRPO on the same
+    budget — vanilla won (0.775 vs 0.650); SAGE's value turned out to live
+    in decoding (oracle 0.806), now served as an experimental sampler.</dd>
+    <dt>Verifiable-reward math</dt>
+    <dd>Exact-match math tasks as the harness's regression suite —
+    reward-shape changes are cheap to falsify before burning a long run.</dd>
+    <dt>Next: ear training</dt>
+    <dd>GRPO on audio-tower models with rewards synthesized from ground-truth
+    audio — teaching a local model to actually hear.</dd>
+  </dl>
+
+  <footer>
+    <a href="https://github.com/Cargo-Cult-Research/mlx-rl">github.com/Cargo-Cult-Research/mlx-rl</a>
+    · runs live on the same machine that trained it
+  </footer>
+
+<script>
+const CHIPS = [
+  ["famous paper", "Who are the authors of the paper 'Attention Is All You Need'?"],
+  ["post-cutoff paper", "Who wrote the 2026 paper 'Sparse Router Collapse in Trillion-Parameter Mixtures'?"],
+  ["made-up person", "What university did the physicist Elena Vasquez-Thornton attend?"],
+  ["unknowable", "What did Werner Heisenberg eat for breakfast on his 30th birthday?"],
+  ["obscure but real", "What instrument did Sofia Gubaidulina study at the Kazan Conservatory?"],
+  ["known trivia", "What element has the chemical symbol Fe?"],
+];
+const $ = id => document.getElementById(id);
+const outs = { base: $("out-base"), rl: $("out-rl") };
+let last = null;
+
+CHIPS.forEach(([label, text]) => {
+  const b = document.createElement("button");
+  b.textContent = label;
+  b.onclick = () => { $("prompt").value = text; duel(); };
+  $("chips").appendChild(b);
+});
+
+fetch("api/status").then(r => r.json()).then(s => {
+  if (!s.ready) { $("offline").style.display = "block"; $("go").disabled = true; }
+}).catch(() => { $("offline").style.display = "block"; $("go").disabled = true; });
+
+async function duel() {
+  const prompt = $("prompt").value.trim();
+  if (!prompt || $("go").disabled) return;
+  $("go").disabled = true;
+  $("err").style.display = "none";
+  $("flagrow").style.display = "none";
+  $("flagged").style.display = "none";
+  outs.base.textContent = ""; outs.rl.textContent = "";
+  last = { prompt, base: "", rl: "" };
+  try {
+    const r = await fetch("api/duel", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || ("request failed (" + r.status + ")"));
+    }
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!line.startsWith("data: ")) continue;
+        const ev = JSON.parse(line.slice(6));
+        if (ev.arm && ev.start) outs[ev.arm].classList.add("cursor");
+        if (ev.arm && ev.delta) {
+          outs[ev.arm].textContent += ev.delta;
+          last[ev.arm] += ev.delta;
+        }
+        if (ev.arm && (ev.done || ev.error)) {
+          outs[ev.arm].classList.remove("cursor");
+          if (ev.error) outs[ev.arm].textContent += " [" + ev.error + "]";
+        }
+        if (ev.all_done) $("flagrow").style.display = "block";
+      }
+    }
+  } catch (e) {
+    $("err").textContent = e.message;
+    $("err").style.display = "block";
+  } finally {
+    Object.values(outs).forEach(o => o.classList.remove("cursor"));
+    $("go").disabled = false;
+  }
+}
+$("go").onclick = duel;
+$("prompt").addEventListener("keydown", e => { if (e.key === "Enter") duel(); });
+
+$("flagrow").querySelectorAll("button").forEach(b => {
+  b.onclick = () => {
+    if (!last) return;
+    fetch("api/flag", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ verdict: b.dataset.v, ...last }),
+    }).then(() => { $("flagged").style.display = "inline"; });
+  };
+});
+</script>
+</body>
+</html>

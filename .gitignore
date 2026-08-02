@@ -27,3 +27,4 @@ wandb/
 
 # OS
 .DS_Store
+demo/flags.jsonl
