@@ -115,8 +115,16 @@ correct); famous papers 1.00/0.975. Binding: known 0.014 / unknown 0.182
 on the coverage/caution frontier, not the quality of the calibration.
 C-200 glove-OFF inertness also confirmed (at/below base every bucket).
 
+## Capability regression gate (2026-08-01) — PASSED, zero drop
+
+OpenCode x SWE-bench lv-72, same mlx_lm.server stack both arms, adapter+
+glove the only variable (glove injected by serialize_proxy — train=deploy
+at the serving door). **Base 45/72, C-200 45/72 — identical.** The
+calibrated-abstention pair is free on agentic coding; pre-registered bar
+was drop <= 8. Backend `qwen36-c200` (housekeeping) is cleared as a
+serving option. Evidence: bench-coding `results/oc-qwen36-{mlxlm,c200}-gate/`.
+
 ## Open
 - Famous-paper summarization-without-disclaimer untouched (0.95) — a
   chapter-1 detector target, not a reward-shape target.
-- Capability regression gates (coding slices with the adapter served);
-  alias-grading noise floor; more seeds on the marginal buckets.
+- Alias-grading noise floor; more seeds on the marginal buckets.
