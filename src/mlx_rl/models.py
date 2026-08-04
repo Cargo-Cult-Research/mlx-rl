@@ -89,6 +89,15 @@ def load_policy(
         from mlx_vlm import load as vlm_load
 
         inner, _processor = vlm_load(str(path))
+        # mlx-vlm gemma4's audio tower stores AudioRelativePositionEmbedding
+        # as a private `_rel_pos` attribute; those instances end up without
+        # nn.Module's bookkeeping attrs and crash freeze(). Repair the
+        # bookkeeping — they're frozen inference-only modules either way.
+        for _, mod in inner.named_modules():
+            if not hasattr(mod, "_no_grad"):
+                object.__setattr__(mod, "_no_grad", set())
+            if not hasattr(mod, "_training"):
+                object.__setattr__(mod, "_training", True)
         model = VLMTextPolicy(inner)
         tokenizer = load_tokenizer(path)
     else:
