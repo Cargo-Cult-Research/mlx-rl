@@ -31,15 +31,21 @@ def load_policy(
     lora: LoraConfig,
     headroom_gb: float = 4.0,
     grad_checkpoint: bool = False,
+    required_gb: float = 0.0,
 ):
     """Load base weights, freeze them, attach trainable LoRA adapters.
 
     Returns (model, tokenizer, info). Raises MemoryGuardError instead of
     loading a model that would not fit next to what is already resident.
+
+    required_gb > 0 overrides the worst-case estimator — for workloads far
+    from its calibration regime (e.g. 1-token rollouts). The claim is
+    checked, not trusted: assert_fits still gates the load and the SwapGuard
+    hard-aborts the run if the real peak proves the override wrong.
     """
     path = resolve_model_path(model_id)
     weights_gb = model_disk_gb(path)
-    assert_fits(estimate_run_gb(weights_gb, headroom_gb))
+    assert_fits(required_gb or estimate_run_gb(weights_gb, headroom_gb))
 
     model, tokenizer = mlx_load(str(path))
     model.freeze()

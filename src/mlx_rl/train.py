@@ -420,11 +420,12 @@ def train(cfg: TrainConfig, out_dir: str | Path) -> Path:
         from .memory import estimate_run_gb, model_disk_gb
         from .models import resolve_model_path
 
-        required = estimate_run_gb(
+        required = cfg.required_gb or estimate_run_gb(
             model_disk_gb(resolve_model_path(cfg.model)), cfg.activation_headroom_gb
         )
         holder = machine.acquire(
-            required, wait_s=cfg.lease_wait_s, note=f"train {cfg.task} on {cfg.model}"
+            required, wait_s=cfg.lease_wait_s, block=cfg.lease_block,
+            note=f"train {cfg.task} on {cfg.model}"
         )
     try:
         return _train(cfg, out_dir)
@@ -472,9 +473,14 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
 
     model, tokenizer, info = load_policy(
         cfg.model, cfg.lora, cfg.activation_headroom_gb,
-        grad_checkpoint=cfg.grad_checkpoint,
+        grad_checkpoint=cfg.grad_checkpoint, required_gb=cfg.required_gb,
     )
     print(f"loaded {cfg.model}: {info}")
+    # Model-graded tasks (telephone's frozen-listener reward) need the live
+    # model; tasks are constructed before load, so hand it over here.
+    bind = getattr(task, "bind_model", None)
+    if bind is not None:
+        bind(model, tokenizer)
     pad_id = next(iter(sorted(tokenizer.eos_token_ids)))
 
     # Fail loud, not slow: hard-abort if a backward spills to swap.
@@ -783,6 +789,13 @@ def main() -> None:
     p.add_argument("--no-share-prompt", dest="share_prompt", action="store_false")
     p.add_argument("--no-manage-machine", dest="manage_machine", action="store_false")
     p.add_argument("--lease-wait", type=float, default=d.lease_wait_s, help="seconds to wait for the machine lease")
+    p.add_argument("--lease-block", default=d.lease_block,
+                   choices=["exclusive", "experiments"],
+                   help="memlease block: experiments coexists with the :8084 "
+                        "serving slot (use for runs that fit in ~40 GB)")
+    p.add_argument("--required-gb", type=float, default=d.required_gb,
+                   help="override the worst-case run-size estimate (0 = "
+                        "estimator); guard + swap watchdog still enforce it")
     p.add_argument("--rollout-batch-size", type=int, default=d.rollout_batch_size)
     p.add_argument("--length-penalty", type=float, default=d.length_penalty,
                    help="correctness-gated total-length penalty λ (0 = off)")
@@ -833,6 +846,8 @@ def main() -> None:
         share_prompt=a.share_prompt,
         manage_machine=a.manage_machine,
         lease_wait_s=a.lease_wait,
+        lease_block=a.lease_block,
+        required_gb=a.required_gb,
         rollout_batch_size=a.rollout_batch_size,
         task=a.task,
         task_kwargs=json.loads(a.task_kwargs),

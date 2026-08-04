@@ -66,7 +66,8 @@ def holder_name() -> str:
     return f"mlx-rl:{os.getpid()}"
 
 
-def acquire(required_gb: float, wait_s: float = 0, note: str = "") -> str | None:
+def acquire(required_gb: float, wait_s: float = 0, note: str = "",
+            block: str = "exclusive") -> str | None:
     """Acquire the memory lease and make room (frees other jobs if the command does).
 
     Returns the holder name (pass it to release), or None when no lease command
@@ -93,6 +94,8 @@ def acquire(required_gb: float, wait_s: float = 0, note: str = "") -> str | None
         [
             "acquire",
             holder,
+            "--block",
+            block,
             "--pid",
             str(os.getpid()),
             "--ensure-gb",
