@@ -38,6 +38,7 @@ earns the same reward, and nothing optimizes the grader.
 from __future__ import annotations
 
 import random
+import re
 
 import mlx.core as mx
 import numpy as np
@@ -49,9 +50,22 @@ ROOTS = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 LABELS = [(q, r) for q in QUALITIES for r in ROOTS]
 NULL_CODE = "?"
 
+# Arm C2's ban: quality words + their common abbreviations (substring, so
+# 'Cdim' and 'diminished' both hit) and bare note letters (word-bounded, so
+# 'F#' and 'a' hit but 'flags' does not). Deliberately aggressive — pushing
+# the code AWAY from natural language is the point.
+_BAN_RE = re.compile(r"maj|min|dim|aug|sus|\b[a-g]#?\b", re.IGNORECASE)
 
-def _speaker_prompt(quality: str, root: str, k: int) -> str:
+
+def _speaker_prompt(quality: str, root: str, k: int, ban: bool = False) -> str:
     unit = "exactly one token" if k == 1 else f"at most {k} tokens"
+    extra = (
+        " FORBIDDEN in your code: the words major/minor/diminished/augmented "
+        "or any abbreviation of them (maj, min, dim, aug), and note letters "
+        "A through G. Codes containing them score zero — invent something "
+        "else your twin will understand."
+        if ban else ""
+    )
     return (
         "You are playing a code game with your identical twin — same model, "
         f"same weights, but the twin sees ONLY your code, nothing else. "
@@ -59,7 +73,7 @@ def _speaker_prompt(quality: str, root: str, k: int) -> str:
         f"Send a code of {unit} (any string, it does not have to be an "
         "English word) that lets the twin recover BOTH the quality "
         "(major/minor/diminished/augmented) AND the root (C, C#, D, D#, E, "
-        "F, F#, G, G#, A, A#, B). Reply with the code only."
+        f"F, F#, G, G#, A, A#, B).{extra} Reply with the code only."
     )
 
 
@@ -81,9 +95,24 @@ class TelephoneTask:
     # templates without the variable (tiny/Qwen2.5).
     chat_template_kwargs = {"enable_thinking": False}
 
-    def __init__(self, k_tokens: int = 1, score_chunk: int = 64):
+    def __init__(self, k_tokens: int = 1, score_chunk: int = 64,
+                 inject_codebook: str | None = None,
+                 ban_label_words: bool = False):
         self.k = k_tokens
         self.score_chunk = score_chunk
+        self.ban = ban_label_words
+        # Arm C1 (2026-08-04): a probe-JSON codebook enables --inject-r —
+        # one off-policy group member per group carries the searched best
+        # token for the secret. Arm B died of entropy collapse (deterministic
+        # policy -> zero-variance groups -> no gradient after step 88);
+        # injection restores group variance and points the gradient at
+        # mined tokens. Tests absorption, not discovery.
+        self.codebook: dict[str, str] | None = None
+        if inject_codebook:
+            import json
+            data = json.loads(open(inject_codebook).read())
+            self.codebook = {label: entry["token"] for label, entry
+                             in data["codebook_search"]["codebook"].items()}
         self.model = None
         self.tokenizer = None
         self._null_lp: np.ndarray | None = None  # [48] cached null-code scores
@@ -113,7 +142,8 @@ class TelephoneTask:
     def sample(self, rng: random.Random) -> Example:
         q, r = rng.choice(LABELS)
         return Example(
-            messages=[{"role": "user", "content": _speaker_prompt(q, r, self.k)}],
+            messages=[{"role": "user",
+                       "content": _speaker_prompt(q, r, self.k, self.ban)}],
             meta={"quality": q, "root": r, "idx": LABELS.index((q, r))},
         )
 
@@ -132,16 +162,28 @@ class TelephoneTask:
             q, r = LABELS[i]
             p_quality = float(sum(pi[j] for j, (qq, _) in enumerate(LABELS) if qq == q))
             p_root = float(sum(pi[j] for j, (_, rr) in enumerate(LABELS) if rr == r))
-            total = float(pi[i]) if code else 0.0
+            banned = self.ban and bool(_BAN_RE.search(code))
+            total = 0.0 if (not code or banned) else float(pi[i])
             out.append(RewardResult(total, {
                 "p_correct": float(pi[i]),
                 "p_quality": p_quality,
                 "p_root": p_root,
+                "banned": float(banned),
             }))
         return out
 
     def reward(self, example: Example, completion: str) -> RewardResult:
         return self.batch_reward([example], [completion])[0]
+
+    def injected_completion(self, example: Example) -> str:
+        """Off-policy demonstration for --inject-r: the codebook's best
+        token for this secret (requires inject_codebook=...)."""
+        if self.codebook is None:
+            raise RuntimeError(
+                "--inject-r on the telephone task needs "
+                "task_kwargs inject_codebook=<probe json>")
+        q, r = example.meta["quality"], example.meta["root"]
+        return self.codebook[f"{q} {r}"]
 
     # -- internals ---------------------------------------------------------
     def _encode(self, text: str) -> list[int]:

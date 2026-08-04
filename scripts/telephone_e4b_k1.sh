@@ -21,7 +21,7 @@ HOLDER="telephone-probe:$$"
 # NB no --ensure-gb: that flag displaces :8084 and is exclusive-only
 python3 "$MEMLEASE" acquire "$HOLDER" --block experiments \
   --wait 1800 --note "telephone day-0 codebook probe (e4b, 512 tokens)"
-trap 'python3 "$MEMLEASE" release "$HOLDER"' EXIT
+trap 'python3 "$MEMLEASE" release "$HOLDER" --block experiments' EXIT
 .venv/bin/python scripts/telephone_probe.py \
   --profile e4b --vocab-sample 512 \
   --out runs/telephone-e4b-k1/probe-day0-512.json
