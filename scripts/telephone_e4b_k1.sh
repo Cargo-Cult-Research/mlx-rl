@@ -18,7 +18,8 @@ cd "$(dirname "$0")/.."
 
 MEMLEASE=~/code/housekeeping/memlease.py
 HOLDER="telephone-probe:$$"
-python3 "$MEMLEASE" acquire "$HOLDER" --block experiments --ensure-gb 25 \
+# NB no --ensure-gb: that flag displaces :8084 and is exclusive-only
+python3 "$MEMLEASE" acquire "$HOLDER" --block experiments \
   --wait 1800 --note "telephone day-0 codebook probe (e4b, 512 tokens)"
 trap 'python3 "$MEMLEASE" release "$HOLDER"' EXIT
 .venv/bin/python scripts/telephone_probe.py \
