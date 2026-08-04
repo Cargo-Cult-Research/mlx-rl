@@ -90,22 +90,25 @@ def acquire(required_gb: float, wait_s: float = 0, note: str = "",
     from .memory import SAFETY_FRACTION
 
     holder = holder_name()
-    rc = _run(
-        [
-            "acquire",
-            holder,
-            "--block",
-            block,
-            "--pid",
-            str(os.getpid()),
-            "--ensure-gb",
-            str(round(required_gb / SAFETY_FRACTION, 1)),
-            "--wait",
-            str(wait_s),
-            "--note",
-            note,
-        ]
-    )
+    cmd = [
+        "acquire",
+        holder,
+        "--block",
+        block,
+        "--pid",
+        str(os.getpid()),
+        "--wait",
+        str(wait_s),
+        "--note",
+        note,
+    ]
+    if block == "exclusive":
+        # --ensure-gb displaces :8084 and is exclusive-only by design — the
+        # experiments block coexists with the serving slot, and memlease
+        # rejects the flag there outright. assert_fits() still gates the
+        # load either way.
+        cmd += ["--ensure-gb", str(round(required_gb / SAFETY_FRACTION, 1))]
+    rc = _run(cmd)
     if rc != 0:
         raise MachineBusyError(
             "the memory lease is held by another job; retry with --lease-wait "
