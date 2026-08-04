@@ -474,6 +474,7 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
     model, tokenizer, info = load_policy(
         cfg.model, cfg.lora, cfg.activation_headroom_gb,
         grad_checkpoint=cfg.grad_checkpoint, required_gb=cfg.required_gb,
+        vlm=cfg.vlm_policy,
     )
     print(f"loaded {cfg.model}: {info}")
     # Model-graded tasks (telephone's frozen-listener reward) need the live
@@ -842,6 +843,7 @@ def main() -> None:
     cfg = TrainConfig(
         model=model,
         profile=a.profile,
+        vlm_policy=prof.vlm if prof else False,
         extra_eos=tuple(prof.extra_eos) if prof else (),
         share_prompt=a.share_prompt,
         manage_machine=a.manage_machine,

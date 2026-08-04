@@ -48,6 +48,8 @@ class TrainConfig:
     # rollouts). Set explicitly for workloads far from that regime (1-token
     # rollouts); assert_fits + SwapGuard still enforce the claim.
     required_gb: float = 0.0
+    # load the checkpoint via mlx-vlm (multimodal; VLMTextPolicy wrapper)
+    vlm_policy: bool = False
     rollout_batch_size: int = 64  # continuous-batching completion batch cap
     steps: int = 100
     batch_prompts: int = 4  # prompts per optimizer step

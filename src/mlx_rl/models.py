@@ -26,12 +26,45 @@ def resolve_model_path(model_id: str) -> Path:
     return Path(snapshot_download(model_id))
 
 
+class VLMTextPolicy(nn.Module):
+    """An mlx-vlm multimodal model driven through the mlx-lm text-model
+    contract the rest of this trainer speaks: `model(inputs, cache=...)` ->
+    bare logits, `.layers`, `.make_cache()`, `.language_model` nesting.
+
+    Text rollouts call straight into the language model (which self-computes
+    its per-layer embeddings from token ids); the frozen towers ride along
+    in the module tree so Phase-2 multimodal prefill is a forward-path
+    change, not a reload. Adapter weights saved from this wrapper carry a
+    leading `vlm.` on their keys.
+    """
+
+    def __init__(self, vlm: nn.Module):
+        super().__init__()
+        self.vlm = vlm
+
+    @property
+    def language_model(self):
+        return self.vlm.language_model
+
+    @property
+    def layers(self):
+        return self.vlm.language_model.layers
+
+    def make_cache(self):
+        return self.vlm.language_model.make_cache()
+
+    def __call__(self, inputs: mx.array, cache=None, mask=None):
+        out = self.vlm.language_model(inputs, cache=cache, mask=mask)
+        return out.logits if hasattr(out, "logits") else out
+
+
 def load_policy(
     model_id: str,
     lora: LoraConfig,
     headroom_gb: float = 4.0,
     grad_checkpoint: bool = False,
     required_gb: float = 0.0,
+    vlm: bool = False,
 ):
     """Load base weights, freeze them, attach trainable LoRA adapters.
 
@@ -42,12 +75,24 @@ def load_policy(
     from its calibration regime (e.g. 1-token rollouts). The claim is
     checked, not trusted: assert_fits still gates the load and the SwapGuard
     hard-aborts the run if the real peak proves the override wrong.
+
+    vlm=True loads a multimodal checkpoint via mlx-vlm and wraps it in
+    VLMTextPolicy; the tokenizer still comes from mlx-lm's loader so the
+    trainer sees its usual TokenizerWrapper (eos_token_ids etc.).
     """
     path = resolve_model_path(model_id)
     weights_gb = model_disk_gb(path)
     assert_fits(required_gb or estimate_run_gb(weights_gb, headroom_gb))
 
-    model, tokenizer = mlx_load(str(path))
+    if vlm:
+        from mlx_lm.utils import load_tokenizer
+        from mlx_vlm import load as vlm_load
+
+        inner, _processor = vlm_load(str(path))
+        model = VLMTextPolicy(inner)
+        tokenizer = load_tokenizer(path)
+    else:
+        model, tokenizer = mlx_load(str(path))
     model.freeze()
     num_layers = lora.num_layers if lora.num_layers > 0 else len(model.layers)
     linear_to_lora_layers(
@@ -103,6 +148,12 @@ def selective_logprobs(
     lm = getattr(model, "language_model", model)
     h = lm.model(inp)  # [B, L, hidden] — full-seq trunk, incl. final norm
     h = mx.take_along_axis(h, sel_idx[..., None], axis=1)  # [B, K, hidden]
+    if hasattr(lm, "logits_from_hidden"):
+        # gemma4-family head (mlx-lm and mlx-vlm both expose it): tied
+        # embeddings + optional final logit softcap — the manual paths below
+        # would silently skip the softcap.
+        logits = lm.logits_from_hidden(h)
+        return -nn.losses.cross_entropy(logits, tgt_sel, reduction="none")
     if getattr(lm.args, "tie_word_embeddings", False):
         logits = lm.model.embed_tokens.as_linear(h)
     else:

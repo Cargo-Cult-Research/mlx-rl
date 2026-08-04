@@ -41,9 +41,19 @@ def main() -> None:
     ap.add_argument("--out", default=None, help="write results JSON here")
     args = ap.parse_args()
 
-    model_path = PROFILES[args.profile].model
-    print(f"loading {model_path} ...")
-    model, tokenizer = load(model_path)
+    prof = PROFILES[args.profile]
+    print(f"loading {prof.model} ...")
+    if prof.vlm:
+        from mlx_lm.utils import load_tokenizer
+        from mlx_vlm import load as vlm_load
+
+        from mlx_rl.models import VLMTextPolicy
+
+        inner, _ = vlm_load(prof.model)
+        model, tokenizer = VLMTextPolicy(inner), load_tokenizer(
+            __import__("pathlib").Path(prof.model))
+    else:
+        model, tokenizer = load(prof.model)
     task = TelephoneTask(score_chunk=args.score_chunk)
     task.bind_model(model, tokenizer)  # prints the clear-text sanity line
 

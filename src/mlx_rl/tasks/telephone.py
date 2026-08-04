@@ -190,7 +190,8 @@ class TelephoneTask:
                     msk[i, : len(s)] = 1.0
                 lp = selective_logprobs(
                     self.model, mx.array(inp), mx.array(tgt), mx.array(sel))
-                scores[lo:lo + self.score_chunk] = (np.array(lp, dtype=np.float64) * msk).sum(axis=1)
+                lp = np.array(lp.astype(mx.float32), dtype=np.float64)  # np can't read bf16
+                scores[lo:lo + self.score_chunk] = (lp * msk).sum(axis=1)
                 mx.clear_cache()
         return scores.reshape(len(codes), len(LABELS))
 
