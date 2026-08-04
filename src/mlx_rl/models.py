@@ -149,15 +149,19 @@ def selective_logprobs(
     h = lm.model(inp)  # [B, L, hidden] — full-seq trunk, incl. final norm
     h = mx.take_along_axis(h, sel_idx[..., None], axis=1)  # [B, K, hidden]
     if hasattr(lm, "logits_from_hidden"):
-        # gemma4-family head (mlx-lm and mlx-vlm both expose it): tied
-        # embeddings + optional final logit softcap — the manual paths below
-        # would silently skip the softcap.
+        # mlx-vlm gemma4 exposes the full head (tied embeddings + softcap)
         logits = lm.logits_from_hidden(h)
         return -nn.losses.cross_entropy(logits, tgt_sel, reduction="none")
     if getattr(lm.args, "tie_word_embeddings", False):
         logits = lm.model.embed_tokens.as_linear(h)
     else:
         logits = lm.lm_head(h)
+    # mlx-lm gemma4_text applies final-logit softcapping inline in __call__;
+    # skipping it here shifted candidate logprobs by up to 28 nats on E4B
+    # (caught 2026-08-03 by the text-vs-vlm A/B rig).
+    softcap = getattr(lm, "final_logit_softcapping", None)
+    if softcap:
+        logits = mx.tanh(logits / softcap) * softcap
     return -nn.losses.cross_entropy(logits, tgt_sel, reduction="none")
 
 
