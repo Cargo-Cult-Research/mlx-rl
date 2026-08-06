@@ -99,6 +99,9 @@ def load_policy(
             if not hasattr(mod, "_training"):
                 object.__setattr__(mod, "_training", True)
         model = VLMTextPolicy(inner)
+        # Multimodal consumers (audio/vision prompts) need the processor for
+        # feature extraction; plain attribute, invisible to the param tree.
+        object.__setattr__(model, "processor", _processor)
         tokenizer = load_tokenizer(path)
     else:
         model, tokenizer = mlx_load(str(path))
