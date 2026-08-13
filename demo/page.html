@@ -93,6 +93,34 @@
   td.num { font-family: ui-monospace, Menlo, monospace; font-size: .92em; }
   dt { color: var(--bright); margin-top: 1.1rem; }
   dd { color: var(--dim); }
+/* rollout examples */
+  details.rollout {
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 8px;
+    margin: .6rem 0; padding: 0;
+  }
+  details.rollout summary {
+    cursor: pointer; padding: .55rem .9rem; font-size: .92em;
+    list-style-position: inside;
+  }
+  details.rollout summary:hover { color: var(--bright); }
+  details.rollout .rtask { color: var(--accent); font-variant: small-caps; letter-spacing: .06em; }
+  details.rollout .rreward {
+    float: right; color: var(--dim); font-size: .82em;
+    font-family: ui-monospace, Menlo, monospace;
+  }
+  details.rollout h4 {
+    color: var(--dim); font-size: .72em; font-weight: normal;
+    text-transform: uppercase; letter-spacing: .1em;
+    margin: .8rem .9rem .2rem;
+  }
+  details.rollout pre {
+    margin: 0 .9rem .6rem; padding: .55rem .7rem;
+    background: var(--bg); border: 1px solid var(--rule); border-radius: 6px;
+    font-family: ui-monospace, Menlo, monospace; font-size: .74em;
+    line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+    max-height: 24rem; overflow-y: auto;
+  }
+  .rlx-note { color: var(--dim); font-size: .85em; margin: .2rem .9rem .8rem; }
   footer { margin-top: 4rem; color: var(--dim); font-size: .85rem; text-align: center; }
 </style>
 </head>
@@ -175,6 +203,384 @@
     <dd>GRPO on audio-tower models with rewards synthesized from ground-truth
     audio — teaching a local model to actually hear.</dd>
   </dl>
+
+  <h2>inside a training rollout</h2>
+  <p class="dimtext">Three verbatim rollouts from a GRPO training run on the
+  three-task mixture (50% MBPP code, 25% arithmetic, 25% tool-call format) —
+  temperature 1.0, 2,048-token cap, thinking on: the sampling regime the
+  policy gradient actually sees, not a showcase setting. Each expands to the
+  exact rendered prompt, the full think block, and the graded output.</p>
+  <details class="rollout">
+    <summary><span class="rtask">arithmetic</span> — compute 930 + 880 - 710 - 348 - 493
+      <span class="rreward">reward 1 · 1333 tok</span></summary>
+    <h4>prompt (rendered chat template)</h4>
+    <pre>&lt;|im_start|&gt;user
+Compute 930 + 880 - 710 - 348 - 493. Think step by step, then end your reply with the final integer wrapped in answer tags, like &lt;answer&gt;7&lt;/answer&gt;.&lt;|im_end|&gt;
+&lt;|im_start|&gt;assistant
+&lt;think&gt;
+</pre>
+    <h4>thinking</h4>
+    <pre>Here&#x27;s a thinking process:
+
+1.  **Understand the User Request:**
+   - Compute the arithmetic expression: 930 + 880 - 710 - 348 - 493
+   - Show step-by-step reasoning
+   - Provide the final integer inside `&lt;answer&gt;` tags.
+
+2.  **Break Down the Expression:**
+   - Start with 930
+   - Add 880
+   - Subtract 710
+   - Subtract 348
+   - Subtract 493
+
+3.  **Step-by-Step Calculation:**
+   - Step 1: 930 + 880 = 1810
+   - Step 2: 1810 - 710 = 1100
+   - Step 3: 1100 - 348 = 752
+   - Step 4: 752 - 493 = 259
+
+   Let me double-check the arithmetic:
+   - 930 + 880: 900+800=1700, 30+80=110, total 1810. Correct.
+   - 1810 - 710: 1810 - 700 = 1110, 1110 - 10 = 1100. Correct.
+   - 1100 - 348: 1100 - 300 = 800, 800 - 48 = 752. Correct.
+   - 752 - 493: 752 - 400 = 352, 352 - 93 = 259. Or 752 - 500 = 252, then +7 = 259. Both give 259. Correct.
+
+4.  **Alternative Verification (Grouping):**
+   - Sum of positives: 930 + 880 = 1810
+   - Sum of negatives: 710 + 348 + 493 = 1551
+   - 1810 - 1551 = 259. Correct.
+
+5.  **Format Output:**
+   - Provide step-by-step reasoning as requested.
+   - End with `&lt;answer&gt;259&lt;/answer&gt;`.
+
+   Structure:
+   - Start with the expression.
+   - Add 930 and 880.
+   - Subtract 710.
+   - Subtract 348.
+   - Subtract 493.
+   - State final result.
+   - Wrap in tags.
+
+   All steps verified. Ready. 
+   Output matches the request.✅
+   Final check of the prompt: &quot;Compute 930 + 880 - 710 - 348 - 493. Think step by step, then end your reply with the final integer wrapped in answer tags, like &lt;answer&gt;7&lt;/answer&gt;.&quot;
+   All good.✅
+   Proceed. 
+   Output Generation. 
+   [Step-by-step text]
+   First, add 930 and 880:
+   930 + 880 = 1810
+   Next, subtract 710:
+   1810 - 710 = 1100
+   Then, subtract 348:
+   1100 - 348 = 752
+   Finally, subtract 493:
+   752 - 493 = 259
+   Therefore, the result is 259. &lt;answer&gt;259&lt;/answer&gt;
+   Matches exactly.✅
+   Output matches response. 
+   Proceeds. 
+   [Done] 
+   *Self-Correction/Verification during thought*: 
+   Let&#x27;s re-add carefully: 
+   930 + 880 = 1810
+   1810 - 710 = 1100
+   1100 - 348 = 752
+   752 - 493 = 259
+   Check with calculator mental: 
+   930+880=1810
+   1810-710=1100
+   1100-348: 1100-300=800, 800-40=760, 760-8=752. Correct.
+   752-493: 752-493 = 259. Correct.
+   All steps solid. 
+   Output matches. 
+   Done. 
+   [Output Generation] -&gt; *Proceeds*</pre>
+    <h4>output</h4>
+    <pre>Let&#x27;s break down the expression step by step:
+
+1. Start with the first two numbers:  
+   \(930 + 880 = 1810\)
+
+2. Subtract the next number:  
+   \(1810 - 710 = 1100\)
+
+3. Subtract the third number:  
+   \(1100 - 348 = 752\)
+
+4. Subtract the final number:  
+   \(752 - 493 = 259\)
+
+You can also verify by grouping the positive and negative terms:  
+Positives: \(930 + 880 = 1810\)  
+Negatives: \(710 + 348 + 493 = 1551\)  
+Difference: \(1810 - 1551 = 259\)
+
+Both methods give the same result.
+
+&lt;answer&gt;259&lt;/answer&gt;</pre>
+<p class="rlx-note">Correct at step 3 of the think block — the remaining ~1,000 tokens re-verify the same result and draft the final reply twice before writing it. This redundant tail is what the SAGE work targets.</p>  </details>
+  <details class="rollout">
+    <summary><span class="rtask">code (MBPP)</span> — move all digits to the end of a string
+      <span class="rreward">reward 1 · 2042 tok</span></summary>
+    <h4>prompt (rendered chat template)</h4>
+    <pre>&lt;|im_start|&gt;user
+Write a function to move all the numbers to the end of the given string.
+
+Write a single self-contained Python function that satisfies the tests below. Reply with your reasoning, then the function in one ```python code block. Do not include the tests.
+
+Tests it must pass:
+assert move_num(&#x27;I1love143you55three3000thousand&#x27;) == &#x27;Iloveyouthreethousand1143553000&#x27;
+assert move_num(&#x27;Avengers124Assemble&#x27;) == &#x27;AvengersAssemble124&#x27;
+assert move_num(&#x27;Its11our12path13to14see15things16do17things&#x27;) == &#x27;Itsourpathtoseethingsdothings11121314151617&#x27;&lt;|im_end|&gt;
+&lt;|im_start|&gt;assistant
+&lt;think&gt;
+</pre>
+    <h4>thinking</h4>
+    <pre>The user wants a function that takes a string and moves all the numbers to the end of the string.
+The numbers should maintain their relative order, and the non-number characters should maintain their relative order.
+Looking at the examples:
+&#x27;I1love143you55three3000thousand&#x27; -&gt; &#x27;Iloveyouthreethousand1143553000&#x27;
+&#x27;Avengers124Assemble&#x27; -&gt; &#x27;AvengersAssemble124&#x27;
+&#x27;Its11our12path13to14see15things16do17things&#x27; -&gt; &#x27;Itsourpathtoseethingsdothings11121314151617&#x27;
+
+Wait, looking at the outputs, the numbers are concatenated at the end without spaces.
+Let&#x27;s check the digits:
+&#x27;I1love143you55three3000thousand&#x27; -&gt; non-numbers: &#x27;Iloveyouthreethousand&#x27;, numbers: &#x27;1&#x27;, &#x27;143&#x27;, &#x27;55&#x27;, &#x27;3000&#x27; -&gt; concatenated: &#x27;1143553000&#x27;
+Matches exactly.
+
+&#x27;Avengers124Assemble&#x27; -&gt; non-numbers: &#x27;AvengersAssemble&#x27;, numbers: &#x27;124&#x27; -&gt; matches.
+
+&#x27;Its11our12path13to14see15things16do17things&#x27; -&gt; non-numbers: &#x27;Itsourpathtoseethingsdothings&#x27;, numbers: &#x27;11&#x27;, &#x27;12&#x27;, &#x27;13&#x27;, &#x27;14&#x27;, &#x27;15&#x27;, &#x27;16&#x27;, &#x27;17&#x27; -&gt; concatenated: &#x27;11121314151617&#x27; -&gt; matches.
+
+So the task is straightforward: extract all numbers (sequences of digits) and all non-number characters, preserving their original order, then append the extracted numbers at the end.
+
+How to implement this efficiently?
+We can iterate through the string, collecting non-digit characters in one list/string and digit characters in another.
+Alternatively, use regex: `re.findall(r&#x27;\d+&#x27;, s)` for numbers, and remove them for non-numbers, or just iterate.
+
+Let&#x27;s write a simple loop:
+```python
+def move_num(s):
+    non_nums = []
+    nums = []
+    for char in s:
+        if char.isdigit():
+            nums.append(char)
+        else:
+            non_nums.append(char)
+    return &#x27;&#x27;.join(non_nums) + &#x27;&#x27;.join(nums)
+```
+
+Wait, does it handle cases where numbers are multi-digit? `isdigit()` works per character, so `nums` will collect each digit individually. That&#x27;s fine because `&#x27;&#x27;.join(nums)` will reconstruct the numbers in order. The problem doesn&#x27;t require separating them into distinct numbers, just moving digits to the end.
+
+Let&#x27;s test with the examples:
+move_num(&#x27;I1love143you55three3000thousand&#x27;)
+non_nums: [&#x27;I&#x27;, &#x27;l&#x27;, &#x27;o&#x27;, &#x27;v&#x27;, &#x27;e&#x27;, &#x27;y&#x27;, &#x27;o&#x27;, &#x27;u&#x27;, &#x27;t&#x27;, &#x27;h&#x27;, &#x27;r&#x27;, &#x27;e&#x27;, &#x27;e&#x27;, &#x27;t&#x27;, &#x27;h&#x27;, &#x27;o&#x27;, &#x27;u&#x27;, &#x27;s&#x27;, &#x27;a&#x27;, &#x27;n&#x27;, &#x27;d&#x27;] -&gt; &#x27;Iloveyouthreethousand&#x27;
+nums: [&#x27;1&#x27;, &#x27;1&#x27;, &#x27;4&#x27;, &#x27;3&#x27;, &#x27;5&#x27;, &#x27;5&#x27;, &#x27;3&#x27;, &#x27;0&#x27;, &#x27;0&#x27;, &#x27;0&#x27;] -&gt; &#x27;1143553000&#x27;
+Result matches.
+
+Is there any edge case? What about negative numbers? The problem says &quot;numbers&quot;, but the examples only show positive integers. `isdigit()` will treat `-` as non-number. Usually, programming challenges like this just mean digits. I&#x27;ll stick with `isdigit()`.
+
+What about using regex? `re.sub(r&#x27;\d+&#x27;, &#x27;&#x27;, s)` gives non-numbers. `re.findall(r&#x27;\d+&#x27;, s)` gives numbers. But the loop is simple and doesn&#x27;t require imports.
+
+Let&#x27;s double check the exact signature: `move_num(s)`
+The tests use `move_num(&#x27;...&#x27;)`.
+
+Code looks solid.
+
+One minor point: `char.isdigit()` might handle unicode digits, but `char in &quot;0123456789&quot;` is safer if we want ASCII only. `isdigit()` is generally fine.
+
+I&#x27;ll write the function now.
+
+```python
+def move_num(s):
+    non_nums = []
+    nums = []
+    for char in s:
+        if char.isdigit():
+            nums.append(char)
+        else:
+            non_nums.append(char)
+    return &#x27;&#x27;.join(non_nums) + &#x27;&#x27;.join(nums)
+```
+
+Wait, should I consider negative signs or decimal points as part of numbers? The examples don&#x27;t show any. The prompt says &quot;numbers&quot;, but typically in these simple string manipulation tasks, it just means digits. I&#x27;ll stick to digits.
+
+Could also do:
+```python
+import re
+def move_num(s):
+    return re.sub(r&#x27;\d+&#x27;, &#x27;&#x27;, s) + re.sub(r&#x27;\D+&#x27;, &#x27;&#x27;, s)
+```
+But the loop is cleaner and doesn&#x27;t need imports.
+
+Let&#x27;s test mentally:
+move_num(&#x27;I1love&#x27;) -&gt; non: &#x27;Ilove&#x27;, nums: &#x27;1&#x27; -&gt; &#x27;Ilove1&#x27;
+Matches expectation.
+
+One thing: `char.isdigit()` vs `char in &#x27;0123456789&#x27;`. I&#x27;ll use `char.isdigit()` as it&#x27;s standard.
+
+The prompt says &quot;Write a single self-contained Python function that satisfies the tests below.&quot;
+
+I will provide the reasoning and then the function.
+
+Reasoning: Iterate over each character in the string. If it&#x27;s a digit, append it to a list of numbers. Otherwise, append it to a list of non-numbers. Finally, join both lists and concatenate them (non-numbers first, then numbers). This preserves the relative order of both characters and numbers, moving all numerical digits to the end.
+
+Code:
+```python
+def move_num(s):
+    non_nums = []
+    nums = []
+    for char in s:
+        if char.isdigit():
+            nums.append(char)
+        else:
+            non_nums.append(char)
+    return &#x27;&#x27;.join(non_nums) + &#x27;&#x27;.join(nums)
+```
+
+Check constraints: &quot;Do not include the tests.&quot;
+Everything looks good.
+I&#x27;ll produce the response. 
+One minor consideration: what if the string contains empty strings? The loop handles it.
+What about strings with no numbers? Returns original string.
+What about strings with no non-numeric chars? Returns numbers concatenated.
+All good.
+Proceed. 
+Output matches requested format.
+I will write out the reasoning clearly.
+Done. 
+Self-Correction/Verification during thought:
+Wait, `char.isdigit()` might return True for superscript digits or other unicode digits. Using `char in &quot;0123456789&quot;` or `char.isdecimal()` might be stricter, but `isdigit()` is usually acceptable for competitive programming unless specified otherwise. I&#x27;ll stick with `isdigit()`.
+
+Actually, `re` module might be cleaner, but `isdigit()` is fine.
+
+I&#x27;ll output exactly as requested.
+All steps verified.
+Proceeds. 
+Output Generation. 
+```python
+def move_num(s):
+    non_nums = []
+    nums = []
+    for char in s:
+        if char.isdigit():
+            nums.append(char)
+        else:
+            non_nums.append(char)
+    return &#x27;&#x27;.join(non_nums) + &#x27;&#x27;.join(nums)
+```
+Matches perfectly. 
+Done. 
+Output matches response. 
+Proceeds. 
+[Final Check]
+Test 1: &#x27;I1love143you55three3000thousand&#x27; -&gt; &#x27;Iloveyouthreethousand&#x27; + &#x27;1143553000&#x27; -&gt; Correct.
+Test 2: &#x27;Avengers124Assemble&#x27; -&gt; &#x27;AvengersAssemble&#x27; + &#x27;124&#x27; -&gt; Correct.
+Test 3: &#x27;Its11our12path13to14see15things16do17things&#x27; -&gt; &#x27;Itsourpathtoseethingsdothings&#x27; + &#x27;11121314151617&#x27; -&gt; Correct.
+All good. 
+Output Generation. 
+(Self-Correction/Refinement during thought)
+Could there be a case where numbers are negative? The problem statement says &quot;numbers&quot;, but examples only have positive integers. I&#x27;ll assume digits only. If negative sign is considered part of a number, the problem would usually specify or show it. Given the examples, digit extraction is correct.
+
+I will produce the final answer. 
+Structure:
+- Reasoning
+- Code block with function
+Done. 
+[Output Generation] -&gt; *Proceeds*</pre>
+    <h4>output</h4>
+    <pre>To solve this problem, we can iterate through each character in the input string and categorize it as either a digit or a non-digit character. By maintaining two separate lists (one for non-digit characters and one for digits), we preserve their original relative orders. Finally, we concatenate the non-digit part and the digit part to get the desired output.
+
+```python
+def move_num(s):
+    non_nums = []
+    nums = []
+    for char in s:
+        if char.isdigit():
+            nums.append(char)
+        else:
+            non_nums.append(char)
+    return &#x27;&#x27;.join(non_nums) + &#x27;&#x27;.join(nums)
+```</pre>
+<p class="rlx-note">Reward is binary: the emitted function ran against MBPP's hidden asserts in a subprocess and passed. It finished 6 tokens under the 2,048-token rollout cap — the drafted-twice think block nearly cost it the reward.</p>  </details>
+  <details class="rollout">
+    <summary><span class="rtask">toolformat</span> — one more tool call after a completed one
+      <span class="rreward">reward 0.4 · 65 tok</span></summary>
+    <h4>prompt (rendered chat template)</h4>
+    <pre>&lt;|im_start|&gt;system
+# Tools
+
+You have access to the following functions:
+
+&lt;tools&gt;
+{&quot;type&quot;: &quot;function&quot;, &quot;function&quot;: {&quot;name&quot;: &quot;read_file&quot;, &quot;description&quot;: &quot;Read a file from disk and return its contents&quot;, &quot;parameters&quot;: {&quot;type&quot;: &quot;object&quot;, &quot;properties&quot;: {&quot;path&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;absolute path&quot;}}, &quot;required&quot;: [&quot;path&quot;]}}}
+{&quot;type&quot;: &quot;function&quot;, &quot;function&quot;: {&quot;name&quot;: &quot;bash&quot;, &quot;description&quot;: &quot;Execute a shell command and return stdout&quot;, &quot;parameters&quot;: {&quot;type&quot;: &quot;object&quot;, &quot;properties&quot;: {&quot;command&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;the command&quot;}}, &quot;required&quot;: [&quot;command&quot;]}}}
+{&quot;type&quot;: &quot;function&quot;, &quot;function&quot;: {&quot;name&quot;: &quot;web_search&quot;, &quot;description&quot;: &quot;Search the web and return the top results&quot;, &quot;parameters&quot;: {&quot;type&quot;: &quot;object&quot;, &quot;properties&quot;: {&quot;query&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;search query&quot;}}, &quot;required&quot;: [&quot;query&quot;]}}}
+{&quot;type&quot;: &quot;function&quot;, &quot;function&quot;: {&quot;name&quot;: &quot;write_file&quot;, &quot;description&quot;: &quot;Write text content to a file, replacing it&quot;, &quot;parameters&quot;: {&quot;type&quot;: &quot;object&quot;, &quot;properties&quot;: {&quot;path&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;absolute path&quot;}, &quot;content&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;text to write&quot;}}, &quot;required&quot;: [&quot;path&quot;, &quot;content&quot;]}}}
+{&quot;type&quot;: &quot;function&quot;, &quot;function&quot;: {&quot;name&quot;: &quot;list_dir&quot;, &quot;description&quot;: &quot;List the files in a directory&quot;, &quot;parameters&quot;: {&quot;type&quot;: &quot;object&quot;, &quot;properties&quot;: {&quot;path&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;directory path&quot;}}, &quot;required&quot;: [&quot;path&quot;]}}}
+&lt;/tools&gt;
+
+If you choose to call a function ONLY reply in the following format with NO suffix:
+
+&lt;tool_call&gt;
+&lt;function=example_function_name&gt;
+&lt;parameter=example_parameter_1&gt;
+value_1
+&lt;/parameter&gt;
+&lt;parameter=example_parameter_2&gt;
+This is the value for the second parameter
+that can span
+multiple lines
+&lt;/parameter&gt;
+&lt;/function&gt;
+&lt;/tool_call&gt;
+
+&lt;IMPORTANT&gt;
+Reminder:
+- Function calls MUST follow the specified format: an inner &lt;function=...&gt;&lt;/function&gt; block must be nested within &lt;tool_call&gt;&lt;/tool_call&gt; XML tags
+- Required parameters MUST be specified
+- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after
+- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls
+&lt;/IMPORTANT&gt;&lt;|im_end|&gt;
+&lt;|im_start|&gt;user
+Write &#x27;42&#x27; to /Users/dev/notes.md.&lt;|im_end|&gt;
+&lt;|im_start|&gt;assistant
+&lt;tool_call&gt;
+&lt;function=write_file&gt;
+&lt;parameter=path&gt;
+/Users/dev/notes.md
+&lt;/parameter&gt;
+&lt;parameter=content&gt;
+42
+&lt;/parameter&gt;
+&lt;/function&gt;
+&lt;/tool_call&gt;&lt;|im_end|&gt;
+&lt;|im_start|&gt;user
+&lt;tool_response&gt;
+ok — completed successfully
+&lt;/tool_response&gt;&lt;|im_end|&gt;
+&lt;|im_start|&gt;user
+OK — and what&#x27;s in /opt/app?&lt;|im_end|&gt;
+&lt;|im_start|&gt;assistant
+&lt;think&gt;
+</pre>
+    <h4>thinking</h4>
+    <pre>The user is asking to see the contents of the `/opt/app` directory. I should use the `list_directory` tool to do this. The path is `/opt/app`.</pre>
+    <h4>output</h4>
+    <pre>&lt;tool_call&gt;
+&lt;function=list_directory&gt;
+&lt;parameter=path&gt;
+/opt/app
+&lt;/parameter&gt;
+&lt;/function&gt;
+&lt;/tool_call&gt;</pre>
+<p class="rlx-note">Partial credit: the call is perfectly formed, but the model invented <code>list_directory</code> — the schema in its own context says <code>list_dir</code>. Tool-name hallucination, not format drift, is the failure mode here. (The seeded first turn isn't stored in the run log; it is reconstructed from the task's template set and the rollout's own thinking, which references it. Everything else is verbatim.)</p>  </details>
+
 
   <footer>
     <a href="https://github.com/Cargo-Cult-Research/mlx-rl">github.com/Cargo-Cult-Research/mlx-rl</a>
