@@ -112,6 +112,10 @@ def main() -> None:
     ap.add_argument("--save-texts", action="store_true",
                     help="store full completion texts (large; MBPP-scale only)")
     ap.add_argument("--required-gb", type=float, default=38.0)
+    ap.add_argument("--kv-bits", type=int, default=None,
+                    help="quantize rollout KV caches (8 = half footprint); "
+                         "default fp16. Labels change slightly — see the "
+                         "kv8 fidelity A/B before using for a full sweep")
     ap.add_argument("--no-manage-machine", action="store_true")
     args = ap.parse_args()
 
@@ -167,6 +171,7 @@ def main() -> None:
                 max_new_tokens=args.max_new_tokens,
                 temperature=args.temperature,
                 completion_batch_size=args.batch_prompts * args.k,
+                kv_bits=args.kv_bits,
             )
             texts = [[tokenizer.decode(c.tokens) for c in g] for g in groups]
             rewards = list(graded.map(
@@ -185,6 +190,7 @@ def main() -> None:
                         "lens": [len(c.tokens) for c in g],
                         "finishes": [c.finish_reason for c in g],
                         "cap": args.max_new_tokens,
+                        "kv_bits": args.kv_bits,
                         "model": Path(args.model).name,
                         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
                     }

@@ -65,11 +65,18 @@ def clone_cache_list(caches: list) -> list:
     return out
 
 
-def prefill_cache(model, prompt_ids: list[int], prefill_step_size: int = 2048) -> list:
+def prefill_cache(model, prompt_ids: list[int], prefill_step_size: int = 2048,
+                  kv_bits: int | None = None) -> list:
     """Consume prompt[:-1] into a fresh cache (chunked). The last prompt
     token is left for the generator: it becomes the 1-token 'prompt' whose
-    forward produces the first completion logits."""
+    forward produces the first completion logits. kv_bits quantizes the
+    cache at creation (the shared-prompt path bypasses the generator's
+    cache factory, so it must be quantized here to match)."""
     c = cache_mod.make_prompt_cache(model)
+    if kv_bits is not None:
+        from mlx_lm.models.cache import KVCache, QuantizedKVCache
+        c = [QuantizedKVCache(group_size=64, bits=kv_bits)
+             if isinstance(ci, KVCache) else ci for ci in c]
     toks = mx.array(prompt_ids[:-1])
     for i in range(0, toks.size, prefill_step_size):
         model(toks[i : i + prefill_step_size][None], cache=c)
@@ -360,6 +367,32 @@ def _answer_phase(model, cand: _Cand, *, eos: set[int], max_new_tokens: int,
     return Completion(cand.tokens, cand.logprobs, "length", think_len)
 
 
+class _QuantizedKVBatchGenerator(BatchGenerator):
+    """BatchGenerator with per-sequence quantized KV caches.
+
+    mlx-lm's kv_bits support (maybe_quantize_kv_cache) only exists on the
+    single-stream generate path; the batch path always builds fp16 KVCache.
+    _make_new_cache is the one factory every sequence's cache comes from, so
+    swapping KVCache -> QuantizedKVCache here quantizes the whole batch.
+    8-bit KV halves per-token cache traffic/footprint (~80 -> ~44 KB/token
+    on qwen36 incl. group scales). Numerics differ from the fp16 trainer
+    cache — validate labels against an fp16 A/B before trusting a sweep
+    (measured 2026-08-14, see runs/sweeps/kv8-fidelity*)."""
+
+    def __init__(self, *args, kv_bits: int = 8, kv_group_size: int = 64, **kw):
+        self._kv_bits = kv_bits
+        self._kv_group_size = kv_group_size
+        super().__init__(*args, **kw)
+
+    def _make_new_cache(self):
+        from mlx_lm.models.cache import KVCache, QuantizedKVCache
+        return [
+            (QuantizedKVCache(group_size=self._kv_group_size, bits=self._kv_bits)
+             if isinstance(ci, KVCache) else ci)
+            for ci in super()._make_new_cache()
+        ]
+
+
 def rollout_groups(
     model,
     tokenizer,
@@ -373,18 +406,22 @@ def rollout_groups(
     completion_batch_size: int = 64,
     prefill_batch_size: int = 8,
     prefill_step_size: int = 2048,
+    kv_bits: int | None = None,
 ) -> tuple[list[list[Completion]], BatchStats]:
     """Sample group_size completions for every prompt, batched.
 
     Returns (groups, stats): groups[i][g] is a Completion (tokens include
     the terminating EOS when finish_reason == 'stop'); stats carries
     aggregate prompt/generation tokens-per-second.
+    kv_bits: quantize per-sequence KV caches (8 = half footprint); None = fp16.
     """
     eos = set(getattr(tokenizer, "eos_token_ids", None) or [tokenizer.eos_token_id])
     eos |= set(extra_eos)
     tap = _tap()
 
-    gen = BatchGenerator(
+    gen_cls = BatchGenerator if kv_bits is None else _QuantizedKVBatchGenerator
+    gen_kw = {} if kv_bits is None else {"kv_bits": kv_bits}
+    gen = gen_cls(
         model,
         max_tokens=max_new_tokens,
         stop_tokens=[[t] for t in sorted(eos)],
@@ -392,6 +429,7 @@ def rollout_groups(
         completion_batch_size=max(completion_batch_size, group_size),
         prefill_batch_size=prefill_batch_size,
         prefill_step_size=prefill_step_size,
+        **gen_kw,
     )
     groups = [[Completion() for _ in range(group_size)] for _ in prompts]
     uid_to: dict[int, tuple[int, int]] = {}
@@ -402,7 +440,8 @@ def rollout_groups(
             for pi, prompt in enumerate(prompts):
                 ptail = tokenizer.decode(prompt[-120:])[-400:]
                 if share_prompt and len(prompt) > 1:
-                    base = prefill_cache(model, prompt, prefill_step_size)
+                    base = prefill_cache(model, prompt, prefill_step_size,
+                                         kv_bits=kv_bits)
                     uids = gen.insert(
                         [[prompt[-1]] for _ in range(group_size)],
                         caches=[clone_cache_list(base) for _ in range(group_size)],
