@@ -71,6 +71,23 @@ PROFILES: dict[str, ModelProfile] = {
         think_end=248069,
         think_chat_kwargs={"enable_thinking": True},
     ),
+    # Qwen3.8-27B (qwen3_5, released 2026-08-14): the DENSE sibling of the
+    # qwen36 profile above — same hybrid 3:1 GatedDeltaNet:full-attention
+    # layout (64 layers, full_attention_interval=4), so the same two families
+    # of LoRA keys apply. Checkpoint is multimodal; mlx-lm drops the vision
+    # tower on load, so this is the text model only.
+    "qwen38": ModelProfile(
+        name="qwen38",
+        model=os.path.join(MODELS_DIR, "Qwen3.8-27B-4bit"),
+        lora_keys=_ATTN
+        + (
+            "linear_attn.in_proj_qkv",
+            "linear_attn.in_proj_z",
+            "linear_attn.out_proj",
+        ),
+        chat_kwargs={"enable_thinking": False},
+        think_chat_kwargs={"enable_thinking": True},
+    ),
     # Gemma 4 26B-A4B (gemma4): sliding-window RotatingKVCache + periodic
     # full attention; standard proj names. extra_eos carries the config EOS
     # list {1, 106, 50} — lose it and generation never stops (<turn|> runaway).
