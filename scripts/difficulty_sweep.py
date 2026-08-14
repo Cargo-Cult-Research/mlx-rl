@@ -199,7 +199,7 @@ def main() -> None:
                     f"{done_n}/{len(todo)} ({args.task} T={args.temperature}) "
                     f"— stopping before the box thrashes; rows are durable, "
                     f"rerun resumes here")
-                break
+                sys.exit(2)
         graded.shutdown()
     finally:
         machine.release(holder)
