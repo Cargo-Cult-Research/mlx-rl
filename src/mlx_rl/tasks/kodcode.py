@@ -78,7 +78,9 @@ class KodCodeTask:
     name = "kodcode"
 
     def __init__(self, sandbox: bool = True, difficulties: str = "easy",
-                 subsets: str = "", train_formats: str = "fenced", **_):
+                 subsets: str = "", train_formats: str = "fenced",
+                 val_frac: float = 0.0, seed: int = 12345,
+                 sampling: str = "replace", **_):
         self._sandbox_exec = _resolve_sandbox_exec(sandbox)
         self._formats = [f.strip() for f in train_formats.split(",") if f.strip()]
         bad = set(self._formats) - set(_TRAIN_FORMATS)
@@ -105,6 +107,27 @@ class KodCodeTask:
             raise ValueError(
                 f"no KodCode rows for difficulties={sorted(want)}"
                 f" subsets={sorted(keep) or 'all'}")
+        # Source-distribution holdout for checkpoint selection. Selecting on
+        # the MBPP eval would be target-domain (oracle) model selection: this
+        # is a transfer setup — train KodCode, test MBPP — so letting
+        # target-distribution data pick the checkpoint weakens the claim from
+        # "KodCode training transfers" to "the best-on-MBPP checkpoint, chosen
+        # using MBPP". Validate on held-out KodCode instead; it is a noisier
+        # predictor of test score, and that is the honest cost.
+        # val_frac < 1 is a fraction of the pool; >= 1 is an absolute count.
+        self._val: list[dict] = []
+        if val_frac > 0:
+            rows = list(self._train)
+            random.Random(seed).shuffle(rows)
+            n = int(val_frac) if val_frac >= 1 else max(1, int(len(rows) * val_frac))
+            if n >= len(rows):
+                raise ValueError(f"val_frac={val_frac} would leave no training rows")
+            self._val, self._train = rows[:n], rows[n:]
+        if sampling not in ("replace", "epoch"):
+            raise ValueError(f"sampling: expected 'replace' or 'epoch', got {sampling!r}")
+        self._sampling = sampling
+        self._order: list[int] = []   # epoch mode: remaining indices, popped
+        self.epoch = 0
         self._eval = _dataset_rows(_MBPP_PLUS_REPO)
         self._eval_i = 0
 
@@ -149,8 +172,28 @@ class KodCodeTask:
         )
 
     def sample(self, rng: random.Random) -> Example:
-        return self._train_example(rng.choice(self._train),
-                                   rng.choice(self._formats))
+        """sampling='replace' (default) draws i.i.d. with replacement — the
+        historical behaviour, and why a 150-step run touched only 581 of 7901
+        problems. sampling='epoch' draws WITHOUT replacement, reshuffling when
+        the pool is exhausted, so N draws cover min(N, pool) distinct
+        problems: full coverage needs one pass instead of the ~n·ln(n) draws
+        the coupon-collector bound demands with replacement."""
+        if self._sampling == "epoch":
+            if not self._order:
+                self._order = list(range(len(self._train)))
+                rng.shuffle(self._order)
+                self.epoch += 1
+            row = self._train[self._order.pop()]
+        else:
+            row = rng.choice(self._train)
+        return self._train_example(row, rng.choice(self._formats))
+
+    def val_examples(self, fmt: str | None = None) -> list[Example]:
+        """Held-out source-distribution problems (needs val_frac > 0). One
+        fixed dialect so scores stay comparable across checkpoints; graded by
+        the same sandboxed pytest reward as training."""
+        return [self._train_example(r, fmt or self._formats[0])
+                for r in self._val]
 
     def eval_sample(self, rng: random.Random) -> Example:
         # Deliberately ignores rng: cycles the eval set in dataset order so

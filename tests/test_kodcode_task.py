@@ -16,6 +16,9 @@ def _task():
     t = KodCodeTask.__new__(KodCodeTask)  # skip __init__ (no download)
     t._sandbox_exec = shutil.which("sandbox-exec")
     t._eval_i = 0
+    t._sampling = "replace"
+    t._order = []
+    t.epoch = 0
     return t
 
 
@@ -157,6 +160,75 @@ def test_real_datasets_load_and_are_disjoint():
     assert len(t._train) > 3000
     assert all(r["gpt_difficulty"] == "easy" for r in t._train)
     assert all(r["subset"] not in ("Package", "Docs") for r in t._train)
+
+
+def test_val_frac_splits_disjointly_and_deterministically():
+    try:
+        a = KodCodeTask(sandbox=HAVE_SEATBELT, subsets="Filter",
+                        val_frac=0.1)
+    except Exception as e:
+        pytest.skip(f"dataset fetch failed: {e}")
+    tr = {r["question_id"] for r in a._train}
+    va = {r["question_id"] for r in a._val}
+    assert va and not (tr & va)                       # non-empty, disjoint
+    assert 0.08 < len(va) / (len(tr) + len(va)) < 0.12
+    b = KodCodeTask(sandbox=HAVE_SEATBELT, subsets="Filter", val_frac=0.1)
+    assert {r["question_id"] for r in b._val} == va    # same seed, same split
+    c = KodCodeTask(sandbox=HAVE_SEATBELT, subsets="Filter", val_frac=0.1,
+                    seed=999)
+    assert {r["question_id"] for r in c._val} != va    # seed actually varies
+    ex = a.val_examples()
+    assert len(ex) == len(a._val) and ex[0].meta["kind"] == "kodcode"
+
+
+def test_epoch_sampling_covers_pool_without_replacement():
+    import random
+
+    t = _task()
+    t._formats = ["instruct"]
+    t._sampling = "epoch"
+    t._order = []
+    t.epoch = 0
+    t._train = [dict(KOD_ROW, question_id=f"q{i}") for i in range(20)]
+    rng = random.Random(0)
+    first = [t.sample(rng).meta["question_id"] for _ in range(20)]
+    assert len(set(first)) == 20 and t.epoch == 1     # every problem, once
+    second = [t.sample(rng).meta["question_id"] for _ in range(20)]
+    assert len(set(second)) == 20 and t.epoch == 2    # next epoch, full again
+    assert first != second                             # reshuffled
+
+
+def test_epoch_sampling_is_deterministic():
+    import random
+
+    def run(seed):
+        t = _task()
+        t._formats = ["instruct"]
+        t._sampling = "epoch"
+        t._order = []
+        t.epoch = 0
+        t._train = [dict(KOD_ROW, question_id=f"q{i}") for i in range(10)]
+        rng = random.Random(seed)
+        return [t.sample(rng).meta["question_id"] for _ in range(15)]
+
+    assert run(0) == run(0)
+    assert run(0) != run(1)
+
+
+def test_replace_sampling_is_the_default():
+    t = _task()
+    assert getattr(t, "_sampling", "replace") == "replace"
+
+
+def test_bad_sampling_mode_rejected():
+    with pytest.raises(ValueError, match="sampling"):
+        KodCodeTask(sandbox=HAVE_SEATBELT, subsets="Filter", sampling="wat")
+
+
+def test_val_empty_by_default():
+    t = _task()
+    t._val = []
+    assert t.val_examples() == []
 
 
 def test_subsets_include_filter():
