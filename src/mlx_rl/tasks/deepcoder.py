@@ -8,10 +8,17 @@ stdin/stdout problems only — one unambiguous judge.
 
 Reward = 1.0 iff a single emitted Python program passes every stored test
 case (<=16, evenly thinned at fetch time; first failure short-circuits),
-else 0.0. Output comparison: per-line rstrip, trailing blank lines dropped,
-exact match. Problems whose canonical answer allows multiple formats will
-under-credit — visible as an n_pass=0 mass in difficulty sweeps, to be
-root-caused there rather than papered over with a fuzzy judge.
+else 0.0. Output comparison (calibrated on upstream reference solutions via
+scripts/deepcoder_judge_check.py): per-line rstrip + trailing blank lines
+dropped; on mismatch, token-level compare with float tolerance 1e-6 (rel or
+abs) — reference answers print floats at differing precisions. The process
+return code is ignored (several references print the complete correct
+answer, then crash on an extra input() at EOF); a timeout still fails.
+Genuinely multi-answer problems (any valid ordering accepted upstream)
+remain under-credited by construction — they label as n_pass=0 in
+difficulty sweeps and fall outside every training band (an all-fail group
+carries zero GRPO gradient), so they cost label accuracy only, not
+training signal.
 
 ⚠️ SECURITY: same as tasks/code.py — candidate code runs in a plain
 subprocess with a timeout, NOT sandboxed.
@@ -56,6 +63,27 @@ def _norm_out(s: str) -> str:
     while lines and not lines[-1]:
         lines.pop()
     return "\n".join(lines)
+
+
+_FLOAT_TOL = 1e-6
+
+
+def _tokens_match(a: str, b: str) -> bool:
+    if a == b:
+        return True
+    try:
+        fa, fb = float(a), float(b)
+    except ValueError:
+        return False
+    return abs(fa - fb) <= _FLOAT_TOL * max(1.0, abs(fa), abs(fb))
+
+
+def _outputs_match(got: str, want: str) -> bool:
+    got, want = _norm_out(got), _norm_out(want)
+    if got == want:
+        return True
+    gt, wt = got.split(), want.split()
+    return len(gt) == len(wt) and all(map(_tokens_match, gt, wt))
 
 
 def _load(split: str) -> list[dict]:
@@ -135,6 +163,6 @@ class DeepCoderTask:
                 except subprocess.TimeoutExpired:
                     return RewardResult(0.0, {"correct": 0.0, "code": 1.0,
                                               "timeout": 1.0})
-                if p.returncode != 0 or _norm_out(p.stdout) != _norm_out(case["output"]):
+                if not _outputs_match(p.stdout, case["output"]):
                     return RewardResult(0.0, {"correct": 0.0, "code": 1.0})
         return RewardResult(1.0, {"correct": 1.0, "code": 1.0})
