@@ -254,10 +254,14 @@ Five tasks ship, all with programmatic rewards (`--task <name>`):
   matches the reference exactly.
 - **`code`** — sanitized MBPP (427 problems, shipped in `data/` — see
   [data/README.md](data/README.md) for provenance/license). Reward: the
-  model's function passes the hidden asserts. ⚠️ **This executes
-  model-generated code in a plain subprocess — NOT a sandbox.** It runs with
-  your user's filesystem and network access; use a container/VM if that
-  matters to you.
+  model's function passes the hidden asserts. Candidate code runs under
+  macOS `sandbox-exec` by default (network denied, writes confined to its
+  temp dir) with rlimits on CPU/file-size/fds/procs and a scrubbed env.
+  `--task_kwargs '{"sandbox": false}'` disables the Seatbelt layer — ⚠️
+  candidate code then runs with your user's filesystem and network access.
+  Memory is not capped either way (Darwin rejects `RLIMIT_DATA`); the 8s
+  timeout bounds blowups. For untrusted prompts or third-party models, use
+  a container/VM.
 - **`qa_abstain`** — calibrated factuality: answer a short factual question
   in `<answer>` tags or reply `<abstain/>`. Reward: correct +1, abstain 0,
   wrong/malformed −penalty — the penalty sets the implied confidence
