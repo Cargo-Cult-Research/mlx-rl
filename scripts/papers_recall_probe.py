@@ -130,7 +130,8 @@ def main() -> None:
     ap.add_argument("--profile", default="qwen36")
     ap.add_argument("--adapter", default=None)
     ap.add_argument("--k", type=int, default=4)
-    ap.add_argument("--max-new-tokens", type=int, default=256)
+    # generous answer cap — see "Token caps" in housekeeping/CLAUDE.md
+    ap.add_argument("--max-new-tokens", type=int, default=4096)
     ap.add_argument("--batch-items", type=int, default=16)
     ap.add_argument("--in-format", action="store_true",
                     help="wrap questions in the qa_abstain training PROMPT "
