@@ -50,6 +50,12 @@ class MachineBusyError(RuntimeError):
     pass
 
 
+# holder -> block it acquired, so release() targets the right block (a
+# non-exclusive lease released without --block hit the exclusive block's
+# "not held" path and was left to stale-reaping).
+_HELD: dict[str, str] = {}
+
+
 def _enabled() -> bool:
     return bool(MEMLEASE_CMD)
 
@@ -114,6 +120,7 @@ def acquire(required_gb: float, wait_s: float = 0, note: str = "",
             "the memory lease is held by another job; retry with --lease-wait "
             "or after it releases"
         )
+    _HELD[holder] = block
     return holder
 
 
@@ -121,4 +128,4 @@ def release(holder: str | None) -> None:
     """Release the lease; your command is responsible for restoring anything it paused."""
     if holder is None or not _enabled():
         return
-    _run(["release", holder])
+    _run(["release", holder, "--block", _HELD.pop(holder, "exclusive")])

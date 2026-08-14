@@ -68,6 +68,17 @@ class CodeTask:
     def sample(self, rng: random.Random) -> Example:
         return self._example(rng.choice(self._train))
 
+    def all_examples(self) -> list[Example]:
+        """Every problem exactly once, split-tagged — for offline sweeps
+        (base-model difficulty labeling), never for training draws."""
+        out = []
+        for split, rows in (("train", self._train), ("eval", self._eval)):
+            for row in rows:
+                ex = self._example(row)
+                ex.meta["split"] = split
+                out.append(ex)
+        return out
+
     def eval_sample(self, rng: random.Random) -> Example:
         return self._example(rng.choice(self._eval))
 
