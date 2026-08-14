@@ -105,6 +105,10 @@ def main() -> None:
     ap.add_argument("--out", default=None,
                     help="default runs/sweeps/<task>-pass@<k>.jsonl")
     ap.add_argument("--limit", type=int, default=0, help="first N problems only")
+    ap.add_argument("--sample", type=int, default=0,
+                    help="seeded random N-problem subset (pilots; spans "
+                         "sources, unlike --limit's file-order prefix)")
+    ap.add_argument("--sample-seed", type=int, default=7)
     ap.add_argument("--save-texts", action="store_true",
                     help="store full completion texts (large; MBPP-scale only)")
     ap.add_argument("--required-gb", type=float, default=38.0)
@@ -122,6 +126,10 @@ def main() -> None:
     examples = task.all_examples()
     if args.limit:
         examples = examples[: args.limit]
+    if args.sample:
+        import random
+        examples = random.Random(args.sample_seed).sample(
+            examples, min(args.sample, len(examples)))
     done = load_done(out, args.temperature)
     todo = [e for e in examples if e.meta["task_id"] not in done]
     print(f"sweep: {args.task} pass@{args.k} T={args.temperature} "

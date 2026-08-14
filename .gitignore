@@ -24,6 +24,8 @@ wandb/
 *.jsonl
 # curated eval sets under data/ are source, not run artifacts
 !data/*.jsonl
+# difficulty labels are measured once and reused forever — source, not scratch
+!data/labels/*.jsonl
 
 # OS
 .DS_Store
