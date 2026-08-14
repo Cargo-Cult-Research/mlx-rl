@@ -23,6 +23,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
+import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -40,6 +43,41 @@ from mlx_rl import tasks as task_mod
 
 DEFAULT_MODEL = str(Path.home() / "models/mlx/Qwen3.6-35B-A3B-4bit")
 PASS_EPS = 0.999  # reward >= this counts as a pass (binary-reward tasks)
+
+# Swap guard: a healthy sweep at batch-prompts 10 runs at ~0 swap; the
+# 2026-08-13 batch-100 probe oversubscribed unified memory, thrashed 25 GB of
+# swap, and the killed process's kernel-exit teardown took the whole box down.
+# Abort LOUDLY (journal + Telegram) long before that point.
+SWAP_ABORT_GB = 10.0
+
+
+def swap_used_gb() -> float:
+    out = subprocess.run(["sysctl", "-n", "vm.swapusage"],
+                         capture_output=True, text=True).stdout
+    m = re.search(r"used = ([\d.]+)M", out)
+    return float(m.group(1)) / 1024 if m else 0.0
+
+
+def fail_loud(msg: str) -> None:
+    """Journal + best-effort Telegram — a guard abort must reach the human."""
+    print(f"SWEEP GUARD ABORT: {msg}", flush=True)
+    note = os.path.expanduser("~/code/housekeeping/note.sh")
+    if os.path.exists(note):
+        subprocess.run(["bash", note, f"difficulty sweep GUARD ABORT: {msg}"])
+    env_path = os.path.expanduser("~/code/housekeeping/.env")
+    try:
+        env = dict(
+            line.strip().split("=", 1)
+            for line in open(env_path)
+            if "=" in line and not line.startswith("#"))
+        subprocess.run(
+            ["curl", "-s", "-m", "10",
+             f"https://api.telegram.org/bot{env['TELEGRAM_BOT_TOKEN']}/sendMessage",
+             "-d", f"chat_id={env['TELEGRAM_USER_ID']}",
+             "--data-urlencode", f"text=⛔ difficulty sweep aborted: {msg}"],
+            capture_output=True)
+    except Exception as e:  # noqa: BLE001 — guard must not crash on notify
+        print(f"(telegram notify failed: {e})", flush=True)
 
 
 def load_done(out: Path, temp: float) -> set:
@@ -99,6 +137,10 @@ def main() -> None:
             note=f"difficulty sweep {args.task} pass@{args.k} T={args.temperature}")
     try:
         assert_fits(args.required_gb)
+        if (s := swap_used_gb()) > SWAP_ABORT_GB / 2:
+            fail_loud(f"swap already {s:.1f} GB before model load — "
+                      f"machine not in a fit state, refusing to start")
+            sys.exit(1)
         model, tokenizer = mlx_load(args.model)
         chat_kwargs = dict(getattr(task, "chat_template_kwargs", {}) or {})
         graded = ThreadPoolExecutor(max_workers=8)
@@ -146,10 +188,18 @@ def main() -> None:
             el = time.time() - t0
             eta = el / done_n * (len(todo) - done_n)
             npass = [sum(r >= PASS_EPS for r in rs) for rs in rewards]
+            swap = swap_used_gb()
             print(f"[{done_n}/{len(todo)}] n_pass {npass}  "
                   f"decode {stats.generation_tps:.0f} t/s  "
-                  f"peak {stats.peak_memory:.1f} GB  "
+                  f"peak {stats.peak_memory:.1f} GB  swap {swap:.1f} GB  "
                   f"elapsed {el/60:.0f}m  eta {eta/60:.0f}m", flush=True)
+            if swap > SWAP_ABORT_GB:
+                fail_loud(
+                    f"swap {swap:.1f} GB > {SWAP_ABORT_GB} GB after batch "
+                    f"{done_n}/{len(todo)} ({args.task} T={args.temperature}) "
+                    f"— stopping before the box thrashes; rows are durable, "
+                    f"rerun resumes here")
+                break
         graded.shutdown()
     finally:
         machine.release(holder)
