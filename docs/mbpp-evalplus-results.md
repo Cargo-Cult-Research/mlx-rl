@@ -2,19 +2,23 @@
 
 *2026-08-12/13. Runs: code-conv (50-step, aborted line), code-conv2
 (collapsed), code-conv3 (flagship of the internal-split era), kodcode-run1,
-kodcode-run3, kodcode-run4, coder15-run1 (in flight). All seed 0, single
+kodcode-run3, kodcode-run4, coder15-run1. All seed 0, single
 runs, Qwen2.5-0.5B-Instruct-4bit unless stated.*
 
 ## Claim
 
-GRPO + LoRA moves MBPP pass@1 on a 0.5B local model, and the movement is
+GRPO + LoRA moves MBPP pass@1 on a small local model, and the movement is
 real — but almost none of it was **comparable to any published number**, and
 most of what finally *was* comparable turned out to be repair of a prompt
 pathology rather than coding capability. Getting to an honest claim required
 three corrections in sequence: fix the eval set (contamination), fix the
 harness (EvalPlus), and then fix the *subject model* (prompt sensitivity).
-The current run is the first configured so that a gain, if it appears, means
-what it says.
+
+After all three, the claim that survives: **Qwen2.5-Coder-1.5B-4bit goes
+0.672 → 0.709 MBPP and 0.571 → 0.601 MBPP+ under the official EvalPlus
+harness** (McNemar p = 0.044 on MBPP), trained only on prompt dialects the
+benchmark does not use. Everything before that is method — and the record of
+what a comparable number costs.
 
 ## The path (each negative forced the next design)
 
@@ -42,6 +46,9 @@ what it says.
 7. **Sensitivity sweep**: the pathology is not universal — it is idiosyncratic
    to particular checkpoints. Four of six models are format-neutral. So the
    fix is to *change the subject model*, not to argue about the prompt.
+8. **Clean result** (`coder15-run1`): on Qwen2.5-Coder-1.5B, which has a zero
+   format gap, trained on non-eval dialects only — **0.672 → 0.709 MBPP,
+   0.571 → 0.601 MBPP+**, official harness both sides, p = 0.044 paired.
 
 ## Era 1 — the internal-split numbers (main branch, `code` task)
 
@@ -171,7 +178,7 @@ Sobering side note: **Qwen2.5-1.5B scores 0.563 untrained**, and Coder-1.5B
 0.667 — both far above the 0.365 our best-trained 0.5B artifact reached. At
 0.5B the dominant measurable signal was brittleness, not coding ability.
 
-## Era 4 — the honest attempt (`coder15-run1`, in flight)
+## Era 4 — the honest attempt (`coder15-run1`)
 
 **Subject:** Qwen2.5-Coder-1.5B-Instruct-4bit — highest official score in the
 sweep, zero measured format gap.
@@ -212,31 +219,82 @@ adapter starts at identity.
 
 **Baseline to beat: 0.667 official.** Any gain is unambiguously capability.
 
-### Progress (step 50/150, in flight)
+### Result (150 steps, 132 min)
 
-| step | eval (fenced 378) | mean len |
-|---|---|---|
-| 0 | 0.6667 (252) | 69 |
-| 25 | 0.6561 (248) | 60 |
-| 50 | **0.6799 (257)** | 47 |
+| step | 0 | 25 | 50 | 75 | 100 | 125 | 150 |
+|---|---|---|---|---|---|---|---|
+| eval | 0.6667 | 0.6561 | 0.6799 | 0.6905 | 0.6931 | 0.6905 | **0.7090** |
+| (n) | 252 | 248 | 257 | 261 | 262 | 261 | **268** |
 
-First point above baseline, but +1.3 points against a ±2.4-point standard
-error is not yet a result. The dip-then-recover shape matches `kodcode-run4`,
-which was also flat-to-down through step 75 before climbing.
+Six of seven evals above baseline, ending on the high-water mark. Train-side
+rose throughout (0.431 → 0.597 by fifths) with 2.2–2.6 groups active
+start to finish — the widened pool never saturated — and only 4 rescue steps
+fired.
 
-The train side is clearer than the eval: on-policy pass rate rises
-0.402 → 0.455 → 0.512 across thirds, with 2.5/4 groups still active — the
-widened easy+medium pool has not saturated, and the policy is learning its
-training distribution. KL sits at 0.046, an order of magnitude below the
-0.5B runs.
+**Official EvalPlus harness, both models, verified base control:**
 
-**This is the run's actual question**: those train-side gains are on `bare`
-and `instruct` prompts, and the eval is `fenced`. Improvement shows up only
-if it generalises across prompt dialect rather than sharpening one phrasing.
-That is a strictly harder target than every earlier run — no format
-pathology to repair, no easy points, and an out-of-distribution measurement
-by construction — and it is the price of a capability claim that needs no
-asterisk.
+| | base Coder-1.5B | souplate5 | Δ |
+|---|---|---|---|
+| MBPP | 0.672 (254/378) | **0.709 (268/378)** | +3.7 pts |
+| MBPP+ | 0.571 (216/378) | **0.601 (227/378)** | +3.0 pts |
+
+Because both were measured through the same harness on the same tasks, the
+paired test is the right one. On MBPP: 240 problems both solve, **28 only
+souplate5 solves, 14 only base solves** — McNemar exact **p = 0.044**. MBPP+
+moves the same way (26 vs 15 discordant, +11) but at p = 0.12 is not
+significant alone.
+
+**This is the first clean result in the line.** The eval prompt never appeared
+in training, so none of it is format repair; the baseline was 0.672, not a
+broken 0.000, so there were no easy points to reclaim; both numbers come from
+the official harness with a control verified to actually serve base weights;
+and the gain survives MBPP+'s ~5× larger test suites, so it is not an artifact
+of the three original asserts.
+
+Caveats worth keeping attached: one run at one seed, MBPP+ directional but
+not significant, and **14 problems regressed** — RL bought 28 and gave back
+14.
+
+### Churn — a different learning dynamic
+
+Flips between consecutive checkpoints (EvalPlus-378, fenced):
+
+| transition | gained | lost | churn | net | total |
+|---|---|---|---|---|---|
+| base → 20 | 8 | 14 | 22 | −6 | 246 |
+| 20 → 40 | 16 | 10 | 26 | +6 | 252 |
+| 40 → 60 | 9 | 4 | 13 | +5 | 257 |
+| 60 → 80 | 14 | 11 | 25 | +3 | 260 |
+| 80 → 100 | 4 | 4 | 8 | 0 | 260 |
+| 100 → 120 | 9 | 5 | 14 | +4 | 264 |
+| 120 → 140 | 4 | 4 | 8 | 0 | 264 |
+| 140 → 150 | 5 | 1 | 6 | +4 | 268 |
+
+Two things differ from the 0.5B line. **Churn is lower** — 6–26 problems move
+per window against ~35 for `code-conv3` — and it *decays* as training
+proceeds (22–26 early, 6–8 late) instead of staying flat. And the flips are
+**asymmetric**, +69/−53 overall, where the 0.5B runs traded evenly and netted
+nothing (one window was exactly +35/−35). That is accumulation with noise on
+top rather than a random walk across marginal solutions.
+
+The first transition is negative (−6): the early adapter is briefly worse
+than base, matching the step-25 dip in the eval curve.
+
+Union across the 8 checkpoints is 284/378 (0.751) against a best single of
+268 — a 16-problem gap, proportionally far smaller than the 0.5B's (178 union
+vs ~130 single). 224 problems pass at *every* checkpoint.
+
+That correctly predicts what souping does here, which is **nothing, or
+slightly worse than nothing**: souplate5 scores 265 in our harness against
+step 150's 268, captures 265 of the 284-problem union, and solves **zero**
+problems that no ingredient solved. Compare souplate1 on the 0.5B, which beat
+its best ingredient by 8 and found 4 brand-new. Low churn leaves averaging
+nothing to average over — the same lesson the lr-anneal run taught in
+reverse. It also means this run converged rather than wandered.
+
+(souplate5 was still the artifact sent through the official harness, at
+0.709/0.601. Its 0.709 there and step-150's 0.709 in our harness are
+different measurements that coincide, not the same number.)
 
 ## Checkpoint soups ("souplates")
 
@@ -274,15 +332,19 @@ mx.save_safetensors(str(out / "adapters.safetensors"), avg)
 | souplate1 | run1 (instruct) | 80–150 | **0.392** *bare* | 0.061 / 0.053 |
 | souplate2 | run2 (instruct, lr-annealed) | 80–150 | 0.376 *bare* | not run |
 | souplate3 | run3 (fenced) | 80–150 | 0.265 *fenced* | 0.310 / 0.262 |
-| souplate4 | run4 (mixed) | 80–150 | 0.339 *fenced* | **0.365 / 0.299** |
+| souplate4 | run4 (mixed) | 80–150 | 0.339 *fenced* | 0.365 / 0.299 |
+| souplate5 | coder15-run1 (bare+instruct) | 120–150 | 0.701 *fenced* | **0.709 / 0.601** |
 
 Three findings, all of which argue *against* treating soup as a free win:
 
 1. **Soup needs diverse ingredients.** souplate1 beat its best single
-   checkpoint by 8 problems. souplate2 — same recipe but from the
-   lr-annealed run, whose late checkpoints are near-duplicates — scored
-   *lower* (0.376 vs 0.392) despite the annealed run being more stable. The
-   churn the anneal removed was also the diversity the soup fed on.
+   checkpoint by 8 problems and solved 4 nothing else solved. souplate2 —
+   same recipe but from the lr-annealed run, whose late checkpoints are
+   near-duplicates — scored *lower* (0.376 vs 0.392) despite that run being
+   more stable. souplate5, from a low-churn run, scored *below* its best
+   ingredient (265 vs 268) and found **zero** brand-new problems. The churn
+   soup feeds on is the same churn a well-behaved run doesn't have, so soup
+   pays off exactly when training is misbehaving.
 2. **Composition barely matters.** Ablating all eight cumulative windows on
    run4 (each row folding in one older checkpoint) spanned 128–139 problems
    against a standard error of 9.3 — roughly one SE end to end, with
@@ -293,6 +355,64 @@ Three findings, all of which argue *against* treating soup as a free win:
    scored on the same 378 problems is eval-set selection, the same error as
    fitting the prompt. Use a pre-specified rule — *last three checkpoints* —
    and validate it on the next run, not the one that chose it.
+
+## Choosing the artifact — checkpoint selection
+
+Standard practice is to pick the checkpoint by validation score. We did not:
+every number above uses a **pre-specified rule** (last three checkpoints,
+souped). The reason is that our only eval *was* the test benchmark, and
+choosing a checkpoint by its EvalPlus score then reporting that score is
+selection-on-test — the same error as training on the eval prompt. Absent a
+validation set, a rule fixed in advance spends no test information and is the
+least-bad option, but it is a workaround for a missing piece, not a design.
+
+**Which validation set, though?** MBPP problems outside the EvalPlus 378
+exist (49 in the sanitized set, 596 in full MBPP) and are same-distribution
+as the test set, which is what makes validation predictive. But this is a
+**transfer** setup — train KodCode, test MBPP — so selecting with
+MBPP-distributed data is target-domain (oracle) model selection, well known
+and criticised in the domain-adaptation literature. It would weaken the claim
+from "KodCode training transfers to MBPP" to "the best-on-MBPP checkpoint,
+chosen using MBPP". The conservative choice is a **held-out slice of the
+training distribution**, so `val_frac` carves a seeded holdout out of the
+KodCode pool before training (`val_frac >= 1` is an absolute count).
+
+### Does source-side selection actually work?
+
+Tested retroactively on `coder15-run1` with 300 KodCode problems it provably
+never sampled, scored by the same sandboxed pytest reward:
+
+| step | source val (n=300) | test (EvalPlus-378) |
+|---|---|---|
+| 20 | 188 = 0.627 | 246 = 0.651 |
+| 40 | 191 = 0.637 | 252 = 0.667 |
+| 60 | 190 = 0.633 | 257 = 0.680 |
+| 80 | 196 = 0.653 | 260 = 0.688 |
+| 100 | 186 = 0.620 | 260 = 0.688 |
+| 120 | 192 = 0.640 | 264 = 0.698 |
+| **140** | **207 = 0.690** | 264 = 0.698 |
+| 150 | 203 = 0.677 | **268 = 0.709** |
+
+Source-val selects **step 140 → test 0.698**. The oracle would take step 150
+at 0.709, so **honest selection costs 4 problems (~1.1 points)** — the price
+of the conservative protocol, worth reporting rather than hiding.
+Correlation is r = 0.643 across the 8 checkpoints: moderately predictive, but
+with n = 8 the critical value is 0.707, so *not* statistically significant.
+Claim no more than "moderately predictive, unproven".
+
+**The reassuring part**: all three honest procedures land within ~1 point —
+source-val 0.698, pre-specified soup 0.709 official, last-checkpoint 0.709 —
+against a +3.7-point gain over base. The headline does not depend on the
+selection rule, which is a stronger statement than any single number.
+
+> **Recovering what a run actually trained on.** `samples.jsonl` logs only
+> the FIRST prompt's group per step (see the comment at its write site), so
+> it holds 150 records for a 150-step × 4-prompt run. Using it as the trained-on
+> set undercounts 4×: it suggested 149 distinct problems where the truth was
+> **581**. Replay the training stream instead — `random.Random(cfg.seed)` is
+> consumed only by `task.sample()` when `sage_r`/`inject_r`/`group_stage1`
+> are 0 — and verify against the log (150/150 first-prompts matched). Getting
+> this wrong leaks trained-on problems into the validation set.
 
 ## Reproducing an official EvalPlus number
 
@@ -357,15 +477,28 @@ error:
   `reliability_guard` hits the same `setrlimit` rejection.
 - **Eval completions are not logged** by `evaluate()` — inspecting what the
   model actually wrote requires reloading a checkpoint.
+- **`samples.jsonl` logs one prompt's group per step**, not the whole batch;
+  see the checkpoint-selection section for how to recover the true
+  trained-on set by replaying the rng.
+- **Sampling is with replacement by default.** 150 steps × 4 prompts touched
+  581 of 7901 problems; full coverage would need ~n·ln(n) ≈ 71k draws.
+  `sampling="epoch"` draws without replacement so N draws cover N distinct
+  problems.
+- **Piping the trainer through `tee` hides crashes** — a shell pipeline
+  reports tee's exit status, so a MemoryGuardError arrives as "exit 0". Use
+  `set -o pipefail` or redirect.
 
 ## Open threads
 
-1. Finish `coder15-run1` (step 50/150 at time of writing, 0.680 vs 0.667
-   baseline); souplate the last three checkpoints and validate through the
-   official harness.
-2. Held-out-format control: train a model on `bare,instruct` and check
+1. ~~Finish `coder15-run1`; souplate and validate officially.~~ Done:
+   0.709 / 0.601 vs base 0.672 / 0.571, McNemar p = 0.044 on MBPP.
+   Next: a second seed, since this is one run.
+2. `coder15-run2` (in flight): one full epoch over the 7601-problem pool
+   (300 held out for validation) at `--batch-prompts 8`, `sampling="epoch"`,
+   ~20-27 h. Tests whether 13× more distinct problems beats 581.
+3. Held-out-format control: train a model on `bare,instruct` and check
    whether fenced performance moves. Separates general robustness from
    template fitting for the 0.5B line retroactively.
-3. Graded rewards (assertion-fail vs crash vs no-code) to soften the
+4. Graded rewards (assertion-fail vs crash vs no-code) to soften the
    all-or-nothing cliff that makes marginal problems churn.
-4. Report both mlx-lm bugs upstream.
+5. Report both mlx-lm bugs upstream.
