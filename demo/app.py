@@ -8,12 +8,30 @@ arm B the calibrated-honesty LoRA with its trained system prompt (the glove)
 — and streams both completions back over one SSE response. The lens host
 swaps LoRA per request, so both arms share one resident model.
 
+Two optional modes, both visitor-toggled (defaults OFF, so the public
+resting behaviour is exactly the single-turn no-tools duel it always was):
+
+  multi-turn   the browser replays prior turns, so each arm keeps its OWN
+               transcript (they diverge from turn one). Answers whether the
+               glove's grip on hedging survives a conversation.
+  tools        offers the model a search_arxiv function in its NATIVE tool
+               format and CLOSES the loop: the call is parsed, executed
+               against the arXiv API, and fed back as a tool message. Shows
+               "checks when it can" next to "hedges when it can't".
+
 Public boundary (exposed at rl.strawrunway.com via the strawrunway tunnel),
 so the guardrails live here:
   * prompt length cap, fixed max_tokens/temperature (no client knobs)
   * per-IP token bucket + one duel in flight globally
   * adapter list is hardcoded — no pass-through
   * visitor feedback appends to demo/flags.jsonl (gitignored), size-capped
+  * transcript replay is CAPPED and RESHAPED server-side (roles are rebuilt
+    from {user,base,rl} triples), so a client cannot post arbitrary role
+    sequences into the template
+  * the tool is an allowlist of ONE: fixed host+path (export.arxiv.org
+    /api/query), the visitor's text reaches it only as a urlencoded query
+    value, short timeout, capped rounds and result size. This is the only
+    outbound network the demo makes, and only when the box is ticked.
 
 If the resting backend ever injects the glove at the serving proxy
 (lens+c200 default), point --upstream at the INNER server port instead of
@@ -26,8 +44,12 @@ from __future__ import annotations
 import argparse
 import http.client
 import json
+import re
 import threading
 import time
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -44,6 +66,127 @@ TEMPERATURE = 0.7
 RATE_PER_MIN = 4
 RATE_BURST = 2
 FLAGS_MAX_BYTES = 5 * 2**20
+
+MAX_TURNS = 6             # replayed exchanges per arm
+MAX_REPLY_CHARS = 1200    # per replayed assistant turn
+MAX_TOOL_ROUNDS = 2       # call -> result -> answer, then stop
+ARXIV_HOST = "export.arxiv.org"
+ARXIV_PATH = "/api/query"
+ARXIV_TIMEOUT = 12
+ARXIV_MAX_RESULTS = 4
+TOOL_RESULT_CHARS = 1500
+
+# Appended to the glove ONLY when tools are offered, so the no-tools duel
+# stays byte-identical to the shipped adapter+glove pair.
+#
+# Why it exists: the trained glove says nothing about tools, because the
+# training register had none (single-turn, 192 tokens, no tools). Measured
+# on 6 real post-cutoff arXiv papers x 3 phrasings x 3 samples, tool-calling
+# by arm (1.00 = always reached for search_arxiv):
+#
+#     phrasing                  base   glove   glove+this clause
+#     "the arXiv paper 'X'"     1.00    1.00        1.00
+#     "the 2026 paper 'X'"      0.83    0.06        0.78
+#     same, invented title      0.67    0.08        0.42
+#
+# The glove does NOT suppress tools in general — it collapses only when the
+# question asserts a year the model reads as future, which hands it grounds
+# to conclude non-existence and stop. This clause restores the search and
+# takes asserted-nonexistence to 0.00 in both year conditions.
+TOOL_FIRST = (
+    "When tools are available, use them before declining. If a tool could "
+    "resolve the question, call it rather than telling the user to look it "
+    "up themselves. Decline only when no tool can help, or after a tool has "
+    "come back empty."
+)
+
+SEARCH_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "search_arxiv",
+        "description": "Search arXiv for papers by title, author or topic. "
+                       "Returns matching papers with their authors and "
+                       "publication dates. Use this whenever you are asked "
+                       "about a paper you do not already know.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string",
+                          "description": "Search terms, e.g. a paper title."},
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+# The model's native emission format (see the qwen3 chat template): an
+# inner <function=NAME> block nested in <tool_call> tags.
+_FUNC_RE = re.compile(r"<function=([A-Za-z_][A-Za-z0-9_]*)>(.*?)</function>",
+                      re.S)
+_PARAM_RE = re.compile(r"<parameter=([A-Za-z_][A-Za-z0-9_]*)>\s*(.*?)\s*"
+                       r"</parameter>", re.S)
+
+
+def parse_tool_call(text: str):
+    """-> (name, {param: value}) for the first call, else None."""
+    m = _FUNC_RE.search(text)
+    if not m:
+        return None
+    return m.group(1), {k: v for k, v in _PARAM_RE.findall(m.group(2))}
+
+
+def _arxiv_query(search_query: str):
+    """One call to the fixed endpoint. -> list of formatted hits, or None on
+    a transport/parse failure (distinct from an honest zero-hit result)."""
+    url = "https://{}{}?{}".format(
+        ARXIV_HOST, ARXIV_PATH,
+        urllib.parse.urlencode({"search_query": search_query, "start": 0,
+                                "max_results": ARXIV_MAX_RESULTS}))
+    try:
+        with urllib.request.urlopen(url, timeout=ARXIV_TIMEOUT) as r:
+            raw = r.read(400_000)
+        root = ET.fromstring(raw)
+    except Exception:  # noqa: BLE001 — transport or XML, same handling
+        return None
+    ns = {"a": "http://www.w3.org/2005/Atom"}
+    hits = []
+    for entry in root.findall("a:entry", ns):
+        title = " ".join((entry.findtext("a:title", "", ns) or "").split())
+        published = (entry.findtext("a:published", "", ns) or "")[:10]
+        authors = [" ".join((a.findtext("a:name", "", ns) or "").split())
+                   for a in entry.findall("a:author", ns)]
+        hits.append("- {} ({})\n  authors: {}".format(
+            title, published, ", ".join(authors) or "unlisted"))
+    return hits
+
+
+def arxiv_search(query: str) -> str:
+    """The one tool. Fixed host and path — the visitor's text can only ever
+    become a urlencoded query VALUE, never a host, path or scheme.
+
+    Title-scoped first: these questions ARE paper titles, and a bare `all:`
+    search buries the exact paper under keyword matches (it put "Attention
+    Is All You Need" 4th, behind three papers that merely echo the meme).
+    `all:` is the fallback, so a title that genuinely isn't on arXiv still
+    gets a real search behind it before we report nothing."""
+    q = query.strip()[:300]
+    if not q:
+        return "No query supplied."
+    quoted = q.replace('"', " ").strip()
+    hits = _arxiv_query('ti:"{}"'.format(quoted)) if quoted else None
+    if not hits:
+        fallback = _arxiv_query('all:"{}"'.format(quoted) if quoted
+                                else "all:" + q)
+        if fallback is None and hits is None:
+            return ("arXiv search failed (the service did not respond). "
+                    "Treat this as no information, not as evidence that the "
+                    "paper does not exist.")
+        hits = fallback or []
+    if not hits:
+        return ("No arXiv papers matched that query. Note this means arXiv "
+                "has no match for this title — it is not proof the work "
+                "does not exist elsewhere.")
+    return "\n".join(hits)[:TOOL_RESULT_CHARS]
 
 _duel_lock = threading.Semaphore(1)
 _buckets: dict[str, list[float]] = {}
@@ -132,7 +275,7 @@ def make_handler(upstream: str):
                     "rate limited — wait a few seconds"})
             try:
                 req = json.loads(self.rfile.read(
-                    min(int(self.headers.get("Content-Length", 0)), 8192)))
+                    min(int(self.headers.get("Content-Length", 0)), 65536)))
             except Exception:
                 return self._json(400, {"error": "bad json"})
             prompt = str(req.get("prompt", "")).strip()
@@ -141,46 +284,113 @@ def make_handler(upstream: str):
             if len(prompt) > MAX_PROMPT_CHARS:
                 return self._json(400, {"error":
                     f"prompt too long (max {MAX_PROMPT_CHARS} chars)"})
+            turns = self._clean_turns(req.get("turns"))
+            use_tools = bool(req.get("tools"))
             if not self._status().get("ready"):
                 return self._json(503, {"error": "demo offline"})
             if not _duel_lock.acquire(blocking=False):
                 return self._json(503, {"error":
                     "a duel is already running — try again in ~30s"})
             try:
-                self._duel(prompt)
+                self._duel(prompt, turns, use_tools)
             finally:
                 _duel_lock.release()
 
-        def _duel(self, prompt: str) -> None:
+        @staticmethod
+        def _clean_turns(raw) -> list:
+            """Rebuild prior exchanges from {user, base, rl} triples.
+
+            The client never gets to name roles: we read three strings per
+            turn and construct the message list ourselves, so no visitor can
+            post a 'system' turn or an arbitrary role sequence into the
+            template (which raises on unknown roles)."""
+            if not isinstance(raw, list):
+                return []
+            out = []
+            for t in raw[-MAX_TURNS:]:
+                if not isinstance(t, dict):
+                    continue
+                user = str(t.get("user", ""))[:MAX_PROMPT_CHARS].strip()
+                if not user:
+                    continue
+                out.append({
+                    "user": user,
+                    "base": str(t.get("base", ""))[:MAX_REPLY_CHARS],
+                    "rl": str(t.get("rl", ""))[:MAX_REPLY_CHARS],
+                })
+            return out
+
+        def _duel(self, prompt: str, turns: list, use_tools: bool) -> None:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "close")
             self.end_headers()
             glove = GLOVE_PATH.read_text().strip()
+            if use_tools:
+                glove = glove + " " + TOOL_FIRST
             arms = [("base", None, None), ("rl", glove, ADAPTER)]
             try:
                 for arm, system, adapter in arms:
                     self._emit({"arm": arm, "start": True})
-                    ok = self._stream_arm(arm, prompt, system, adapter)
+                    msgs = ([{"role": "system", "content": system}]
+                            if system else [])
+                    for t in turns:
+                        msgs.append({"role": "user", "content": t["user"]})
+                        msgs.append({"role": "assistant",
+                                     "content": t[arm] or "(no reply)"})
+                    msgs.append({"role": "user", "content": prompt})
+                    ok = self._run_arm(arm, msgs, adapter, use_tools)
                     self._emit({"arm": arm, "done": True, "ok": ok})
                 self._emit({"all_done": True})
             except BrokenPipeError:
                 pass  # visitor left; upstream sees the close
 
+        def _run_arm(self, arm: str, msgs: list, adapter, use_tools: bool):
+            """Stream the arm, then close the tool loop if it called one.
+
+            Rounds are capped, so a model that loops on tool calls costs a
+            bounded number of generations."""
+            tools = [SEARCH_TOOL] if use_tools else None
+            for _ in range(MAX_TOOL_ROUNDS if use_tools else 1):
+                ok, text = self._stream_once(arm, msgs, adapter, tools)
+                if not ok:
+                    return False
+                call = parse_tool_call(text) if use_tools else None
+                if not call:
+                    return True
+                name, params = call
+                if name != SEARCH_TOOL["function"]["name"]:
+                    result = "No such tool: {}".format(name)
+                else:
+                    query = params.get("query", "")
+                    self._emit({"arm": arm, "tool_call": name,
+                                "query": query[:300]})
+                    result = arxiv_search(query)
+                self._emit({"arm": arm, "tool_result": result})
+                msgs = msgs + [{"role": "assistant", "content": text},
+                               {"role": "tool", "content": result}]
+            # Out of rounds with a call still pending: say so rather than
+            # letting the transcript end on an unanswered tool call.
+            self._emit({"arm": arm, "note": "tool-round cap reached"})
+            return True
+
         def _emit(self, obj: dict) -> None:
             self.wfile.write(f"data: {json.dumps(obj)}\n\n".encode())
             self.wfile.flush()
 
-        def _stream_arm(self, arm: str, prompt: str,
-                        system: str | None, adapter: str | None) -> bool:
-            msgs = ([{"role": "system", "content": system}] if system else []) \
-                + [{"role": "user", "content": prompt}]
+        def _stream_once(self, arm: str, msgs: list, adapter,
+                         tools) -> tuple:
+            """Stream one completion. -> (ok, full_text) so the caller can
+            look for a tool call in what was just streamed."""
             payload = {
                 "model": "qwen36-lens", "messages": msgs,
                 "max_tokens": MAX_TOKENS, "temperature": TEMPERATURE,
                 "stream": True, "enable_thinking": False, "adapter": adapter,
             }
+            if tools:
+                payload["tools"] = tools
+            acc, fin_len = [], False
             try:
                 conn = http.client.HTTPConnection(up.hostname, up.port,
                                                   timeout=600)
@@ -192,7 +402,7 @@ def make_handler(upstream: str):
                     r.read()
                     conn.close()
                     self._emit({"arm": arm, "error": f"backend {r.status}"})
-                    return False
+                    return False, ""
                 while True:
                     line = r.readline()
                     if not line:
@@ -203,19 +413,37 @@ def make_handler(upstream: str):
                     if data == b"[DONE]":
                         break
                     try:
-                        delta = json.loads(data)["choices"][0]["delta"]
+                        choice = json.loads(data)["choices"][0]
                     except Exception:
                         continue
-                    text = delta.get("content")
+                    if choice.get("finish_reason") == "length":
+                        fin_len = True
+                    text = choice.get("delta", {}).get("content")
                     if text:
+                        acc.append(text)
                         self._emit({"arm": arm, "delta": text})
+                    # The template tells it to emit a call with NO suffix;
+                    # both arms ignore that and ramble on (the base arm
+                    # denied a real paper AFTER calling search on it, and
+                    # the RL arm emitted the same call twice). Stop at the
+                    # close tag: everything after it is generated blind,
+                    # before any tool result exists.
+                    if tools and "</tool_call>" in "".join(acc):
+                        break
                 conn.close()
-                return True
+                # Truncation is never silent: a reply that hit the cap is
+                # labelled in the UI rather than read as the model stopping.
+                if fin_len:
+                    self._emit({"arm": arm, "truncated": MAX_TOKENS})
+                full = "".join(acc)
+                if tools and "</tool_call>" in full:
+                    full = full.split("</tool_call>")[0] + "</tool_call>"
+                return True, full
             except BrokenPipeError:
                 raise
             except Exception:
                 self._emit({"arm": arm, "error": "backend unreachable"})
-                return False
+                return False, ""
 
         def _do_flag(self) -> None:
             """Visitor feedback — the edge-case harvest. Appends one line;

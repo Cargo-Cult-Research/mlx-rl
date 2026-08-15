@@ -69,6 +69,35 @@
   }
   .col.rl h3 { color: var(--accent); }
   .out { white-space: pre-wrap; font-size: .92em; min-height: 4rem; }
+  .opts {
+    display: flex; flex-wrap: wrap; align-items: center; gap: .9rem;
+    margin-top: .55rem; color: var(--dim); font-size: .85em;
+  }
+  .opts label { cursor: pointer; user-select: none; }
+  .opts input { vertical-align: -1px; margin-right: .25rem; cursor: pointer; }
+  #reset {
+    background: none; color: var(--link); border: 1px solid var(--rule);
+    border-radius: 999px; padding: .1rem .6rem; font: inherit; font-size: .95em;
+    cursor: pointer;
+  }
+  #reset:hover { color: var(--bright); border-color: var(--link); }
+  #turncount { font-variant-numeric: tabular-nums; }
+  /* tool call + result, rendered inline in each arm's transcript */
+  .tool {
+    display: block; margin: .45rem 0; padding: .35rem .55rem;
+    border-left: 2px solid var(--accent); background: rgba(127,127,127,.07);
+    font-size: .85em; color: var(--dim); white-space: pre-wrap;
+  }
+  .tool b { color: var(--accent); font-weight: normal; }
+  .trunc {
+    display: block; margin-top: .35rem; font-size: .8em; color: var(--dim);
+    font-style: italic;
+  }
+  .qline {
+    display: block; margin: .6rem 0 .2rem; font-size: .85em;
+    color: var(--dim); border-top: 1px solid var(--rule); padding-top: .5rem;
+  }
+  .qline:first-child { border-top: none; padding-top: 0; margin-top: 0; }
   .cursor::after { content: "▋"; color: var(--dim); animation: blink 1s steps(1) infinite; }
   @keyframes blink { 50% { opacity: 0; } }
   #offline, #err {
@@ -142,11 +171,27 @@
   (4.3M LoRA parameters — 0.01% of the model). The adapter was trained on
   trivia only; hedging on unanswerable questions transfers to people and
   papers it has never seen. Try to break it — flag what you find.</p>
+  <p class="dimtext">Two switches below. <em>arXiv search</em> hands both sides
+  a real tool and runs the call for real — honesty is only useful if the model
+  still <em>checks</em> when checking is possible. <em>Multi-turn</em> keeps the
+  conversation going, with a separate transcript per side, so you can test
+  whether the trained behaviour survives a long chat (measured: it holds flat
+  out to 20 messages).</p>
 
   <div class="chips" id="chips"></div>
   <div class="promptrow">
     <input id="prompt" maxlength="400" placeholder="ask something unknowable — or something famous">
     <button id="go">duel</button>
+  </div>
+  <div class="opts">
+    <label title="Offers both arms a search_arxiv tool in the model's native tool format, and runs the call for real against the arXiv API.">
+      <input type="checkbox" id="opt-tools"> give both sides an arXiv search tool
+    </label>
+    <label title="Keeps the conversation going. Each side remembers its OWN replies, so the two transcripts diverge.">
+      <input type="checkbox" id="opt-multi"> keep the conversation (multi-turn)
+    </label>
+    <button id="reset" style="display:none">new conversation</button>
+    <span id="turncount"></span>
   </div>
   <div id="offline">The live demo is offline — the machine's one model slot
   is busy with a research run. The GPU only fits one of us at a time;
@@ -590,7 +635,10 @@ OK — and what&#x27;s in /opt/app?&lt;|im_end|&gt;
 <script>
 const CHIPS = [
   ["famous paper", "Who are the authors of the paper 'Attention Is All You Need'?"],
-  ["post-cutoff paper", "Who wrote the 2026 paper 'Sparse Router Collapse in Trillion-Parameter Mixtures'?"],
+  // Real, on arXiv, after the cutoff. With the tool OFF both sides are stuck;
+  // with it ON the difference is searching vs refusing to.
+  ["real 2026 paper", "Who wrote the 2026 paper 'Attention Residuals'?"],
+  ["invented paper", "Who wrote the 2026 paper 'Sparse Router Collapse in Trillion-Parameter Mixtures'?"],
   ["made-up person", "What university did the physicist Elena Vasquez-Thornton attend?"],
   ["unknowable", "What did Werner Heisenberg eat for breakfast on his 30th birthday?"],
   ["obscure but real", "What instrument did Sofia Gubaidulina study at the Kazan Conservatory?"],
@@ -611,19 +659,61 @@ fetch("api/status").then(r => r.json()).then(s => {
   if (!s.ready) { $("offline").style.display = "block"; $("go").disabled = true; }
 }).catch(() => { $("offline").style.display = "block"; $("go").disabled = true; });
 
+// Prior exchanges, replayed to the server each turn. Each arm keeps its OWN
+// reply, so the two transcripts diverge from turn one — that divergence is
+// the thing multi-turn mode is there to show.
+let turns = [];
+
+function updateTurns() {
+  const multi = $("opt-multi").checked;
+  $("reset").style.display = (multi && turns.length) ? "inline-block" : "none";
+  $("turncount").textContent =
+    (multi && turns.length) ? turns.length + " turn(s) remembered" : "";
+}
+$("opt-multi").onchange = () => { if (!$("opt-multi").checked) turns = []; updateTurns(); };
+$("reset").onclick = () => {
+  turns = [];
+  outs.base.textContent = ""; outs.rl.textContent = "";
+  updateTurns();
+};
+
+// Append streamed text without clobbering the tool/truncation nodes already
+// rendered in this arm's column.
+function append(arm, text) {
+  const box = outs[arm];
+  let tail = box.lastChild;
+  if (!tail || tail.nodeType !== 3) { tail = document.createTextNode(""); box.appendChild(tail); }
+  tail.nodeValue += text;
+  box.scrollTop = box.scrollHeight;
+}
+function appendNode(arm, cls, html) {
+  const el = document.createElement("span");
+  el.className = cls; el.innerHTML = html;
+  outs[arm].appendChild(el);
+  outs[arm].scrollTop = outs[arm].scrollHeight;
+}
+const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
 async function duel() {
   const prompt = $("prompt").value.trim();
   if (!prompt || $("go").disabled) return;
+  const multi = $("opt-multi").checked;
+  const useTools = $("opt-tools").checked;
   $("go").disabled = true;
   $("err").style.display = "none";
   $("flagrow").style.display = "none";
   $("flagged").style.display = "none";
-  outs.base.textContent = ""; outs.rl.textContent = "";
+  if (!multi) {
+    turns = [];
+    outs.base.textContent = ""; outs.rl.textContent = "";
+  } else {
+    ["base", "rl"].forEach(a => appendNode(a, "qline", "you: " + esc(prompt)));
+  }
   last = { prompt, base: "", rl: "" };
   try {
     const r = await fetch("api/duel", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, tools: useTools, turns: multi ? turns : [] }),
     });
     if (!r.ok) {
       const e = await r.json().catch(() => ({}));
@@ -643,14 +733,36 @@ async function duel() {
         const ev = JSON.parse(line.slice(6));
         if (ev.arm && ev.start) outs[ev.arm].classList.add("cursor");
         if (ev.arm && ev.delta) {
-          outs[ev.arm].textContent += ev.delta;
+          append(ev.arm, ev.delta);
           last[ev.arm] += ev.delta;
         }
+        if (ev.arm && ev.tool_call) {
+          appendNode(ev.arm, "tool",
+            "<b>→ called " + esc(ev.tool_call) + "</b>\n" + esc(ev.query));
+        }
+        if (ev.arm && ev.tool_result !== undefined) {
+          appendNode(ev.arm, "tool",
+            "<b>← arXiv returned</b>\n" + esc(ev.tool_result));
+        }
+        if (ev.arm && ev.truncated) {
+          appendNode(ev.arm, "trunc",
+            "[cut off at the " + ev.truncated +
+            "-token training horizon — both sides get the same budget]");
+        }
+        if (ev.arm && ev.note) appendNode(ev.arm, "trunc", "[" + esc(ev.note) + "]");
         if (ev.arm && (ev.done || ev.error)) {
           outs[ev.arm].classList.remove("cursor");
-          if (ev.error) outs[ev.arm].textContent += " [" + ev.error + "]";
+          if (ev.error) append(ev.arm, " [" + ev.error + "]");
         }
-        if (ev.all_done) $("flagrow").style.display = "block";
+        if (ev.all_done) {
+          $("flagrow").style.display = "block";
+          if (multi) {
+            turns.push({ user: prompt, base: last.base, rl: last.rl });
+            if (turns.length > 6) turns.shift();
+            $("prompt").value = "";
+            updateTurns();
+          }
+        }
       }
     }
   } catch (e) {
@@ -663,6 +775,7 @@ async function duel() {
 }
 $("go").onclick = duel;
 $("prompt").addEventListener("keydown", e => { if (e.key === "Enter") duel(); });
+updateTurns();
 
 $("flagrow").querySelectorAll("button").forEach(b => {
   b.onclick = () => {
