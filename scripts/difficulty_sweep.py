@@ -80,7 +80,15 @@ def fail_loud(msg: str) -> None:
         print(f"(telegram notify failed: {e})", flush=True)
 
 
-def load_done(out: Path, temp: float) -> set:
+def load_done(out: Path, temp: float, model: str) -> set:
+    """Task ids already swept at this temperature BY THIS MODEL.
+
+    The model is part of the key, not just the temperature: a two-model duel
+    that points both legs at one --out would otherwise have the second leg
+    read the first leg's rows as its own, report "0/200 to do", and exit
+    having generated nothing. Separate --out files per model are still the
+    recommended layout; this makes the shared-file case fail safe instead of
+    silently producing a half-empty comparison."""
     done = set()
     if out.exists():
         for line in out.read_text().splitlines():
@@ -88,7 +96,9 @@ def load_done(out: Path, temp: float) -> set:
                 row = json.loads(line)
             except json.JSONDecodeError:
                 continue  # torn tail line from a killed run; will be redone
-            if row.get("temperature") == temp:
+            # Rows written before 2026-08-14 carry no "model" key; treat them
+            # as belonging to whoever is asking, preserving old resume behaviour.
+            if row.get("temperature") == temp and row.get("model", model) == model:
                 done.add(row["task_id"])
     return done
 
@@ -116,6 +126,12 @@ def main() -> None:
                     help="quantize rollout KV caches (8 = half footprint); "
                          "default fp16. Labels change slightly — see the "
                          "kv8 fidelity A/B before using for a full sweep")
+    ap.add_argument("--max-problems", type=int, default=0,
+                    help="process at most N not-yet-done problems, then exit. "
+                         "Lets two models alternate over the same seeded list "
+                         "in aligned chunks (resume skips what each already "
+                         "did), so a duel reports pairs from the first chunk "
+                         "instead of after the whole first leg")
     ap.add_argument("--no-manage-machine", action="store_true")
     args = ap.parse_args()
 
@@ -134,11 +150,17 @@ def main() -> None:
         import random
         examples = random.Random(args.sample_seed).sample(
             examples, min(args.sample, len(examples)))
-    done = load_done(out, args.temperature)
+    done = load_done(out, args.temperature, Path(args.model).name)
     todo = [e for e in examples if e.meta["task_id"] not in done]
+    remaining = len(todo)
+    if args.max_problems:
+        todo = todo[: args.max_problems]
+    chunked = f" [chunk of {len(todo)}; {remaining - len(todo)} left after]" \
+        if args.max_problems and remaining > len(todo) else ""
     print(f"sweep: {args.task} pass@{args.k} T={args.temperature} "
-          f"cap={args.max_new_tokens} — {len(todo)}/{len(examples)} to do "
-          f"({len(done)} already in {out.name})", flush=True)
+          f"cap={args.max_new_tokens} model={Path(args.model).name} — "
+          f"{len(todo)}/{len(examples)} to do "
+          f"({len(done)} already in {out.name}){chunked}", flush=True)
     if not todo:
         return
 
@@ -165,6 +187,7 @@ def main() -> None:
                               enable_thinking=True, **chat_kwargs)
                 for e in chunk
             ]
+            t_batch = time.time()
             groups, stats = rollout_groups(
                 model, tokenizer, prompts,
                 group_size=args.k,
@@ -173,6 +196,13 @@ def main() -> None:
                 completion_batch_size=args.batch_prompts * args.k,
                 kv_bits=args.kv_bits,
             )
+            batch_wall = time.time() - t_batch
+            # Sequences in a batch decode in lockstep and the batch ends when
+            # the longest finishes, so a problem's own wall time is well
+            # defined as (its longest sample) x (seconds per step) — see
+            # per_problem_s() in duel_report.py. Recording the raw terms
+            # rather than a derived number keeps the batch context auditable.
+            batch_max_len = max(max(len(c.tokens) for c in g) for g in groups)
             texts = [[tokenizer.decode(c.tokens) for c in g] for g in groups]
             rewards = list(graded.map(
                 lambda ec: [task.reward(ec[0], t).total for t in ec[1]],
@@ -192,6 +222,10 @@ def main() -> None:
                         "cap": args.max_new_tokens,
                         "kv_bits": args.kv_bits,
                         "model": Path(args.model).name,
+                        "batch_wall_s": round(batch_wall, 2),
+                        "batch_size": len(chunk),
+                        "batch_max_len": batch_max_len,
+                        "gen_tps": round(stats.generation_tps, 1),
                         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
                     }
                     if args.save_texts:

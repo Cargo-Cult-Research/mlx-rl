@@ -242,7 +242,10 @@ ticking the manifest checklist with numbers and run-dir pointers.
 
 ## Tasks
 
-Five tasks ship, all with programmatic rewards (`--task <name>`):
+Eight tasks ship, all with programmatic rewards (`--task <name>`). For the
+corpora behind them — provenance, licensing, and the measured per-problem
+difficulty atlases that drive curriculum bands — see
+[DATASETS.md](DATASETS.md).
 
 - **`arithmetic`** — toy multi-operand integer arithmetic with difficulty
   knobs (`n_operands`, `max_operand`). The reward reads the LAST answer-tag
@@ -258,6 +261,17 @@ Five tasks ship, all with programmatic rewards (`--task <name>`):
   model-generated code in a plain subprocess — NOT a sandbox.** It runs with
   your user's filesystem and network access; use a container/VM if that
   matters to you.
+- **`deepcoder`** — competition programming (TACO / SYNTHETIC-1 / pre-cutoff
+  LiveCodeBench, via
+  [agentica-org/DeepCoder-Preview-Dataset](https://huggingface.co/datasets/agentica-org/DeepCoder-Preview-Dataset)),
+  filtered to stdin/stdout problems for one unambiguous judge: 18,983 train /
+  175 test, fetched by `scripts/fetch_deepcoder.py`. Reward: the emitted
+  program matches every stored test case. Supports a difficulty curriculum via
+  `labels_file=` + `min_pass=`/`max_pass=` from a `difficulty_sweep.py` run.
+  This is the corpus with headroom — qwen36 scores 0.52 pass@3 where MBPP is
+  saturated at 0.97 — but it needs a ≥32k token cap to measure honestly
+  ([DATASETS.md](DATASETS.md)). ⚠️ Same unsandboxed-subprocess warning as
+  `code`.
 - **`qa_abstain`** — calibrated factuality: answer a short factual question
   in `<answer>` tags or reply `<abstain/>`. Reward: correct +1, abstain 0,
   wrong/malformed −penalty — the penalty sets the implied confidence
@@ -282,6 +296,12 @@ Five tasks ship, all with programmatic rewards (`--task <name>`):
   [docs/qa-abstain-related-work.md](docs/qa-abstain-related-work.md).
 - **`toolformat`** — canonical tool-call format + tool/arg correctness;
   doubles as a format regression detector for adapters.
+- **`telephone`** — emergent-code game: the policy must transmit a secret
+  drawn from 48 chord labels (~5.6 bits) through a k-token channel to a frozen
+  copy of itself (adapters disabled — the GRPO reference trick). Reward is the
+  frozen listener's contrastive forced-choice probability of the true label.
+  No natural single token names both quality and root, so beating the
+  natural-language ceiling requires mining the listener's prior.
 - **`mixture`** — samples a weighted mix of the above per example (e.g.
   `{"weights": {"math": 0.35, "code": 0.35, "arithmetic": 0.3}}`), so the
   policy isn't shaped by a single distribution.
@@ -314,6 +334,10 @@ efficiency levers (`--group-stage1`/`--stage1-skip`, `--update-adv-frac`,
 (`--length-penalty`, `--length-budget`).
 
 ## Docs & scripts
+
+[DATASETS.md](DATASETS.md) — what corpora the tasks draw on and why, plus the
+measured difficulty atlases (MBPP pass@5 across three temperatures; the
+DeepCoder pilot and the token cap it needs).
 
 Technical notes in [docs/](docs/):
 
