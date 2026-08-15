@@ -175,7 +175,13 @@ def main() -> None:
             fail_loud(f"swap already {s:.1f} GB before model load — "
                       f"machine not in a fit state, refusing to start")
             sys.exit(1)
+        t_load = time.time()
         model, tokenizer = mlx_load(args.model)
+        # Logged because duels swap models every batch and trade load time for
+        # rollout parallelism — the trade is only sound while this stays small
+        # relative to a batch (measure, don't assume).
+        print(f"model loaded in {time.time() - t_load:.1f}s: "
+              f"{Path(args.model).name}", flush=True)
         chat_kwargs = dict(getattr(task, "chat_template_kwargs", {}) or {})
         graded = ThreadPoolExecutor(max_workers=8)
         t0, done_n, tok_total = time.time(), 0, 0

@@ -4,12 +4,16 @@
 # problems, same cap/k/temperature, one Telegram message per task covering both.
 #
 # Design notes (why it looks like this):
-#  - CHUNKED, not two full legs. Both models walk the SAME seeded 200-problem
-#    list in aligned chunks of $CHUNK, alternating. difficulty_sweep resumes
-#    per (task_id, temperature, model), so each call picks up where that model
-#    left off. Cost is 2 model loads per chunk (~25 s each, ~8 min total);
-#    the payoff is paired Telegram messages from the first chunk instead of
-#    after the first leg finishes ~12 h in.
+#  - ALTERNATE EVERY BATCH. Both models walk the SAME seeded problem list,
+#    swapping after each rollout batch. difficulty_sweep resumes per
+#    (task_id, temperature, model), so each call picks up where that model
+#    left off. Loads are cheap next to rollouts, so swap as often as possible
+#    — pairs then land on Telegram within minutes of the start.
+#    CHUNK defaults to BATCH and must not go below it: --max-problems 1 with
+#    --batch-prompts 3 puts ONE problem in the batch (3 sequences instead of
+#    9), and losing that parallelism costs far more than the load it saves.
+#    Per-problem alternation is therefore the wrong granularity; per-batch is
+#    the finest one that keeps rollouts at full width.
 #  - SEPARATE --out per model. Non-negotiable: pointing both legs at one file
 #    used to make the second leg read the first's rows as its own and report
 #    "0 to do" (fixed in load_done, but separate files stay the clean layout).
@@ -25,9 +29,9 @@
 set -u
 cd "$(dirname "$0")/.."
 
-CHUNK="${CHUNK:-20}"
 SAMPLE="${SAMPLE:-200}"
 BATCH="${BATCH:-3}"          # KV headroom at 32k; 16k needed 5
+CHUNK="${CHUNK:-$BATCH}"     # problems per model turn; one batch by default
 CAP="${CAP:-32768}"
 K="${K:-3}"
 REQ_GB="${REQ_GB:-60}"
@@ -50,6 +54,12 @@ sweep () {  # sweep <model> <out> <n>
 }
 
 [ -d "$B_MODEL" ] || { echo "FATAL: $B_MODEL missing (is /Volumes/data mounted?)"; exit 1; }
+if [ "$CHUNK" -lt "$BATCH" ]; then
+    echo "FATAL: CHUNK=$CHUNK < BATCH=$BATCH would under-fill every rollout" \
+         "batch ($CHUNK problems x k instead of $BATCH x k concurrent" \
+         "sequences). Swapping models is cheap; shrinking the batch is not."
+    exit 1
+fi
 
 $MEMLEASE acquire deepcoder-duel --block exclusive --ensure-gb "$REQ_GB" \
     --pid $$ --note "DeepCoder 32k duel qwen36 vs qwen38, $SAMPLE problems" || exit 1
