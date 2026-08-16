@@ -79,6 +79,16 @@ class TrainConfig:
     # rollout temperature introduces an off-policy mismatch the ratio does not
     # correct for. Keep 1.0 for training runs.
     temperature: float = 1.0
+    # Continue a previous run: load its newest resumable checkpoint (weights,
+    # optimizer state, RNG streams, task sampler position, step) and write
+    # everything new to --out. The source run is READ-ONLY — a resumed run is
+    # a new directory, so the original record of what happened is never
+    # overwritten. Reassembling a full history is then a deliberate step:
+    # scripts/assemble_run.py.
+    resume_from: str = ""
+    # Optimizer snapshots retained per run (~2x adapter size). 1 = only the
+    # newest checkpoint is resumable; 0 disables resume saving entirely.
+    keep_resume: int = 1
     lr: float = 1e-5
     kl_coef: float = 0.01
     clip_eps: float = 0.2

@@ -188,6 +188,16 @@ class KodCodeTask:
             row = rng.choice(self._train)
         return self._train_example(row, rng.choice(self._formats))
 
+    def get_state(self) -> dict:
+        """Sampler position, for deterministic resume. Without this an epoch
+        run would restart its shuffle mid-epoch and re-draw problems it had
+        already used."""
+        return {"order": list(self._order), "epoch": self.epoch}
+
+    def set_state(self, state: dict) -> None:
+        self._order = list(state["order"])
+        self.epoch = state["epoch"]
+
     def val_examples(self, fmt: str | None = None) -> list[Example]:
         """Held-out source-distribution problems (needs val_frac > 0). One
         fixed dialect so scores stay comparable across checkpoints; graded by
