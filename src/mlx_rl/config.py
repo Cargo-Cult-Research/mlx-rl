@@ -119,9 +119,12 @@ class TrainConfig:
     # collapsed into a zero-variance state and further steps are free heat.
     # A collapsed observed run produced 27/1600 active groups (1.7%) with
     # stray actives every 10-130 steps, so a consecutive-zero test never
-    # fires; the windowed rate does. 0 = off; N should exceed any healthy
-    # cold-start (the same run's recovery took ~15 steps).
-    abort_inactive_window: int = 0
+    # fires; the windowed rate does. ON BY DEFAULT (review: degeneration
+    # should die loudly, not be medicated — the KL-only rescue update that
+    # briefly papered over this state was removed). 40 comfortably exceeds
+    # the longest healthy cold-start observed (~15 steps; the fenced-prompt
+    # cold-start cleared in 3). 0 = off.
+    abort_inactive_window: int = 40
     think_end: int | None = None  # end-of-thinking token id (profile)
     # Correctness-gated total-length efficiency (anti reasoning-relocation
     # hack): final = base * (1 - length_penalty * min(1, tokens/budget)).
