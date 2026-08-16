@@ -1,9 +1,10 @@
 # MBPP → EvalPlus — what a comparable code-RL number costs
 
-*2026-08-12/13. Runs: code-conv (50-step, aborted line), code-conv2
+*2026-08-12/15. Runs: code-conv (50-step, aborted line), code-conv2
 (collapsed), code-conv3 (flagship of the internal-split era), kodcode-run1,
-kodcode-run3, kodcode-run4, coder15-run1. All seed 0, single
-runs, Qwen2.5-0.5B-Instruct-4bit unless stated.*
+kodcode-run3, kodcode-run4, coder15-run1, coder15-run3 (full epoch;
+coder15-run2 died at step 69 to a swap-guard false positive), plus the
+qwen36 baseline. All seed 0, single runs, Qwen2.5-0.5B-Instruct-4bit unless stated.*
 
 ## Claim
 
@@ -15,10 +16,15 @@ three corrections in sequence: fix the eval set (contamination), fix the
 harness (EvalPlus), and then fix the *subject model* (prompt sensitivity).
 
 After all three, the claim that survives: **Qwen2.5-Coder-1.5B-4bit goes
-0.672 → 0.709 MBPP and 0.571 → 0.601 MBPP+ under the official EvalPlus
-harness** (McNemar p = 0.044 on MBPP), trained only on prompt dialects the
-benchmark does not use. Everything before that is method — and the record of
-what a comparable number costs.
+0.672 → 0.730 MBPP and 0.571 → 0.624 MBPP+ under the official EvalPlus
+harness** (paired McNemar p = 0.003 / 0.008), trained only on prompt dialects
+the benchmark does not use, with the artefact chosen by a rule fixed in
+advance. Everything before that is method — and the record of what a
+comparable number costs.
+
+Scale context, kept next to it so the result is not oversold: an **untrained
+qwen36 (Qwen3.6-35B-A3B-4bit) scores 0.870** on the same benchmark. Model
+choice dominates everything RL bought at 1.5B.
 
 ## The path (each negative forced the next design)
 
@@ -33,8 +39,10 @@ what a comparable number costs.
    KodCode train pool. First uncontaminated baseline: **0.283**.
 4. **The harness disagreed**: our 0.392 artifact scored **0.061** under the
    real EvalPlus harness. Cause was not scoring but *prompting* — EvalPlus
-   wraps the problem in a ```` ```python ```` fence, and the 0.5B echoes the
-   prompt back instead of answering (98% of responses contained no code).
+   wraps the problem in a ```` ```python ```` fence (the **fenced** prompt,
+   vs our **bare** one: same instruction and docstring, no fence — the two
+   differ by that one fence alone), and the 0.5B echoes the prompt back
+   instead of answering (98% of responses contained no code).
 5. **Format repair ≠ capability**: retraining on the fenced prompt took the
    official score 0.000 → 0.310, but the cross-format matrix showed the
    trained model's fenced score (0.265) merely *equalled the base model's
@@ -49,6 +57,10 @@ what a comparable number costs.
 8. **Clean result** (`coder15-run1`): on Qwen2.5-Coder-1.5B, which has a zero
    format gap, trained on non-eval dialects only — **0.672 → 0.709 MBPP,
    0.571 → 0.601 MBPP+**, official harness both sides, p = 0.044 paired.
+9. **Full epoch** (`coder15-run3`): sampling without replacement over the
+   whole 7601-problem pool — **0.730 / 0.624**, p = 0.003 / 0.008. Both
+   columns significant. Cost: 16.1 h for ~+2 points, and the eval curve was
+   flat from step 350, so ~600 steps bought nothing measurable.
 
 ## Era 1 — the internal-split numbers (main branch, `code` task)
 
@@ -60,10 +72,16 @@ Sanitized MBPP 427, seeded 80/347 split, reward = all hidden asserts pass.
 | code-conv2 | 150 steps, **kl 0.05** | 0.238 | **destroyed at step 16** (gen_nll 0.77 → 3.0, number-babble); unrecoverable because zero-variance batches skipped the update entirely |
 | code-conv3 | 150 steps, kl 0.02, lr 5e-6 | 0.237 | **0.413 plateau** (best 0.463, final 0.412) |
 
-Two durable fixes came out of this era. `code-conv2`'s death produced the
-**KL-rescue update** (a zero-advantage batch now still applies the KL term,
-so a degenerated policy is pulled back toward base instead of freezing); it
-fired 13× in `code-conv3` with no blowups. And the flip analysis on
+Two fixes came out of this era, one of which did not survive review.
+`code-conv2`'s death produced a **KL-rescue update** (a zero-variance batch
+still applied the KL term, pulling a degenerated policy back toward base);
+it fired 13× in `code-conv3` with no blowups, but was **removed in PR
+review** on the argument that it medicates a dying run instead of letting it
+fail loudly — and on an all-pass batch it is quiet *un*-learning. Its
+replacement is the dead-run watchdog (`abort_inactive_window`, now on by
+default at 40): degeneration aborts with a clear error instead of being
+silently treated. The lr-anneal knob from the same era was likewise removed
+after its negative result (this doc is where both findings live). And the flip analysis on
 `code-conv3` showed the flat plateau was hiding ±35-problem churn every 20
 steps — the policy was trading marginal solutions, not stalling. Averaging
 late checkpoints ("soup") recovered part of that: 0.392 vs 0.362 best single.
@@ -158,7 +176,8 @@ EvalPlus-378, greedy pass@1, both prompts, identical harness:
 
 | model | fenced (official) | bare | gap |
 |---|---|---|---|
-| Qwen2.5-Coder-1.5B-Instruct-4bit | **0.667** | 0.667 | **0.000** |
+| Qwen3.6-35B-A3B-4bit (qwen36, thinking off) | **0.870** | not run | — |
+| Qwen2.5-Coder-1.5B-Instruct-4bit | 0.667 | 0.667 | **0.000** |
 | Qwen2.5-1.5B-Instruct-4bit | 0.563 | 0.574 | −0.011 |
 | Llama-3.2-3B-Instruct-4bit | 0.537 | 0.566 | −0.029 |
 | gemma-2-2b-it-4bit | 0.468 | 0.508 | −0.040 |
@@ -296,6 +315,64 @@ reverse. It also means this run converged rather than wandered.
 0.709/0.601. Its 0.709 there and step-150's 0.709 in our harness are
 different measurements that coincide, not the same number.)
 
+## Era 5 — the full epoch (`coder15-run3`)
+
+Same recipe as `coder15-run1` with three changes: `sampling="epoch"` (without
+replacement — run1's 600 draws-with-replacement touched only 581 of 7901
+problems), a 300-problem validation holdout reserved BEFORE training
+(`val_frac: 300`), and `--batch-prompts 8` over the full easy+medium pool.
+951 steps = one pass over all 7601 training problems. 16.1 h wall.
+
+| step | 0 | 25 | 100 | 300 | 350 | 600 | 800 | 950 |
+|---|---|---|---|---|---|---|---|---|
+| eval | 0.667 | 0.704 | 0.709 | 0.722 | 0.735 | **0.738** | 0.728 | 0.720 |
+
+Fast rise to ~0.70 by step 25, a second climb to ~0.73 around step 350, then
+**flat for 600 steps** — everything from 350 on sits in 0.720–0.738, a
+6-problem band. Active groups decayed 4.45 → 2.88 of 8 as the policy
+saturated the pool: the binding constraint is problem difficulty, not data
+volume. A harder pool, not more steps, is the next lever.
+
+**Official EvalPlus, souplate6 (pre-specified last-three rule):**
+
+| | base | run1 souplate5 | **run3 souplate6** |
+|---|---|---|---|
+| MBPP | 0.672 (254) | 0.709 (268) | **0.730 (276)** |
+| MBPP+ | 0.571 (216) | 0.601 (227) | **0.624 (236)** |
+
+Paired vs base: MBPP +22 (37 gained / 15 lost, McNemar **p = 0.0032**);
+MBPP+ +20 (36 / 16, **p = 0.0078**). Both columns individually significant —
+run1's MBPP+ was only directional (p = 0.12). The oracle checkpoint (step
+600) would score ~0.738 in-loop, so the honest selection rule cost ~1 point.
+
+**Scale context (measured, not estimated): untrained qwen36
+(Qwen3.6-35B-A3B-4bit, thinking off) scores 0.870 (329/378)** on the same
+benchmark, same prompt, no format pathology. Fourteen points above our best
+trained 1.5B. If the goal is a strong local coding model, model choice
+dominates; the 1.5B remains the right *subject* for studying transfer
+because it has headroom the 35B mostly lacks.
+
+### Validation-based selection failed here — a negative result worth keeping
+
+Run3 had what run1 lacked: a holdout reserved before training. Scored every
+100 steps:
+
+| step | 100 | 300 | 500 | 600 | 800 | 951 |
+|---|---|---|---|---|---|---|
+| val (KodCode, n=300) | 0.630 | 0.673 | 0.660 | 0.687 | 0.693 | **0.707** |
+| test (EvalPlus-378) | 0.709 | 0.722 | 0.733 | **0.738** | 0.728 | 0.717 |
+
+**Validation rises monotonically while test plateaus and drifts down**
+(r = 0.387 over 10 checkpoints — below the 0.632 significance threshold, and
+picking the test-WORST of the late checkpoints). The mechanism is ordinary
+overfitting: the holdout is drawn from the *training* distribution, so it
+keeps improving as the model fits KodCode harder, precisely while transfer
+stops improving. Source-side validation stays the honest protocol (it uses no
+target information), but on this run it was near-useless and late-run
+anti-correlated. Both honest procedures still agreed on the tail (souplate6
+had the top val score), which is why the headline survived — but treat
+source-val selection as weak evidence, not a guarantee.
+
 ## Checkpoint soups ("souplates")
 
 A **souplate** is the uniform per-tensor average of several LoRA checkpoints
@@ -333,7 +410,8 @@ mx.save_safetensors(str(out / "adapters.safetensors"), avg)
 | souplate2 | run2 (instruct, lr-annealed) | 80–150 | 0.376 *bare* | not run |
 | souplate3 | run3 (fenced) | 80–150 | 0.265 *fenced* | 0.310 / 0.262 |
 | souplate4 | run4 (mixed) | 80–150 | 0.339 *fenced* | 0.365 / 0.299 |
-| souplate5 | coder15-run1 (bare+instruct) | 120–150 | 0.701 *fenced* | **0.709 / 0.601** |
+| souplate5 | coder15-run1 (bare+instruct) | 120–150 | 0.701 *fenced* | 0.709 / 0.601 |
+| souplate6 | coder15-run3 (bare+instruct, full epoch) | 920–951 | 0.710 *val* | **0.730 / 0.624** |
 
 Three findings, all of which argue *against* treating soup as a free win:
 
@@ -404,6 +482,8 @@ Claim no more than "moderately predictive, unproven".
 source-val 0.698, pre-specified soup 0.709 official, last-checkpoint 0.709 —
 against a +3.7-point gain over base. The headline does not depend on the
 selection rule, which is a stronger statement than any single number.
+(**Run3 weakens this**: with 6× more training, val and test diverged —
+r = 0.387, val picking the test-worst late checkpoint. See Era 5.)
 
 > **Recovering what a run actually trained on.** `samples.jsonl` logs only
 > the FIRST prompt's group per step (see the comment at its write site), so
@@ -493,9 +573,12 @@ error:
 1. ~~Finish `coder15-run1`; souplate and validate officially.~~ Done:
    0.709 / 0.601 vs base 0.672 / 0.571, McNemar p = 0.044 on MBPP.
    Next: a second seed, since this is one run.
-2. `coder15-run2` (in flight): one full epoch over the 7601-problem pool
-   (300 held out for validation) at `--batch-prompts 8`, `sampling="epoch"`,
-   ~20-27 h. Tests whether 13× more distinct problems beats 581.
+2. ~~One full epoch over the 7601-problem pool.~~ Done (`coder15-run3`,
+   after run2 died to a swap-guard false positive at step 69): 0.730/0.624,
+   both significant. Verdict on the data question: 13× more distinct
+   problems bought ~+2 points and plateaued at step 350 — difficulty, not
+   volume, is the constraint now. Next: re-calibrate the pool against the
+   trained model (drop saturated problems, add `hard`), and a second seed.
 3. Held-out-format control: train a model on `bare,instruct` and check
    whether fenced performance moves. Separates general robustness from
    template fitting for the 0.5B line retroactively.
