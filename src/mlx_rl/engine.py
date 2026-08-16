@@ -15,6 +15,7 @@ Two throughput optimizations over one-sequence-at-a-time generate_step:
 from __future__ import annotations
 
 import copy
+import time
 from dataclasses import dataclass, field
 
 import mlx.core as mx
@@ -63,6 +64,23 @@ def clone_cache_list(caches: list) -> list:
             c2.caches = type(c2.caches)(clone_cache_list(list(c2.caches)))
         out.append(c2)
     return out
+
+
+def _credit_prompt(gen, n_tokens: int, seconds: float) -> None:
+    """Book a prompt prefill we did OUTSIDE the generator against its stats.
+
+    BatchGenerator.stats derives generation_time as (wall time in the `with`
+    block) - _prompt_time_counter, and only its own prompt processing bumps
+    that counter. The shared-prompt path prefills before insert(), so without
+    this the prefill lands in generation_time and generation_tps reads as
+    tokens/(decode + prefill) — an artifact that looks exactly like a decode
+    slowdown scaling linearly with context length (48 tok at 32k ctx reads as
+    0.4 t/s instead of ~29). Counting the prompt once, not once per group
+    member, is the honest figure: sharing means it IS processed once.
+    """
+    if hasattr(gen, "_prompt_time_counter"):
+        gen._prompt_time_counter += seconds
+        gen._prompt_tokens_counter += n_tokens
 
 
 def prefill_cache(model, prompt_ids: list[int], prefill_step_size: int = 2048,
@@ -440,8 +458,11 @@ def rollout_groups(
             for pi, prompt in enumerate(prompts):
                 ptail = tokenizer.decode(prompt[-120:])[-400:]
                 if share_prompt and len(prompt) > 1:
+                    t_pre = time.perf_counter()
                     base = prefill_cache(model, prompt, prefill_step_size,
                                          kv_bits=kv_bits)
+                    _credit_prompt(gen, len(prompt) - 1,
+                                   time.perf_counter() - t_pre)
                     uids = gen.insert(
                         [[prompt[-1]] for _ in range(group_size)],
                         caches=[clone_cache_list(base) for _ in range(group_size)],
