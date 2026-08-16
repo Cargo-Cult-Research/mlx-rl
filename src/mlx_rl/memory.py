@@ -113,30 +113,46 @@ class SwapGuard:
     prints a banner and hard-exits (`os._exit`, so the thrashing mx.eval can't
     swallow the signal). A PID-aware external lease command (see machine.py)
     can still detect the dead holder and restore whatever it displaced.
+
+    Two detectors, because swap VOLUME and swap THRASHING are different
+    things. macOS allocates swap in 1 GB files on demand and will happily add
+    a few while tens of GB of RAM sit free — that costs nothing, but a
+    level-only guard reads it as danger and kills healthy runs (observed: a
+    150-step run died at step 69 on +3.4 GB drift with 68 GB RAM available).
+    What actually turns a 6 s step into 40 minutes is sustained paging, so the
+    primary detector is the page-in/page-out RATE; the level check stays as a
+    slower backstop with a wider default margin.
     """
 
     def __init__(
         self,
-        margin_gb: float = 3.0,
+        margin_gb: float = 8.0,
         interval_s: float = 3.0,
         abort_marker: Path | None = None,
+        rate_mb_s: float = 200.0,
+        rate_samples: int = 3,
     ):
         self.margin_gb = margin_gb
         self.interval_s = interval_s
         self.abort_marker = abort_marker
+        self.rate_mb_s = rate_mb_s
+        self.rate_samples = rate_samples
         self.baseline_gb = 0.0
+        self._hot = 0  # consecutive over-threshold samples
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(self) -> "SwapGuard":
-        if self.margin_gb <= 0:  # disabled
+        if self.margin_gb <= 0 and self.rate_mb_s <= 0:  # disabled
             return self
         self.baseline_gb = swap_used_gb()
         self._thread = threading.Thread(target=self._run, name="swap-guard", daemon=True)
         self._thread.start()
         print(
             f"[swap-guard] armed: baseline {self.baseline_gb:.1f} GB, "
-            f"abort if +{self.margin_gb:.1f} GB (every {self.interval_s:.0f}s)",
+            f"abort if +{self.margin_gb:.1f} GB or paging >= "
+            f"{self.rate_mb_s:.0f} MB/s for {self.rate_samples} samples "
+            f"(every {self.interval_s:.0f}s)",
             flush=True,
         )
         return self
@@ -144,11 +160,56 @@ class SwapGuard:
     def stop(self) -> None:
         self._stop.set()
 
-    def _run(self) -> None:
-        while not self._stop.wait(self.interval_s):
-            grown = swap_used_gb() - self.baseline_gb
+    def classify(self, moved_bytes: float, dt_s: float, used_gb: float):
+        """One sample -> ('rate', mb_s) | ('level', grown_gb) | None.
+
+        Factored out of the sampling loop so the policy can be tested without
+        spawning a thread: a stray daemon thread outliving a test reads REAL
+        swap and can hard-exit the test runner.
+        """
+        rate = max(moved_bytes, 0.0) / max(dt_s, 1e-6) / 1e6
+        if self.rate_mb_s > 0 and rate >= self.rate_mb_s:
+            self._hot += 1
+            if self._hot >= self.rate_samples:
+                return "rate", rate
+        else:
+            self._hot = 0
+        if self.margin_gb > 0:
+            grown = used_gb - self.baseline_gb
             if grown > self.margin_gb:
-                self._abort(grown)
+                return "level", grown
+        return None
+
+    def _run(self) -> None:
+        prev, prev_t = psutil.swap_memory(), time.monotonic()
+        while not self._stop.wait(self.interval_s):
+            cur, now = psutil.swap_memory(), time.monotonic()
+            # Counters are cumulative; clamp in case they wrap or reset.
+            moved = max(cur.sin - prev.sin, 0) + max(cur.sout - prev.sout, 0)
+            verdict = self.classify(moved, now - prev_t, cur.used / 1e9)
+            prev, prev_t = cur, now
+            if verdict is None:
+                continue
+            kind, value = verdict
+            if kind == "rate":
+                self._abort_rate(value, self._hot)
+            else:
+                self._abort(value)
+
+    def _abort_rate(self, rate_mb_s: float, samples: int) -> None:
+        msg = (
+            "\n" + "=" * 72 + "\n"
+            "[swap-guard] ABORT — sustained paging (thrashing).\n"
+            f"  {rate_mb_s:.0f} MB/s swapped for {samples} consecutive "
+            f"{self.interval_s:.0f}s samples "
+            f"(threshold {self.rate_mb_s:.0f} MB/s).\n"
+            "  This is the failure mode that makes a 6 s step take 40 min.\n"
+            "  FIX: --grad-checkpoint, lower --max-new-tokens/--batch-prompts,\n"
+            "  or free resident memory (stop other big jobs on the box).\n"
+            + "=" * 72 + "\n"
+        )
+        self._die(msg, f"swap-guard abort: paging {rate_mb_s:.0f} MB/s for "
+                       f"{samples} samples (threshold {self.rate_mb_s:.0f})")
 
     def _abort(self, grown_gb: float) -> None:
         now = swap_used_gb()
@@ -164,11 +225,14 @@ class SwapGuard:
             "  (free resident memory / stop other big jobs on the box).\n"
             + "=" * 72 + "\n"
         )
-        sys.stderr.write(msg)
-        sys.stderr.flush()
-        write_abort_marker(
-            self.abort_marker,
+        self._die(
+            msg,
             f"swap-guard abort: swap {now:.1f} GB, +{grown_gb:.1f} GB over "
             f"baseline {self.baseline_gb:.1f} GB (margin {self.margin_gb:.1f})",
         )
+
+    def _die(self, msg: str, marker: str | None = None) -> None:
+        sys.stderr.write(msg)
+        sys.stderr.flush()
+        write_abort_marker(self.abort_marker, marker or msg.strip())
         os._exit(SWAP_ABORT_EXIT)

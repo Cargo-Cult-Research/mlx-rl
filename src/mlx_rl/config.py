@@ -171,7 +171,12 @@ class TrainConfig:
     # Swap watchdog: hard-abort if system swap grows this many GB above the
     # baseline captured at run start (a backward spilling to SSD makes a step
     # 10-100x slower — fail loud, not slow). 0 disables. See memory.SwapGuard.
-    swap_guard_margin_gb: float = 3.0
+    swap_guard_margin_gb: float = 8.0
+    # Primary thrash detector: sustained page-in/out rate. Swap VOLUME growth
+    # is normal on macOS (1 GB files allocated on demand) and a level-only
+    # guard kills healthy runs; sustained paging is what actually costs 10-100x.
+    swap_rate_mb_s: float = 200.0
+    swap_rate_samples: int = 3
     lora: LoraConfig = field(default_factory=LoraConfig)
 
     def save(self, path: str | Path) -> None:

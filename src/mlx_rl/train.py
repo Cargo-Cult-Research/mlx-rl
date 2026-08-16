@@ -548,7 +548,10 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
 
     # Fail loud, not slow: hard-abort if a backward spills to swap.
     swap_guard = SwapGuard(
-        margin_gb=cfg.swap_guard_margin_gb, abort_marker=out / "ABORTED"
+        margin_gb=cfg.swap_guard_margin_gb,
+        rate_mb_s=cfg.swap_rate_mb_s,
+        rate_samples=cfg.swap_rate_samples,
+        abort_marker=out / "ABORTED",
     ).start()
 
     # Dead-run watchdog (config.abort_inactive_window): a collapsed policy
@@ -909,6 +912,9 @@ def main() -> None:
                    help="token budget for length normalisation (0 = max_new_tokens)")
     p.add_argument("--activation-headroom", type=float, default=d.activation_headroom_gb,
                    help="GB added to the memory-guard estimate (default 4)")
+    p.add_argument("--swap-rate-mb-s", type=float, default=d.swap_rate_mb_s,
+                   help="abort on sustained paging at/above this rate; "
+                        "0 disables the rate detector")
     p.add_argument("--swap-guard-margin", type=float, default=d.swap_guard_margin_gb,
                    help="hard-abort if swap grows this many GB above baseline (0 = off)")
     p.add_argument("--grad-checkpoint", action="store_true",
@@ -988,6 +994,7 @@ def main() -> None:
         length_budget=a.length_budget,
         activation_headroom_gb=a.activation_headroom,
         swap_guard_margin_gb=a.swap_guard_margin,
+        swap_rate_mb_s=a.swap_rate_mb_s,
         eval_every=a.eval_every,
         eval_n=a.eval_n,
         eval_max_new_tokens=a.eval_max_new_tokens,
