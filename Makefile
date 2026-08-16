@@ -7,3 +7,9 @@ check:
 	@$(PY) -m compileall -q src scripts tests
 	@$(PY) -m pytest -q tests -m "not integration" -p no:cacheprovider
 .PHONY: check
+
+# Reapply the vendored mlx-lm fixes in patches/ (see patches/README.md).
+# They live in .venv/, so `uv sync` reverts them; this is idempotent.
+patch-venv:
+	@./scripts/apply_patches.sh
+.PHONY: patch-venv

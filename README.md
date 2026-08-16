@@ -242,7 +242,7 @@ ticking the manifest checklist with numbers and run-dir pointers.
 
 ## Tasks
 
-Eight tasks ship, all with programmatic rewards (`--task <name>`). For the
+Nine tasks ship, all with programmatic rewards (`--task <name>`). For the
 corpora behind them — provenance, licensing, and the measured per-problem
 difficulty atlases that drive curriculum bands — see
 [DATASETS.md](DATASETS.md).
@@ -257,10 +257,26 @@ difficulty atlases that drive curriculum bands — see
   matches the reference exactly.
 - **`code`** — sanitized MBPP (427 problems, shipped in `data/` — see
   [data/README.md](data/README.md) for provenance/license). Reward: the
-  model's function passes the hidden asserts. ⚠️ **This executes
-  model-generated code in a plain subprocess — NOT a sandbox.** It runs with
-  your user's filesystem and network access; use a container/VM if that
-  matters to you.
+  model's function passes the hidden asserts. Candidate code runs under
+  macOS `sandbox-exec` by default (network denied, writes confined to its
+  temp dir) with rlimits on CPU/file-size/fds/procs and a scrubbed env.
+  `--task_kwargs '{"sandbox": false}'` disables the Seatbelt layer — ⚠️
+  candidate code then runs with your user's filesystem and network access.
+  Memory is not capped either way (Darwin rejects `RLIMIT_DATA`); the 8s
+  timeout bounds blowups. For untrusted prompts or third-party models, use
+  a container/VM.
+- **`kodcode`** — the leaderboard-comparable coding task. Trains on
+  KodCode-Light-RL-10K (execution-verified, decontaminated against
+  MBPP/HumanEval by its authors) and evaluates on `evalplus/mbppplus` — the
+  exact 378 tasks behind the EvalPlus leaderboard, never trained on.
+  `eval_sample` cycles in dataset order rather than drawing with replacement,
+  so `--eval-n 378` is exactly one full pass over the benchmark, and the eval
+  prompt byte-matches EvalPlus's own chat backend (a test asserts it — an
+  unfenced variant once collapsed the policy to prompt-echoing at ~0.06 under
+  the official harness). Same Seatbelt sandbox as `code`. ⚠️ KodCode is
+  **CC BY-NC 4.0** (non-commercial); it is fetched from the HF cache, never
+  redistributed here. Results and method:
+  [docs/mbpp-evalplus-results.md](docs/mbpp-evalplus-results.md).
 - **`deepcoder`** — competition programming (TACO / SYNTHETIC-1 / pre-cutoff
   LiveCodeBench, via
   [agentica-org/DeepCoder-Preview-Dataset](https://huggingface.co/datasets/agentica-org/DeepCoder-Preview-Dataset)),
@@ -270,8 +286,10 @@ difficulty atlases that drive curriculum bands — see
   `labels_file=` + `min_pass=`/`max_pass=` from a `difficulty_sweep.py` run.
   This is the corpus with headroom — qwen36 scores 0.52 pass@3 where MBPP is
   saturated at 0.97 — but it needs a ≥32k token cap to measure honestly
-  ([DATASETS.md](DATASETS.md)). ⚠️ Same unsandboxed-subprocess warning as
-  `code`.
+  ([DATASETS.md](DATASETS.md)). ⚠️ **Unlike `code`, this still executes
+  model-generated code in a plain subprocess — NOT sandboxed.** It predates
+  the Seatbelt path and has not been wired to it, so it runs with your
+  user's filesystem and network access; use a container/VM.
 - **`qa_abstain`** — calibrated factuality: answer a short factual question
   in `<answer>` tags or reply `<abstain/>`. Reward: correct +1, abstain 0,
   wrong/malformed −penalty — the penalty sets the implied confidence
@@ -363,4 +381,7 @@ usage.
 
 MIT — see [LICENSE](LICENSE). The MBPP dataset in `data/` is CC BY 4.0 from
 Google Research and is **not** covered by the MIT license — see
-[data/README.md](data/README.md).
+[data/README.md](data/README.md). Datasets the tasks fetch at runtime carry
+their own terms and are never redistributed here; note KodCode
+(`kodcode` task) is **CC BY-NC 4.0**, so results from it are fine for
+research but not for commercial use.

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import pickle
 import random
 import time
 from collections import deque
@@ -19,7 +20,7 @@ import mlx.core as mx
 import mlx.nn as nn
 import mlx.optimizers as optim
 import numpy as np
-from mlx.utils import tree_map
+from mlx.utils import tree_flatten, tree_map, tree_unflatten
 
 from . import machine
 from .config import LoraConfig, TrainConfig
@@ -448,6 +449,67 @@ def _rotate(path: Path) -> None:
         path.rename(path.with_name(f"{path.stem}.{stamp}{path.suffix}"))
 
 
+def _resume_dir(out: Path) -> Path:
+    return out / "resume"
+
+
+def save_resume(out: Path, step: int, optimizer, rng, subset_rng, task,
+                activity_window, keep: int) -> None:
+    """Everything needed to continue this run bit-exactly, minus the adapter
+    weights (already written by save_adapter at the same step).
+
+    Optimizer moments are ~2x the adapter, so only the newest `keep` are
+    retained; older snapshots are pruned and their steps stop being resumable.
+    """
+    d = _resume_dir(out)
+    d.mkdir(parents=True, exist_ok=True)
+    mx.eval(optimizer.state)
+    mx.save_safetensors(str(d / f"opt-{step:05d}.safetensors"),
+                        dict(tree_flatten(optimizer.state)))
+    get_state = getattr(task, "get_state", None)
+    (d / f"state-{step:05d}.pkl").write_bytes(pickle.dumps({
+        "step": step,
+        "rng": rng.getstate(),
+        "subset_rng": subset_rng.bit_generator.state,
+        "task": get_state() if get_state else None,
+        "activity_window": list(activity_window),
+    }))
+    # Prune oldest first; zero-padded step names sort chronologically. Drop
+    # the .pkl only after its .safetensors so an interrupted prune never
+    # leaves a state file pointing at missing optimizer moments.
+    for pattern in ("opt-*.safetensors", "state-*.pkl"):
+        stale = sorted(d.glob(pattern))[:-keep] if keep > 0 else []
+        for f in stale:
+            f.unlink(missing_ok=True)
+
+
+def load_resume(src: Path, model, optimizer, rng, subset_rng, task):
+    """Restore the newest resumable checkpoint from a PREVIOUS run directory.
+    Read-only: nothing is written to src. Returns (step, extra)."""
+    out = src
+    d = _resume_dir(src)
+    states = sorted(d.glob("state-*.pkl")) if d.exists() else []
+    if not states:
+        raise SystemExit(
+            f"--resume: no resume state under {d}. Only checkpoints saved "
+            "with keep_resume >= 1 are resumable, and older ones are pruned.")
+    st = pickle.loads(states[-1].read_bytes())
+    step = st["step"]
+    adapter = out / "adapters" / f"adapter-{step:05d}.safetensors"
+    opt_file = d / f"opt-{step:05d}.safetensors"
+    for f in (adapter, opt_file):
+        if not f.exists():
+            raise SystemExit(f"--resume: {f} missing; cannot resume step {step}")
+    model.load_weights(str(adapter), strict=False)
+    optimizer.state = tree_unflatten(list(mx.load(str(opt_file)).items()))
+    rng.setstate(st["rng"])
+    subset_rng.bit_generator.state = st["subset_rng"]
+    set_state = getattr(task, "set_state", None)
+    if set_state and st["task"] is not None:
+        set_state(st["task"])
+    return step, st
+
+
 def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -486,7 +548,10 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
 
     # Fail loud, not slow: hard-abort if a backward spills to swap.
     swap_guard = SwapGuard(
-        margin_gb=cfg.swap_guard_margin_gb, abort_marker=out / "ABORTED"
+        margin_gb=cfg.swap_guard_margin_gb,
+        rate_mb_s=cfg.swap_rate_mb_s,
+        rate_samples=cfg.swap_rate_samples,
+        abort_marker=out / "ABORTED",
     ).start()
 
     # Dead-run watchdog (config.abort_inactive_window): a collapsed policy
@@ -522,13 +587,42 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
 
     loss_and_grad = nn.value_and_grad(model, loss_fn)
 
-    baseline = evaluate(model, tokenizer, task, cfg)
-    mx.clear_cache()  # phase boundary: don't stack eval KV under step-1 gen
-    print(f"step 0 baseline: {baseline}")
-    metrics_f.write(json.dumps({"step": 0, **baseline}) + "\n")
-    metrics_f.flush()
+    start_step, baseline = 1, None
+    if cfg.resume_from:
+        src = Path(cfg.resume_from).expanduser()
+        if src.resolve() == out.resolve():
+            raise SystemExit(
+                "--resume-from must differ from --out: a resumed run writes a "
+                "NEW directory so the source run's record stays intact")
+        done, st = load_resume(src, model, optimizer, rng, subset_rng, task)
+        start_step = done + 1
+        activity_window.extend(st["activity_window"])
+        # Baseline lives in the SOURCE run's metrics; carried over only so the
+        # final line can report against it (not copied into the new metrics).
+        mfile = src / "metrics.jsonl"
+        if mfile.exists():
+            baseline = next(
+                (r for l in mfile.read_text().splitlines()
+                 if (r := json.loads(l)).get("step") == 0), None)
+        metrics_f.write(json.dumps({
+            "step": done, "resumed_from": str(src)}) + "\n")
+        metrics_f.flush()
+        print(f"resumed {src} at step {done}; continuing at {start_step} "
+              f"in {out}")
+    else:
+        baseline = evaluate(model, tokenizer, task, cfg)
+        mx.clear_cache()  # phase boundary: don't stack eval KV under step-1 gen
+        print(f"step 0 baseline: {baseline}")
+        metrics_f.write(json.dumps({"step": 0, **baseline}) + "\n")
+        metrics_f.flush()
 
-    for step in range(1, cfg.steps + 1):
+    for step in range(start_step, cfg.steps + 1):
+        # Per-step seed rather than one seed for the whole run: MLX exposes no
+        # way to read back the global RNG state, so a run-level seed cannot be
+        # restored on resume. Deriving it from (seed, step) makes generation
+        # reproducible at any step, whether reached by running through or by
+        # resuming into it.
+        mx.random.seed(cfg.seed * 1_000_003 + step)
         examples = [task.sample(rng) for _ in range(cfg.batch_prompts)]
 
         mx.reset_peak_memory()  # per-step peak, not a run-lifetime high-water
@@ -590,7 +684,12 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
                 subset_rng=subset_rng,
             )
         else:
-            pg, kl = 0.0, 0.0  # no reward spread anywhere: skip the update
+            # No reward spread anywhere: skip the update. Deliberately NOT
+            # medicated (an earlier KL-only "rescue" update was removed in
+            # review) — a degenerating run should die loudly via the
+            # dead-run watchdog (abort_inactive_window, on by default), not
+            # be silently pulled back toward base.
+            pg, kl = 0.0, 0.0
         t_upd = time.time() - t1
         # Return the backward peak's buffers to the OS. MLX's buffer cache
         # keeps freed allocations resident indefinitely, so after each 65-70
@@ -709,6 +808,9 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
 
         if cfg.checkpoint_every and step % cfg.checkpoint_every == 0:
             save_adapter(model, out / "adapters", cfg.lora, cfg.model, step)
+            if cfg.keep_resume:
+                save_resume(out, step, optimizer, rng, subset_rng, task,
+                            activity_window, cfg.keep_resume)
 
     swap_guard.stop()
     final = evaluate(model, tokenizer, task, cfg)
@@ -783,6 +885,12 @@ def main() -> None:
     p.add_argument("--eval-every", type=int, default=d.eval_every)
     p.add_argument("--eval-n", type=int, default=d.eval_n)
     p.add_argument("--checkpoint-every", type=int, default=d.checkpoint_every)
+    p.add_argument("--resume-from", default=d.resume_from, metavar="DIR",
+                   help="continue a previous run dir's newest resumable "
+                        "checkpoint; writes to --out, never touches DIR")
+    p.add_argument("--keep-resume", type=int, default=d.keep_resume,
+                   help="optimizer snapshots to retain (0 disables resume "
+                        "saving; 1 = only the latest checkpoint is resumable)")
     p.add_argument("--seed", type=int, default=d.seed)
     p.add_argument("--rank", type=int, default=d.lora.rank)
     p.add_argument("--lora-scale", type=float, default=d.lora.scale)
@@ -804,6 +912,9 @@ def main() -> None:
                    help="token budget for length normalisation (0 = max_new_tokens)")
     p.add_argument("--activation-headroom", type=float, default=d.activation_headroom_gb,
                    help="GB added to the memory-guard estimate (default 4)")
+    p.add_argument("--swap-rate-mb-s", type=float, default=d.swap_rate_mb_s,
+                   help="abort on sustained paging at/above this rate; "
+                        "0 disables the rate detector")
     p.add_argument("--swap-guard-margin", type=float, default=d.swap_guard_margin_gb,
                    help="hard-abort if swap grows this many GB above baseline (0 = off)")
     p.add_argument("--grad-checkpoint", action="store_true",
@@ -883,6 +994,7 @@ def main() -> None:
         length_budget=a.length_budget,
         activation_headroom_gb=a.activation_headroom,
         swap_guard_margin_gb=a.swap_guard_margin,
+        swap_rate_mb_s=a.swap_rate_mb_s,
         eval_every=a.eval_every,
         eval_n=a.eval_n,
         eval_max_new_tokens=a.eval_max_new_tokens,
@@ -890,6 +1002,8 @@ def main() -> None:
         gdn_serial=a.gdn_serial,
         gdn_chunk=a.gdn_chunk,
         checkpoint_every=a.checkpoint_every,
+        resume_from=a.resume_from,
+        keep_resume=a.keep_resume,
         seed=a.seed,
         lora=LoraConfig(
             rank=a.rank,
