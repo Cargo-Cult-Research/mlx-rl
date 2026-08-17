@@ -109,6 +109,15 @@ transcript, every turn graded) removes the decay — turn 2 at 1.00 — without
 costing turn 0 or the decline side. Uplift over prompt-only at three turns:
 **+1.28**.
 
+## Phase 2/3 under all serving conditions
+
+The same adapters scored under every combination of thinking × tools × turns
+— see design doc §9.4 for the table. Short version: uplift is large in the
+cells the adapters were trained for (thinking off, tools on: +0.3 to +1.15),
+near zero when no tool is offered (nothing to find), and mostly gone when
+served with thinking on — the calibration does not carry across the
+thinking register, which is what arm 3 is for.
+
 ## How to reproduce a row
 
 ```sh

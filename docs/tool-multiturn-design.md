@@ -692,3 +692,32 @@ script. Cost of not finding out: shipping either belief. The rule that
 follows — when the two of us disagree about a mechanism, register both
 predictions and run both arms if it fits in a night — is cheaper than
 being right.
+
+### 9.4 The serving grid — every adapter under all 8 conditions (2026-08-17)
+
+`runs/arxiv-grid_run.sh` → `runs/arxiv-grid-20260817/<cell>/summary.json`.
+Same held-out questions per cell, real tools where offered, thinking cells at
+a 2048-token round cap. Reward per episode; `nr` = no-reply share.
+
+| serving cell | prompt-only | sandbox-v3-60 | web-v4-120 | arm2-mt-60 |
+|---|---|---|---|---|
+| think-off · tools · 1 turn | 0.56 | **0.97** | 0.86 | 0.91 |
+| think-off · tools · 3 turns | −0.30 | 0.65 | 0.50 | **0.85** |
+| think-off · no tools · 1 turn | −0.03 | −0.20 | 0.05 | 0.14 |
+| think-off · no tools · 3 turns | −0.51 | −0.14 | −0.26 | −0.34 |
+| think-on · tools · 1 turn | 0.35 (nr .12) | 0.46 (nr .11) | 0.60 (nr .08) | 0.29 (nr .16) |
+| think-on · tools · 3 turns | 0.24 (nr .17) | 0.43 (nr .10) | 0.21 (nr .16) | 0.22 (nr .17) |
+| think-on · no tools · 1 turn | 0.06 | 0.25 | 0.08 | 0.19 |
+| think-on · no tools · 3 turns | 0.02 | −0.04 | −0.16 | −0.05 |
+
+Readings: (1) in the cells they were trained for the adapters are large
+uplifts, and arm 2 owns the multi-turn cell; (2) no-tools cells are near
+zero for everyone — nothing to find, so reward cannot exceed the known
+share — with the adapters abstaining more (0.7–0.8 vs 0.59), a mild
+known-side over-hedge when no tool is offered; (3) **served with thinking
+on, the thinking-off adapters lose most of their edge** and every arm
+truncates 8–17% at 2048 tokens/round. Calibration trained in the
+thinking-off register does not carry into the thinking register. That is
+the case for arm 3 (thinking on, from arm2-mt-60, bigger budget, §5.3
+levers) — and against training the other thinking cells: the factorial
+lives in evaluation, the training path stays cumulative.
