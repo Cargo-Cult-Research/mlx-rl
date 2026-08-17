@@ -1221,7 +1221,9 @@ def collect_multiturn(model, tokenizer, examples, cfg: TrainConfig, task):
     Not stage-1-skippable (rows share no prompt after turn 0)."""
     from .engine import Episode
     G = cfg.group_size
-    tools = getattr(task, "tools", None)
+    # Episode path for any task that grades episodes (tool tasks, even when
+    # served with tools=[]); string path only for plain reward() tasks.
+    tools = hasattr(task, "episode_reward") or getattr(task, "tools", None)
     think_close = _think_close_marker(tokenizer, cfg, task)
     chat_kwargs = {**getattr(task, "chat_template_kwargs", {}), **cfg.chat_kwargs}
     turns = int(getattr(task, "turns", 1))
