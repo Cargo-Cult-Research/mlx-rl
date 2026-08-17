@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 
 import mlx.core as mx
@@ -585,8 +586,16 @@ def rollout_episodes(
     prefill_batch_size: int = 8,
     prefill_step_size: int = 2048,
     kv_bits: int | None = None,
+    tool_workers: int = 4,
 ) -> tuple[list[list[Episode]], BatchStats]:
     """Sample group_size EPISODES per prompt, batched, with tool rounds.
+
+    Tools run on a small thread pool (`tool_workers`): a row that stopped on
+    a tool call parks — holding its KV cache — while the call runs, and the
+    rest of the batch keeps decoding; when the result lands the row is
+    re-inserted. Live web tools take seconds; a synchronous call would stall
+    every other row for that long. `on_tool` therefore runs OFF the main
+    thread and must not touch mlx (it tokenizes and does I/O only).
 
     A row that stops on one of `tool_stop_ids` (e.g. </tool_call>) is
     handed to `on_tool(pi, gi, episode, segment_text)`, which runs the tool
@@ -628,11 +637,47 @@ def rollout_episodes(
     uid_to: dict[int, tuple[int, int]] = {}
     tap_st: dict[tuple[int, int], dict] = {}
     stats = BatchStats()
+    pool = ThreadPoolExecutor(max_workers=max(1, tool_workers))
+    pending: dict = {}  # future -> (pi, gi, cache, all_tokens, remaining)
 
     def _start_segment(pi, gi):
         seg = Segment(generated=True)
         groups[pi][gi].segments.append(seg)
         return seg
+
+    def _finish(pi, gi, reason):
+        ep = groups[pi][gi]
+        ep.finish_reason = reason
+        tap.end(tap_st[(pi, gi)]["rid"], tok=len(ep.completion_tokens), finish=reason)
+
+    def _drain(block: bool) -> int:
+        """Re-insert rows whose tool call completed. -> episodes finished."""
+        if not pending:
+            return 0
+        if block:
+            wait(list(pending), return_when=FIRST_COMPLETED)
+        finished = 0
+        for fut in [f for f in pending if f.done()]:
+            pi, gi, cache, all_tokens, remaining = pending.pop(fut)
+            ep = groups[pi][gi]
+            try:
+                inject = fut.result()
+            except Exception as e:  # noqa: BLE001 — a tool bug must not kill the batch
+                print(f"[tool] on_tool raised {type(e).__name__}: {e}", flush=True)
+                inject = None
+            if inject is None:
+                _finish(pi, gi, "tool_end")
+                finished += 1
+                continue
+            ep.rounds += 1
+            ep.segments.append(Segment(tokens=list(inject), logprobs=[0.0] * len(inject),
+                                       generated=False))
+            _start_segment(pi, gi)
+            (new_uid,) = gen.insert([list(inject)],
+                                    max_tokens=[min(max_new_tokens, remaining)],
+                                    caches=[cache], all_tokens=[all_tokens])
+            uid_to[new_uid] = (pi, gi)
+        return finished
 
     try:
         with gen.stats(stats):
@@ -661,8 +706,12 @@ def rollout_episodes(
 
             done, total = 0, len(prompts) * group_size
             while done < total:
+                done += _drain(block=False)
                 responses = gen.next_generated()
                 if not responses:
+                    if pending:
+                        done += _drain(block=True)
+                        continue
                     break
                 for r in responses:
                     pi, gi = uid_to[r.uid]
@@ -683,40 +732,27 @@ def rollout_episodes(
                     del uid_to[r.uid]
                     if tok in tool_stop:
                         # Stopped on the tool tag: the row's cache holds every
-                        # token through the tag; nothing after it exists.
+                        # token through the tag; nothing after it exists. The
+                        # call runs on the pool; the row re-enters via _drain.
                         seg.finish_reason = "tool"
                         remaining = max_episode_tokens - ep.gen_count
                         if ep.rounds >= max_tool_rounds:
-                            ep.finish_reason = "tool_cap"
+                            _finish(pi, gi, "tool_cap")
                         elif remaining <= 0:
-                            ep.finish_reason = "length"
+                            _finish(pi, gi, "length")
                         else:
-                            inject = on_tool(pi, gi, ep, tokenizer.decode(seg.tokens))
-                            if inject is None:
-                                ep.finish_reason = "tool_end"
-                            else:
-                                ep.rounds += 1
-                                ep.segments.append(Segment(
-                                    tokens=list(inject),
-                                    logprobs=[0.0] * len(inject),
-                                    generated=False))
-                                _start_segment(pi, gi)
-                                (new_uid,) = gen.insert(
-                                    [list(inject)],
-                                    max_tokens=[min(max_new_tokens, remaining)],
-                                    caches=[r.prompt_cache],
-                                    all_tokens=[list(r.all_tokens)],
-                                )
-                                uid_to[new_uid] = (pi, gi)
-                                continue
+                            fut = pool.submit(on_tool, pi, gi, ep,
+                                              tokenizer.decode(seg.tokens))
+                            pending[fut] = (pi, gi, r.prompt_cache,
+                                            list(r.all_tokens), remaining)
+                            continue
                     else:
                         seg.finish_reason = r.finish_reason
-                        ep.finish_reason = r.finish_reason
-                    tap.end(st["rid"], tok=len(ep.completion_tokens),
-                            finish=ep.finish_reason)
+                        _finish(pi, gi, r.finish_reason)
                     done += 1
     finally:
         gen.close()
+        pool.shutdown(wait=False, cancel_futures=True)
         for (pi, gi), st in tap_st.items():
             if groups[pi][gi].finish_reason is None:
                 tap.end(st["rid"], tok=len(groups[pi][gi].completion_tokens),

@@ -1,9 +1,10 @@
 # Tool rounds, multi-turn, and the stated date — design for review
 
-*Status: **arm 0 executed, arm 1 (v3) running** (v1 launched 2026-08-16
-16:52, abandoned at step 12 after review; v2 launched ~18:00 with §0.1's
-changes, abandoned at step 7 for the grader hole in §4.7; v3 launched ~18:35,
-`runs/qa-arxiv-arm1_run.sh`). Written 2026-08-16, revised the same day after
+*Status: **arm 0 executed, arm 1 (v4, real web tools) running** (v1
+abandoned at step 12 after review; v2 abandoned at step 7 for the grader hole
+in §4.7; v3 — snapshot sandbox backend — converged by step 30 at eval 0.92
+and was stopped at 62 as a mechanics result, not a serving result; v4
+launched 2026-08-16 ~19:45 with `mlx_rl.webtools`, `runs/qa-arxiv-arm1_run.sh`). Written 2026-08-16, revised the same day after
 first review. Every number quoted as "measured" comes from a probe or run log
 in the tree; §5.2's projections have been replaced by step-0/1 measurements
 where noted.*
@@ -43,11 +44,23 @@ prompt was enough for X" is a good outcome, not a failure of the project.
 Four corrections from the first look at live rollouts, all applied before
 arm 1 v2:
 
-- **The tool is the served shape.** `search_arxiv` was a demo-specific tool
-  nobody deploys; the policy would overfit to it. Training now offers a
-  generic **`web_search`** (query → numbered results with title, URL, date,
-  snippet) — the schema a real harness offers — backed by the frozen
-  snapshot in training and by the arXiv API in the demo.
+- **The tools are the served tools — really.** `search_arxiv` was a
+  demo-specific tool nobody deploys. The v2/v3 replacement kept a *fake*
+  behind a generic name: a title index over 1,900 snapshot rows with clean
+  empties and a date gate — regularities of the sandbox, not the web, and
+  what v3 learned in steps 10–20 (decline on empty) was largely that. **v4
+  uses the real thing**: `mlx_rl.webtools` — DuckDuckGo `web_search` and
+  `fetch_url` (the tools Moss ran), disk-cached by exact query/URL after
+  first sight (reproducible; the ~80 calls/step mostly repeat), private/
+  tailnet address ranges refused for fetch, calls paced and run off-thread
+  so the batch keeps decoding while a row waits. The web is noisy on
+  purpose: near-misses, SEO junk, paywalls, timeouts — making sense of that
+  is the skill. Grading metadata still comes from the frozen snapshot, so the
+  reward stays verifiable while the tools stay real. Consequences: the
+  "future" regime is snapshot-only (a real engine cannot hide a paper that
+  exists), and fictional titles are anchor-free word-mashes (a recombined
+  real half finds the real paper on the web, and answering about it is
+  reasonable, not fabrication).
 - **Tool text is neutral.** `No results found for "…"`, no editorial about
   what an empty result means. Interpreting the result is the policy's job
   and the reward's to teach; a tool that argues the case is a prompt patch
@@ -489,7 +502,7 @@ claimed.
 | # | arm | new variable | gate to proceed |
 |---|---|---|---|
 | 0 | date-in-prompt plumbing + frozen arXiv snapshot + prompt-only baseline | — | **done 2026-08-16**: `data/arxiv_snapshot.jsonl` (97 famous + 1,760 sweep 2023-01..2026-08 + 300 fictional); `runs/arxiv-calib-20260816/calib.jsonl` (47 known of 1,857, all famous; 50 famous only partly known); demo renders the date at request time. Prompt-only baseline (= arm 1 step-0 eval, n=64): with `search_arxiv` + clause (v1) reward 0.65, called 1.00 everywhere; **with the served shape — generic `web_search`, no clause (v2/v3) — reward −1.19, called 0.06**: post −1.03, future −2.0, fictional −1.93, known 0.56. The base does not check before answering with a generic tool; that is the RL problem |
-| 1 | segmented rollouts, tools, **thinking off** | tool rounds + date | **v3 running** (`runs/qa-arxiv-arm1-20260816v3`; v1/v2 kept as `…-abandoned`); §7 criteria 1–3, then `scripts/arxiv_flip_probe.py` |
+| 1 | segmented rollouts, tools, **thinking off** | tool rounds + date | **v4 running, real web** (`runs/qa-arxiv-arm1-20260816v4`; v3 sandbox result: eval −1.25 → 0.92 by step 30, called 0.06 → 1.00, kept for the mechanics); §7 criteria 1–3, then `scripts/arxiv_flip_probe.py` |
 | 2 | multi-turn | prior turns | hedging survives to turn 3+ |
 | 3 | thinking on | thinking | §7 criteria 1–3 hold again |
 

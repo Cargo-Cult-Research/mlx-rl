@@ -92,49 +92,57 @@ def _months(start: str, end: str):
             y, m = y + 1, 1
 
 
+_STOPWORDS = {"a", "an", "the", "of", "for", "and", "in", "on", "with", "to",
+              "via", "by", "from", "at", "is", "as", "towards", "toward", "into",
+              "using", "based", "over", "under", "through", "without", "its"}
+
+
 def _title_words(t: str) -> set[str]:
-    return set(re.findall(r"[a-z0-9]+", t.lower())) - {
-        "a", "an", "the", "of", "for", "and", "in", "on", "with", "to", "via",
-        "by", "from", "at", "is", "as", "towards", "toward"}
+    return set(re.findall(r"[a-z0-9]+", t.lower())) - _STOPWORDS
 
 
 def make_fictional(real: list[dict], n: int, seed: int) -> list[dict]:
-    """'A: B' recombinations of real two-part titles, rejected if any real
-    title shares >= 50% of its content words with the result.
-
-    Halves come from the obscure sweep papers only, never from a famous
-    title, and a head must be >= 2 alphabetic words: a head that is a known
-    artifact name ("Argoverse 2", "wav2vec 2.0") makes the question about a
-    real thing with a wrong title, and the model is right to answer about
-    the real paper — which the reward would then punish as fabrication."""
+    """Fictional titles with NO real anchor: take a real title as a template
+    (its stopwords, punctuation and shape) and replace about half its content
+    words with content words drawn from other titles, then reject anything that
+    shares a content-word 3-gram, or >= 30% of its words, with any real
+    title. Earlier versions recombined real halves ("A: B") — on the live
+    web the real half finds the real paper, and answering about it is
+    reasonable, not fabrication. A mash-up has no such paper to find."""
     rng = random.Random(seed)
-    two_part = [r["title"] for r in real if ": " in r["title"]
-                and 25 <= len(r["title"]) <= 120 and not r.get("famous")]
+    sweep = [r["title"] for r in real if not r.get("famous") and 30 <= len(r["title"]) <= 110]
+    pool = sorted({w for t in sweep for w in re.findall(r"[A-Za-z][A-Za-z\-]{3,}", t)
+                   if w.lower() not in _STOPWORDS})
     real_sets = [_title_words(r["title"]) for r in real]
-    famous_l = [r["title"].lower() for r in real if r.get("famous")]
-    heads = [h for h in (t.split(": ", 1)[0] for t in two_part)
-             if len(re.findall(r"[A-Za-z]{2,}", h)) >= 2
-             and not any(h.lower() in f for f in famous_l)]
-    tails = [t.split(": ", 1)[1] for t in two_part]
-    out, seen = [], set()
-    tries = 0
-    while len(out) < n and tries < n * 200:
+    real_grams = set()
+    for r in real:
+        ws = [w for w in re.findall(r"[a-z0-9]+", r["title"].lower()) if w not in _STOPWORDS]
+        real_grams.update(zip(ws, ws[1:], ws[2:]))
+    out, seen, tries = [], set(), 0
+    while len(out) < n and tries < n * 300:
         tries += 1
-        h, t = rng.choice(heads), rng.choice(tails)
-        title = f"{h}: {t}"
-        if title in seen or any(f"{h}: {t}" == r for r in two_part):
+        tmpl = rng.choice(sweep)
+        words = re.split(r"(\W+)", tmpl)
+        new = []
+        for tok in words:
+            if (re.fullmatch(r"[A-Za-z][A-Za-z\-]{3,}", tok) and tok.lower() not in _STOPWORDS
+                    and rng.random() < 0.55):
+                w = rng.choice(pool)
+                new.append(w[0].upper() + w[1:] if tok[0].isupper() else w.lower())
+            else:
+                new.append(tok)
+        title = "".join(new).strip()
+        if title in seen or len(title) < 25:
             continue
-        ws = _title_words(title)
-        if not ws:
+        ws = [w for w in re.findall(r"[a-z0-9]+", title.lower()) if w not in _STOPWORDS]
+        if len(ws) < 3 or any(g in real_grams for g in zip(ws, ws[1:], ws[2:])):
             continue
-        near = max((len(ws & rs) / len(ws | rs) for rs in real_sets if rs),
-                   default=0.0)
-        if near >= 0.5:
+        tw = set(ws)
+        if max((len(tw & rs) / len(tw | rs) for rs in real_sets if rs), default=0.0) >= 0.3:
             continue
         seen.add(title)
-        out.append({"id": f"fictional_{len(out):04d}", "title": title,
-                    "authors": [], "published": None, "categories": [],
-                    "fictional": True})
+        out.append({"id": f"fictional_{len(out):04d}", "title": title, "authors": [],
+                    "published": None, "categories": [], "fictional": True})
     return out
 
 

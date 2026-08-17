@@ -156,3 +156,34 @@ def test_episode_shared_prompt_and_round_cap(tiny):
     for ep in groups[0]:
         assert ep.finish_reason == "tool_cap"
         assert ep.segments[0].tokens == plain[0][0].tokens[:4]
+
+
+def test_episode_tools_run_off_thread_and_rows_reenter(tiny):
+    """A slow tool must not stall the batch: with a 0.4 s tool and 3 rows
+    that all call it, wall time is ~one tool latency, not three, and every
+    row resumes with the injected block in its transcript."""
+    import time
+    from mlx_rl.engine import rollout_episodes, rollout_groups
+
+    model, tokenizer = tiny
+    prompt = _prompt(tokenizer, "Name three colours.")
+    plain, _ = rollout_groups(model, tokenizer, [prompt], 1, 16, 0.0)
+    stop_tok = plain[0][0].tokens[2]
+    inject = tokenizer.encode(" ok", add_special_tokens=False)
+
+    def slow_tool(pi, gi, ep, text):
+        time.sleep(0.4)
+        ep.tool_calls.append({"name": "t"})
+        return list(inject)
+
+    t0 = time.perf_counter()
+    groups, _ = rollout_episodes(model, tokenizer, [prompt], 3, 12, 0.0,
+                                 on_tool=slow_tool, tool_stop_ids=(stop_tok,),
+                                 max_tool_rounds=1, tool_workers=4)
+    dt = time.perf_counter() - t0
+    for ep in groups[0]:
+        assert ep.rounds == 1 and ep.tool_calls == [{"name": "t"}]
+        assert [s.generated for s in ep.segments][:2] == [True, False]
+        assert ep.segments[1].tokens == inject
+        assert ep.finish_reason in ("stop", "length")
+    assert dt < 0.4 * 3 + 2.0  # not serialized: 3 rows, ~1 latency (+ decode)

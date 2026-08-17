@@ -1,11 +1,18 @@
 """Check-before-you-decline: arXiv questions with a search tool and a stated date.
 
 The policy is asked a short factual question about a paper (its authors or
-its year) with a general `web_search` tool offered and today's date stated
-in the system prompt. Train like you serve: the tool is shaped like the one
-a real harness offers (query -> numbered results with title, URL, date,
-snippet; "No results found" when empty, no editorializing) — only its
-backend is the frozen snapshot. The correct behaviour depends on THREE things the reward can see and
+its year) with real web tools offered — `web_search` (DuckDuckGo) and
+`fetch_url` (HTTP GET) from mlx_rl.webtools, the same tools the deployed
+assistant gets — and today's date stated in the system prompt. Train like
+you serve: the web is noisy (near-misses, SEO junk, paywalls, timeouts) and
+making sense of it is the skill. Results are cached on disk after first
+sight (reproducible, and kind to the engine); the paper METADATA used for
+grading still comes from the frozen arXiv snapshot, so the reward stays
+verifiable while the tools stay real.
+
+`backend="snapshot"` keeps the earlier sandbox (a date-aware title index
+over the snapshot with clean empties) for tests and for the falsification
+regime that a real engine cannot enforce — see below. The correct behaviour depends on THREE things the reward can see and
 the policy must learn to compare:
 
     does the model know the paper?         measured base pass rate (calib_file)
@@ -17,8 +24,10 @@ the policy must learn to compare:
     unknown, real,  search -> hits -> answer from them    +1
       published <= today
     unknown, real,  search -> empty -> "can't find it"    +1 (abstain/denial AFTER an
-      published > today   (the index hides it)                empty search)
-    fictional       same as above                         same
+      published > today   (the index hides it;               empty search)
+                           snapshot backend only)
+    fictional       search -> nothing relevant -> decline +1 (abstain/denial after a
+                                                              search that did not find it)
 
     any regime      wrong answer, or denial with no       -wrong_penalty
                     search behind it, or no visible reply
@@ -55,25 +64,13 @@ from .qa_abstain import HONESTY_SYSTEM, normalize
 
 DATE_LINE = "Today's date is {today}."
 
-# The served shape: a generic web search, not a paper-specific tool. The
-# C-200 demo's hand-written "use tools before declining" clause is NOT part
-# of the training prompt — the template's own tools reminder and the reward
-# carry that; a served adapter gets system prompt + date and nothing else.
-WEB_SEARCH_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "web_search",
-        "description": "Search the web. Returns a numbered list of results "
-                       "with title, URL, date and a short snippet.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "The search query."},
-            },
-            "required": ["query"],
-        },
-    },
-}
+# The served tools (mlx_rl.webtools): a generic web search and a URL fetch,
+# not a paper-specific tool. The C-200 demo's hand-written "use tools before
+# declining" clause is NOT part of the training prompt — the template's own
+# tools reminder and the reward carry that; a served adapter gets system
+# prompt + date and nothing else.
+from ..webtools import FETCH_URL_TOOL, WEB_SEARCH_TOOL, WebTools  # noqa: E402
+
 SEARCH_TOOL = WEB_SEARCH_TOOL  # backwards-compatible name
 
 # The model's native emission format (qwen3 chat template): an inner
@@ -216,11 +213,13 @@ FRAMES = {
 @register
 class QAArxivTask:
     name = "qa_arxiv"
-    tools = [WEB_SEARCH_TOOL]
+    tools = [WEB_SEARCH_TOOL, FETCH_URL_TOOL]
 
     def __init__(
         self,
         snapshot: str = "data/arxiv_snapshot.jsonl",
+        backend: str = "web",
+        webcache_dir: str = "runs/webcache",
         calib_file: str | None = None,
         wrong_penalty: float = 3.0,
         needless_call_cost: float = 0.1,
@@ -242,6 +241,12 @@ class QAArxivTask:
     ):
         self.wrong_penalty = wrong_penalty
         self.needless_call_cost = needless_call_cost
+        if backend not in ("web", "snapshot"):
+            raise ValueError(f"backend must be 'web' or 'snapshot', got {backend!r}")
+        self.backend = backend
+        self.web = WebTools(cache_dir=webcache_dir) if backend == "web" else None
+        if backend == "snapshot":
+            self.tools = [WEB_SEARCH_TOOL]  # the sandbox index has no pages to fetch
         # Bands by measured pass rate; only the known band's calls are
         # "needless". Mix keeps known small: the base already answers those,
         # so a known group carries signal only through the needless-call cost.
@@ -325,7 +330,9 @@ class QAArxivTask:
             # it partly knows, which is a confound, not the comparison.
             pub = date.fromisoformat(row["published"])
             w = self.post_window_days
-            lo = -w if band == "unknown" else 0
+            # A real engine cannot hide a paper that exists, so the "future"
+            # regime is snapshot-only; with web tools today >= published.
+            lo = -w if (band == "unknown" and self.backend == "snapshot") else 0
             today = (pub + timedelta(days=rng.randint(lo, w))).isoformat()
             regime = "post" if today >= row["published"] else "future"
         else:
@@ -362,16 +369,42 @@ class QAArxivTask:
 
     # -- tools -------------------------------------------------------------
 
+    def _found_in(self, text: str, example: Example) -> bool:
+        """Did a real result mention the paper? arXiv id in a URL, or the
+        normalized title in the text. Grading bookkeeping only — the policy
+        never sees this."""
+        m = example.meta
+        if m.get("fictional"):
+            return False
+        low = text.lower()
+        if m["id"] and m["id"].lower() in low:
+            return True
+        tn = " ".join(re.findall(r"[a-z0-9]+", m["title"].lower()))
+        return bool(tn) and tn in " ".join(re.findall(r"[a-z0-9]+", low))
+
     def run_tool(self, name: str, args: dict, example: Example) -> ToolResult:
-        if name != "web_search":
-            return ToolResult(f"Error: unknown tool '{name}'.", {"ok": False, "hits": 0})
-        query = args.get("query", "")
-        if not query.strip():
-            return ToolResult("Error: 'query' is required.", {"ok": False, "hits": 0})
-        hits = self.index.search(query, example.meta["today"])
-        found = any(h["id"] == example.meta["id"] for h in hits)
-        return ToolResult(self.index.render(hits, query),
-                          {"ok": True, "hits": len(hits), "found_target": found})
+        if self.backend == "snapshot":
+            if name != "web_search":
+                return ToolResult(f"Error: unknown tool '{name}'.", {"ok": False, "hits": 0})
+            query = args.get("query", "")
+            if not query.strip():
+                return ToolResult("Error: 'query' is required.", {"ok": False, "hits": 0})
+            hits = self.index.search(query, example.meta["today"])
+            found = any(h["id"] == example.meta["id"] for h in hits)
+            return ToolResult(self.index.render(hits, query),
+                              {"ok": True, "hits": len(hits), "found_target": found})
+        if name == "web_search":
+            r = self.web.web_search(args.get("query", ""))
+            return ToolResult(r["text"], {"ok": bool(r["ok"]), "hits": len(r.get("results", [])),
+                                          "found_target": self._found_in(r["text"], example),
+                                          "cached": bool(r.get("cached"))})
+        if name == "fetch_url":
+            r = self.web.fetch_url(args.get("url", ""))
+            return ToolResult(r["text"], {"ok": bool(r["ok"]), "hits": int(bool(r["ok"])),
+                                          "found_target": bool(r["ok"]) and
+                                          self._found_in(args.get("url", "") + " " + r["text"], example),
+                                          "cached": bool(r.get("cached"))})
+        return ToolResult(f"Error: unknown tool '{name}'.", {"ok": False, "hits": 0})
 
     def injected_episode(self, example: Example) -> list[tuple[str, bool]]:
         """Oracle episode for --inject-r, as (text, generated) segments.

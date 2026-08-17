@@ -65,7 +65,7 @@ def _task(tmp_path):
     ]
     p = tmp_path / "snap.jsonl"
     p.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
-    return QAArxivTask(snapshot=str(p), judge=False, eval_frac=0.0)
+    return QAArxivTask(snapshot=str(p), backend="snapshot", judge=False, eval_frac=0.0)
 
 
 def test_index_is_date_aware_and_exact_first(tmp_path):

@@ -644,6 +644,9 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
             rec["rfcs_n"] = len(rfcs_vals)
         if cfg.group_stage1:
             rec["groups_skipped_stage1"] = skipped1
+        web = getattr(task, "web", None)
+        if web is not None:  # live-tool volume: cache hits vs live calls, errors
+            rec.update({f"web_{k}": v for k, v in web.stats.items()})
         if cfg.update_adv_frac:
             rec["rollouts_pruned"] = n_pruned
         # QeRL observable (2510.11696): mean NLL of the sampled tokens under
