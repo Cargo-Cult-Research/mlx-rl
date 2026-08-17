@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sys
 import random
 import time
 from collections import deque
@@ -935,7 +937,17 @@ def main() -> None:
     )
     out = a.out or f"runs/{time.strftime('%Y%m%d-%H%M%S')}-{cfg.task}"
     print(json.dumps(asdict(cfg), indent=2))
-    train(cfg, out)
+    try:
+        train(cfg, out)
+    finally:
+        # Hard exit: live-tool libraries (ddgs) run non-daemon threads that
+        # can hang inside their HTTP client and block interpreter shutdown —
+        # a "finished" trainer then lingers holding ~30 GB of Metal buffers
+        # and the next run OOMs (2026-08-16). Everything durable (adapters,
+        # metrics, lease release) has already happened by here.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(0 if sys.exc_info()[0] is None else 1)
 
 
 if __name__ == "__main__":

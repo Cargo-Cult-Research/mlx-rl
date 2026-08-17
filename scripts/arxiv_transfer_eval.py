@@ -137,4 +137,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import os
+    try:
+        main()
+    finally:  # ddgs' hung HTTP threads must not keep a model-holding process alive
+        sys.stdout.flush()
+        os._exit(0 if sys.exc_info()[0] is None else 1)
