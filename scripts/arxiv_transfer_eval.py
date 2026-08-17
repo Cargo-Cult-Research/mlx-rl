@@ -138,8 +138,13 @@ def main() -> None:
 
 if __name__ == "__main__":
     import os
+    import traceback
+    code = 0
     try:
         main()
+    except BaseException:  # noqa: BLE001
+        traceback.print_exc()
+        code = 1
     finally:  # ddgs' hung HTTP threads must not keep a model-holding process alive
         sys.stdout.flush()
-        os._exit(0 if sys.exc_info()[0] is None else 1)
+        os._exit(code)

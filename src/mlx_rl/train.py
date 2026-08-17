@@ -937,8 +937,13 @@ def main() -> None:
     )
     out = a.out or f"runs/{time.strftime('%Y%m%d-%H%M%S')}-{cfg.task}"
     print(json.dumps(asdict(cfg), indent=2))
+    code = 0
     try:
         train(cfg, out)
+    except BaseException:  # noqa: BLE001 — print it ourselves, then hard-exit
+        import traceback
+        traceback.print_exc()
+        code = 1
     finally:
         # Hard exit: live-tool libraries (ddgs) run non-daemon threads that
         # can hang inside their HTTP client and block interpreter shutdown —
@@ -947,7 +952,7 @@ def main() -> None:
         # metrics, lease release) has already happened by here.
         sys.stdout.flush()
         sys.stderr.flush()
-        os._exit(0 if sys.exc_info()[0] is None else 1)
+        os._exit(code)
 
 
 if __name__ == "__main__":

@@ -31,6 +31,10 @@
     margin: 2.6rem 0 .7rem; border-bottom: 1px solid var(--rule);
     padding-bottom: .25rem;
   }
+  h3 {
+    color: var(--bright); font-size: 1rem; font-weight: normal;
+    margin: 1.6rem 0 .4rem;
+  }
   p { margin: .7rem 0; }
   a { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
   a:hover { color: var(--bright); }
@@ -230,6 +234,112 @@
   <p class="dimtext">Replicated across seeds; the adapter is inert without
   its system prompt (register-bound by construction, so it cannot leak
   hedging into contexts that didn't opt in).</p>
+
+  <h2>the calibrated-honesty project, in full</h2>
+  <p>What the demo above is actually testing, for anyone arriving cold.
+  Everything here is in the
+  <a href="https://github.com/Cargo-Cult-Research/mlx-rl">repo</a>; the two
+  documents that carry the detail are
+  <a href="https://github.com/Cargo-Cult-Research/mlx-rl/blob/main/docs/qa-glove-results.md">the results log</a>
+  and <a href="https://github.com/Cargo-Cult-Research/mlx-rl/blob/main/docs/qa-abstain-related-work.md">the prior-work note</a>.</p>
+
+  <h3>the problem, stated as an incentive</h3>
+  <p>A model that guesses when unsure is not broken — it is responding to
+  how it was scored. Binary grading gives an abstention 0 and a guess a
+  positive expected value, so always-answer wins every leaderboard
+  (<a href="https://arxiv.org/abs/2509.04664">Kalai, Nachum, Vempala et al., <em>Why Language Models Hallucinate</em></a>).
+  Their fix is confidence-threshold scoring: answer only if you are more
+  than <em>t</em> confident, and a wrong answer costs <em>t/(1−t)</em>.
+  We use that scoring rule directly as the RL objective.</p>
+
+  <h3>the recipe</h3>
+  <table>
+    <tr><th>outcome</th><th>reward</th></tr>
+    <tr><td>correct answer</td><td class="num">+1</td></tr>
+    <tr><td>declines / says it doesn't know</td><td class="num">0</td></tr>
+    <tr><td>wrong answer, or asserts the thing doesn't exist</td><td class="num">−3</td></tr>
+  </table>
+  <p class="dimtext">The penalty <em>is</em> the calibration target: with −3
+  the reward-optimal policy answers exactly when its own p(correct) &gt;
+  0.75. Sweeping it traces a risk–coverage frontier (measured: c=1 slides
+  the whole operating point toward answering, as predicted). Training is
+  GRPO with a LoRA adapter (rank 16, last 12 layers, 4.3M parameters —
+  0.01% of the model) on Qwen3.6-35B-A3B in 4-bit: 8 questions × 8 sampled
+  replies per step, one of the eight an off-policy <em>oracle</em>
+  demonstration (the gold answer on questions the base already knows,
+  a decline otherwise — one-sided injection makes all-decline an absorbing
+  state, so it must be symmetric), 200 steps, ~4 hours on one M3 Ultra.
+  Free-chat replies are graded by a <em>commitment parser</em>: a strong
+  model asked only "what does this reply commit to — an answer, a decline,
+  or a denial?", never whether it sounds honest; the extracted answer is
+  then checked mechanically against gold. The judge sees no gold, so it
+  can neither leak nor drift toward it.</p>
+
+  <h3>the datasets, and why each one</h3>
+  <table>
+    <tr><th>data</th><th>role</th><th>why this one</th></tr>
+    <tr><td><a href="https://huggingface.co/datasets/mandarjoshi/trivia_qa">TriviaQA</a> (rc.nocontext, Apache-2.0, ~138k)</td>
+        <td>training</td>
+        <td>short factual questions with alias sets, so "correct" is mechanical and cheap; large enough that a 200-step run never repeats a question. 500 held out. Only the <em>decision</em> is trained — answer or decline — never new facts.</td></tr>
+    <tr><td>calibration probe (2,000 TriviaQA questions × pass@8 on the base)</td>
+        <td>curriculum</td>
+        <td>GRPO learns from disagreement inside a group; questions the base always gets right or always misses give zero gradient. The probe banded questions known / uncertain / unknown by the model's <em>own</em> pass rate, and the training mix draws from bands where the decision boundary is (<a href="https://arxiv.org/abs/2401.13275">Cheng et al.</a> build model-specific known/unknown splits the same way, for SFT).</td></tr>
+    <tr><td><a href="https://huggingface.co/datasets/akariasai/PopQA">PopQA</a> (MIT, ~14k)</td>
+        <td>out-of-distribution eval</td>
+        <td>entity-centric questions of a different shape: does the learned answer/decline policy stay calibrated off its training distribution, or collapse the way <a href="https://arxiv.org/abs/2207.05221">Kadavath et al.</a> warn it can?</td></tr>
+    <tr><td>constructed unknowables: 20 invented people (<code>data/fictional_people.jsonl</code>), 30 arXiv titles — 20 published after the model's cutoff plus 10 famous controls (<code>data/papers_probe.jsonl</code>)</td>
+        <td>free-chat probes, eval only</td>
+        <td>the deployment register is conversation, not tags. Invented people are unknowable by construction, so any confident answer is fabrication and any "that person doesn't exist" is a false denial; post-cutoff papers test transfer to a domain the adapter never saw, and the famous controls price the cost of over-hedging.</td></tr>
+    <tr><td>arXiv metadata snapshot (CC0; ~1,900 papers 2023–2026 + 100 famous, <code>data/arxiv_snapshot.jsonl</code>)</td>
+        <td>current work: tool use</td>
+        <td>ground truth (authors, dates) for the next arm, where the model is handed real web search + URL fetch and today's date and must <em>check before declining</em>. Grading stays verifiable while the tools stay real.</td></tr>
+  </table>
+
+  <h3>what the runs showed</h3>
+  <p>The path was a sequence of negatives, each forcing the next design.
+  Tag-format training worked in the tag format and did not carry into
+  free chat (declines 0.96 in-format, 0.01 in conversation): the
+  capability transferred across domains, the <em>register</em> did not.
+  A one-line honesty system prompt supplies the affordance — hedging on
+  unknowables 0.04 → 0.33 with no training at all — but is uncalibrated
+  (0.17 hedging on things it knows) and leaves famous-paper fabrication
+  untouched. RL on top of that prompt, with an unknown-heavy chat
+  curriculum, is what learns: fictional-people hedging 0.20 → 0.95,
+  post-cutoff papers 0.50 → 0.92, denial of real things → 0.01, famous
+  papers still answered 1.00/0.95, replicated across seeds; per-item
+  uncertainty is genuinely read (decline rate 0.02 on questions the base
+  knows vs 0.35 on ones it doesn't, AUROC 0.74 against held-out
+  questions never trained on), and an agentic-coding benchmark holds at
+  45/72 with the adapter the only variable. The adapter is inert without
+  its system prompt — by construction it cannot leak hedging into a
+  context that did not opt in.</p>
+
+  <h3>what is new here, and what is not</h3>
+  <p class="dimtext">Not new: the ternary reward under GRPO
+  (<a href="https://arxiv.org/abs/2509.25760">TruthRL</a> is the same recipe
+  at datacenter scale), the threshold rationale (Kalai et al.), model-specific
+  knowledge probing (Cheng et al.; <a href="https://arxiv.org/abs/2311.09677">R-Tuning</a>).
+  Adjacent: <a href="https://arxiv.org/abs/2507.16806">RLCR</a> (reward a
+  verbalized confidence by Brier score), <a href="https://arxiv.org/abs/2505.13988">the
+  hallucination tax of RFT</a> (why the capability gates exist),
+  <a href="https://arxiv.org/abs/2305.18153">SelfAware</a>. What this adds:
+  an open, single-machine, end-to-end reproduction; the penalty exposed as
+  the calibration knob; a pass-rate curriculum that makes it sample-efficient
+  enough to run on one box; and the transfer + capability gates as
+  first-class endpoints, with a <em>prompted</em> baseline as the thing to
+  beat rather than a no-abstain strawman.</p>
+
+  <h3>now: check before you decline</h3>
+  <p class="dimtext">Honesty about uncertainty is only useful if the model
+  still checks when checking is possible. Measured on the shipped adapter:
+  asked about "the 2026 paper X", it hands itself grounds to conclude
+  non-existence and stops looking. The current arm trains segmented
+  rollouts — search → read → answer — with real web tools, today's date
+  stated and varied per example, and a reward that scores denial without a
+  search as an error and decline after a search that found nothing as
+  correct. That work is on a branch and will land here with its own
+  numbers, including the falsification test it has to pass: the same
+  question under two dates must flip.</p>
 
   <h2>built on this harness</h2>
   <dl>

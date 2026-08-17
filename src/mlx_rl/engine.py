@@ -749,6 +749,15 @@ def rollout_episodes(
                         elif remaining <= 0:
                             _finish(pi, gi, "length")
                         else:
+                            # Materialize the parked row's cache NOW. The
+                            # generator hands back a LAZY extract (a slice
+                            # graph over the batch arrays); consumed within
+                            # a step that is fine, but a row parked for
+                            # seconds while the batch keeps stepping leaves
+                            # the graph dangling over arrays that get
+                            # replaced — measured: garbage offsets/padding,
+                            # empty KV, then a Metal OOM.
+                            mx.eval([c.state for c in r.prompt_cache])
                             fut = pool.submit(on_tool, pi, gi, ep,
                                               tokenizer.decode(seg.tokens))
                             pending[fut] = (pi, gi, r.prompt_cache,

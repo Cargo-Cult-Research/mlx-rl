@@ -130,8 +130,33 @@ class WebTools:
         self._lock = threading.Lock()   # cache + pacing bookkeeping only
         self._last = 0.0
         self.hard_timeout = timeout_s + 10.0
+        # In-flight de-duplication: eight group members asking the same
+        # title at once should cost ONE live call, not eight cache misses.
+        self._inflight: dict[str, threading.Event] = {}
         self.stats = {"search_live": 0, "search_hit": 0, "fetch_live": 0,
                       "fetch_hit": 0, "errors": 0}
+
+    def _claim(self, kind: str, key: str):
+        """-> (cached_result_or_None, event_to_set_or_None). If another
+        thread is already fetching this key, wait for it and return its
+        cached result."""
+        k = f"{kind}:{key}"
+        while True:
+            with self._lock:
+                hit = self._get(kind, key)
+                if hit is not None:
+                    return hit, None
+                ev = self._inflight.get(k)
+                if ev is None:
+                    ev = self._inflight[k] = threading.Event()
+                    return None, ev
+            ev.wait(self.hard_timeout + 5)
+
+    def _release(self, kind: str, key: str, ev: threading.Event, d: dict) -> None:
+        with self._lock:
+            self._put(kind, key, d)
+            self._inflight.pop(f"{kind}:{key}", None)
+        ev.set()
 
     # -- cache -------------------------------------------------------------
     def _path(self, kind: str, key: str) -> Path:
@@ -191,15 +216,24 @@ class WebTools:
         q = " ".join(query.split())[:300]
         if not q:
             return {"ok": False, "text": "Error: 'query' is required.", "results": []}
-        with self._lock:
-            hit = self._get("search", q)
+        hit, ev = self._claim("search", q)
         if hit is not None:
             with self._lock:
                 self.stats["search_hit"] += 1
             return dict(hit, cached=True)
-        self._pace()
-        with self._lock:
-            self.stats["search_live"] += 1
+        try:
+            self._pace()
+            with self._lock:
+                self.stats["search_live"] += 1
+            d = self._search_live(q)
+        except BaseException:  # noqa: BLE001 — never leave waiters hanging
+            d = {"ok": False, "results": [], "error": "internal", "text": "Error: search failed. Try again later."}
+            self._release("search", q, ev, d)
+            raise
+        self._release("search", q, ev, d)
+        return dict(d, cached=False)
+
+    def _search_live(self, q: str) -> dict:
         try:
             from ddgs import DDGS
             hits = list(self._run_hard(
@@ -222,9 +256,7 @@ class WebTools:
                     self.stats["errors"] += 1
                 d = {"ok": False, "results": [], "error": f"{type(e).__name__}: {msg}",
                      "text": "Error: search failed. Try again later."}
-        with self._lock:
-            self._put("search", q, d)
-        return dict(d, cached=False)
+        return d
 
     def fetch_url(self, url: str) -> dict:
         """-> {"ok", "text", "status", "cached"}"""
@@ -235,16 +267,24 @@ class WebTools:
         why = _blocked_host(parts.hostname)
         if why:
             return {"ok": False, "text": f"Error: cannot fetch that URL ({why})."}
-        with self._lock:
-            hit = self._get("fetch", u)
+        hit, ev = self._claim("fetch", u)
         if hit is not None:
             with self._lock:
                 self.stats["fetch_hit"] += 1
             return dict(hit, cached=True)
-        self._pace()
-        with self._lock:
-            self.stats["fetch_live"] += 1
+        try:
+            self._pace()
+            with self._lock:
+                self.stats["fetch_live"] += 1
+            d = self._fetch_live(u)
+        except BaseException:  # noqa: BLE001
+            d = {"ok": False, "error": "internal", "text": "Error: fetch failed."}
+            self._release("fetch", u, ev, d)
+            raise
+        self._release("fetch", u, ev, d)
+        return dict(d, cached=False)
 
+    def _fetch_live(self, u: str) -> dict:
         def _get_page():
             import requests
             r = requests.get(u, headers=_BROWSER_HEADERS, timeout=self.timeout,
@@ -270,6 +310,4 @@ class WebTools:
                 self.stats["errors"] += 1
             d = {"ok": False, "error": f"{type(e).__name__}: {str(e)[:80]}",
                  "text": f"Error: fetch failed ({type(e).__name__})."}
-        with self._lock:
-            self._put("fetch", u, d)
-        return dict(d, cached=False)
+        return d
