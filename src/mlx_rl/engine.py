@@ -587,6 +587,7 @@ def rollout_episodes(
     prefill_step_size: int = 2048,
     kv_bits: int | None = None,
     tool_workers: int = 4,
+    tool_timeout_s: float = 90.0,
 ) -> tuple[list[list[Episode]], BatchStats]:
     """Sample group_size EPISODES per prompt, batched, with tool rounds.
 
@@ -638,7 +639,7 @@ def rollout_episodes(
     tap_st: dict[tuple[int, int], dict] = {}
     stats = BatchStats()
     pool = ThreadPoolExecutor(max_workers=max(1, tool_workers))
-    pending: dict = {}  # future -> (pi, gi, cache, all_tokens, remaining)
+    pending: dict = {}  # future -> (pi, gi, cache, all_tokens, remaining, t_submit)
 
     def _start_segment(pi, gi):
         seg = Segment(generated=True)
@@ -655,15 +656,22 @@ def rollout_episodes(
         if not pending:
             return 0
         if block:
-            wait(list(pending), return_when=FIRST_COMPLETED)
+            wait(list(pending), timeout=tool_timeout_s, return_when=FIRST_COMPLETED)
         finished = 0
-        for fut in [f for f in pending if f.done()]:
-            pi, gi, cache, all_tokens, remaining = pending.pop(fut)
+        now = time.perf_counter()
+        for fut in [f for f in pending
+                    if f.done() or now - pending[f][5] > tool_timeout_s]:
+            pi, gi, cache, all_tokens, remaining, t_sub = pending.pop(fut)
             ep = groups[pi][gi]
             try:
+                if not fut.done():
+                    # A stuck tool never holds a row hostage: cancel/abandon it
+                    # and end the episode as tool_end (scored, not silent).
+                    fut.cancel()
+                    raise TimeoutError(f"tool call exceeded {tool_timeout_s:.0f}s")
                 inject = fut.result()
             except Exception as e:  # noqa: BLE001 — a tool bug must not kill the batch
-                print(f"[tool] on_tool raised {type(e).__name__}: {e}", flush=True)
+                print(f"[tool] on_tool failed for p{pi}g{gi}: {type(e).__name__}: {e}", flush=True)
                 inject = None
             if inject is None:
                 _finish(pi, gi, "tool_end")
@@ -744,7 +752,8 @@ def rollout_episodes(
                             fut = pool.submit(on_tool, pi, gi, ep,
                                               tokenizer.decode(seg.tokens))
                             pending[fut] = (pi, gi, r.prompt_cache,
-                                            list(r.all_tokens), remaining)
+                                            list(r.all_tokens), remaining,
+                                            time.perf_counter())
                             continue
                     else:
                         seg.finish_reason = r.finish_reason
