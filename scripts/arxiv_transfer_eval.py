@@ -37,7 +37,7 @@ from mlx_rl import machine  # noqa: E402
 from mlx_rl.config import TrainConfig  # noqa: E402
 from mlx_rl.profiles import get_profile  # noqa: E402
 from mlx_rl.tasks.qa_arxiv import QAArxivTask  # noqa: E402
-from mlx_rl.train import _episode_record, _sample_episodes  # noqa: E402
+from mlx_rl.train import _episode_record, _sample_episodes, collect_multiturn  # noqa: E402
 
 PARTS = ("called", "found_target", "grounded", "answered", "correct", "abstain",
          "denial", "no_reply", "checked_absent")
@@ -57,6 +57,9 @@ def main() -> None:
     ap.add_argument("--max-new-tokens", type=int, default=512)
     ap.add_argument("--max-tool-rounds", type=int, default=3)
     ap.add_argument("--regime-mix", default=None, help='JSON, e.g. {"known":.2,"uncertain":.2,"unknown":.3,"fictional":.3}')
+    ap.add_argument("--turns", type=int, default=1,
+                    help=">1: multi-turn transcripts (each member carries its own history); "
+                         "per-turn breakdown reported")
     ap.add_argument("--out", default=f"runs/arxiv-transfer-{time.strftime('%Y%m%d-%H%M')}")
     ap.add_argument("--no-manage-machine", action="store_true")
     a = ap.parse_args()
@@ -66,7 +69,7 @@ def main() -> None:
     if a.regime_mix:
         kw["regime_mix"] = json.loads(a.regime_mix)
     task = QAArxivTask(snapshot=a.snapshot, backend="web", webcache_dir=a.webcache,
-                       calib_file=a.calib, **kw)
+                       calib_file=a.calib, turns=a.turns, **kw)
     rng = random.Random(a.seed)
     examples = [task.eval_sample(rng) for _ in range(a.n)]  # SAME set for every arm
     cfg = TrainConfig(model=prof.model, task="qa_arxiv", profile=a.profile,
@@ -88,17 +91,36 @@ def main() -> None:
             for name, adapter in arms:
                 t0 = time.time()
                 model, tokenizer = mlx_load(prof.model, adapter_path=adapter)
-                groups, _, stats = _sample_episodes(model, tokenizer, examples, cfg, task, k, temp)
-                flat_ex, flat_rec, flat_ep = [], [], []
-                for ex, group in zip(examples, groups):
-                    for ep in group:
-                        flat_ex.append(ex)
-                        flat_ep.append(ep)
-                        flat_rec.append(_episode_record(tokenizer, ep, None))
-                results = task.episode_reward(flat_ex, flat_rec)
+                if a.turns > 1:
+                    from dataclasses import replace as _replace
+                    from mlx_rl.tasks.base import Example, RewardResult
+                    mcfg = _replace(cfg, group_size=k, temperature=temp)
+                    rolls, _, _ = collect_multiturn(model, tokenizer, examples, mcfg, task)
+
+                    class _Ep:  # minimal episode view of a Rollout
+                        def __init__(s, r):
+                            s.gen_count = sum(r.gen_mask) if r.gen_mask else len(r.completion_tokens)
+                            s.rounds = len(r.tool_calls)
+                    flat_ex = [Example(messages=[], meta=r.meta) for r in rolls]
+                    flat_ep = [_Ep(r) for r in rolls]
+                    flat_rec = [{"visible": r.text[-400:], "tool_calls": r.tool_calls,
+                                 "finish": r.finish} for r in rolls]
+                    results = [RewardResult(r.reward, dict(r.reward_parts)) for r in rolls]
+                else:
+                    groups, _, stats = _sample_episodes(model, tokenizer, examples, cfg, task, k, temp)
+                    flat_ex, flat_rec, flat_ep = [], [], []
+                    for ex, group in zip(examples, groups):
+                        for ep in group:
+                            flat_ex.append(ex)
+                            flat_ep.append(ep)
+                            flat_rec.append(_episode_record(tokenizer, ep, None))
+                    results = task.episode_reward(flat_ex, flat_rec)
                 agg: dict[str, dict] = {}
                 for ex, ep, rec, res in zip(flat_ex, flat_ep, flat_rec, results):
-                    for key in ("all", ex.meta["regime"]):
+                    keys = ["all", ex.meta["regime"]]
+                    if a.turns > 1:
+                        keys.append(f"turn{ex.meta.get('turn', 0)}")
+                    for key in keys:
                         d = agg.setdefault(key, {"n": 0, "reward": 0.0, "gen_tokens": 0,
                                                  "rounds": 0, **{p: 0.0 for p in PARTS}})
                         d["n"] += 1
