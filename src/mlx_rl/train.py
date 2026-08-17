@@ -23,7 +23,7 @@ from mlx.utils import tree_map
 
 from . import machine
 from .config import LoraConfig, TrainConfig
-from .engine import Completion, rollout_groups, sage_completion
+from .engine import Completion, rollout_episodes, rollout_groups, sage_completion
 from .grpo import (
     active_groups,
     group_advantages,
@@ -41,15 +41,18 @@ from .rollout import (
     encode_prompt,
     gather_selected,
     score_logprobs,
+    tool_response_ids,
 )
 from .tasks import get_task
+from .tasks.qa_arxiv import parse_tool_call
 
 
 def _sample_batched(model, tokenizer, examples, cfg: TrainConfig, group_size, temperature, task=None):
     """Batched rollout over examples; returns (per-example completion groups,
     prompt token lists, BatchStats)."""
     chat_kwargs = {**getattr(task, "chat_template_kwargs", {}), **cfg.chat_kwargs}
-    prompts = [encode_prompt(tokenizer, ex.messages, **chat_kwargs) for ex in examples]
+    prompts = [encode_prompt(tokenizer, ex.messages, **chat_kwargs, **ex.chat_kwargs)
+               for ex in examples]
     groups, stats = rollout_groups(
         model,
         tokenizer,
@@ -377,6 +380,8 @@ def update_policy(model, optimizer, loss_and_grad, rollouts, advantages, cfg,
 
 def evaluate(model, tokenizer, task, cfg: TrainConfig):
     """Greedy decode on a fixed held-out set (batched); returns mean reward + rates."""
+    if getattr(task, "tools", None):
+        return evaluate_episodes(model, tokenizer, task, cfg)
     if cfg.eval_max_new_tokens:
         cfg = replace(cfg, max_new_tokens=cfg.eval_max_new_tokens)
     rng = random.Random(cfg.seed + 100_000)  # disjoint from training stream
@@ -462,7 +467,8 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
     rng = random.Random(cfg.seed)
     subset_rng = np.random.default_rng(cfg.seed)  # token-subset draws
     task = get_task(cfg.task, **cfg.task_kwargs)
-    if cfg.inject_r and not hasattr(task, "injected_completion"):
+    if cfg.inject_r and not (hasattr(task, "injected_completion")
+                             or hasattr(task, "injected_episode")):
         raise SystemExit(
             f"--inject-r needs task {cfg.task!r} to define injected_completion()")
 
@@ -533,8 +539,9 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
 
         mx.reset_peak_memory()  # per-step peak, not a run-lifetime high-water
         t0 = time.time()
-        rollouts, gen_stats, skipped1 = collect_rollouts(
-            model, tokenizer, examples, cfg, task)
+        rollouts, gen_stats, skipped1 = (
+            collect_episodes if getattr(task, "tools", None) else collect_rollouts
+        )(model, tokenizer, examples, cfg, task)
         t_gen = time.time() - t0
         # Phase boundary: generation KV buffers are dead weight during the
         # backward. Without this the pre-update high-water is the SUM of the
@@ -569,8 +576,9 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
             upd_adv = advantages.reshape(-1)[idx]
             # Denominator from the FULL active batch, before pruning: pruned
             # terms contribute exactly 0 instead of reweighting the survivors.
-            denom_tokens = float(
-                sum(len(r.completion_tokens) for r in upd_rollouts))
+            denom_tokens = float(sum(
+                (sum(r.gen_mask) if r.gen_mask is not None
+                 else len(r.completion_tokens)) for r in upd_rollouts))
             if cfg.update_adv_frac > 0:
                 a2 = np.abs(upd_adv).reshape(-1, cfg.group_size)
                 keep = (a2 >= cfg.update_adv_frac
@@ -681,6 +689,21 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
 
         # Raw samples: the first prompt's whole group, so reward spread is visible.
         group = rollouts[: cfg.group_size]
+        # Same scoreboard to the live dashboard (dash.), one amber note per
+        # step next to the streamed episodes; rl-dash. shows the full group.
+        try:
+            from .engine import _tap
+            _tap().note(
+                f"step {step}: reward {rec['reward_mean']:+.2f}±{rec['reward_std']:.2f} "
+                f"active {int(active.sum())}/{len(rewards)} len {rec['mean_len']:.0f} "
+                + " ".join(f"{k[5:]} {v:.2f}" for k, v in rec.items()
+                           if k.startswith("frac_") and k in (
+                               "frac_correct", "frac_called", "frac_abstain",
+                               "frac_denial", "frac_no_reply", "frac_len_capped"))
+                + f" | first group: {' '.join(f'{r.reward:+.1f}' for r in group)}"
+                + f" | gen {rec['gen_s']:.0f}s upd {rec['update_s']:.0f}s")
+        except Exception:
+            pass
         samples_f.write(
             json.dumps(
                 {
@@ -697,6 +720,7 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
                             "len": len(r.completion_tokens),
                             "finish": r.finish,
                             "text": r.text,
+                            **({"tool_calls": r.tool_calls} if r.tool_calls else {}),
                         }
                         for r in group
                     ],
@@ -751,6 +775,12 @@ def main() -> None:
     p.add_argument("--micro-batch", type=int, default=d.micro_batch)
     p.add_argument("--epochs-per-batch", type=int, default=d.epochs_per_batch)
     p.add_argument("--max-new-tokens", type=int, default=d.max_new_tokens)
+    p.add_argument("--max-tool-rounds", type=int, default=d.max_tool_rounds,
+                   help="tool tasks: call->response rounds per episode; a "
+                        "breach ends the episode and is scored (tool_cap)")
+    p.add_argument("--max-episode-tokens", type=int, default=d.max_episode_tokens,
+                   help="tool tasks: generated-token budget per episode "
+                        "(0 = max_new_tokens per round)")
     p.add_argument("--temperature", type=float, default=d.temperature)
     p.add_argument("--lr", type=float, default=d.lr)
     p.add_argument("--kl-coef", type=float, default=d.kl_coef)
@@ -862,6 +892,8 @@ def main() -> None:
         update_adv_frac=a.update_adv_frac,
         token_subset_frac=a.token_subset_frac,
         micro_batch=a.micro_batch,
+        max_tool_rounds=a.max_tool_rounds,
+        max_episode_tokens=a.max_episode_tokens,
         epochs_per_batch=a.epochs_per_batch,
         max_new_tokens=a.max_new_tokens,
         temperature=a.temperature,
@@ -905,3 +937,169 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# ---------------------------------------------------------------------------
+# Tool-using tasks: segmented episodes
+# ---------------------------------------------------------------------------
+
+def _tool_stop_ids(tokenizer) -> tuple[int, ...]:
+    ids = tokenizer.encode("</tool_call>", add_special_tokens=False)
+    if len(ids) != 1:
+        raise RuntimeError("</tool_call> is not a single token on this "
+                           f"tokenizer ({ids}); tool rounds need a 1-token stop")
+    return (ids[0],)
+
+
+def _sample_episodes(model, tokenizer, examples, cfg: TrainConfig, task,
+                     group_size, temperature):
+    """Batched episode rollout: the task's tools are offered via the chat
+    template, calls are executed by task.run_tool() and the rendered
+    response is spliced onto the row's KV cache (engine.rollout_episodes).
+    Returns (per-example Episode groups, prompt token lists, BatchStats)."""
+    chat_kwargs = {**getattr(task, "chat_template_kwargs", {}), **cfg.chat_kwargs}
+    prompts = [encode_prompt(tokenizer, ex.messages, **chat_kwargs, **ex.chat_kwargs)
+               for ex in examples]
+    think_close = _think_close_marker(tokenizer, cfg, task)
+
+    def on_tool(pi, gi, ep, seg_text):
+        ex = examples[pi]
+        # A call drafted inside an unclosed think block is not a call.
+        visible, closed = _visible_reply(seg_text, think_close)
+        call = parse_tool_call(visible) if closed else None
+        if call is None:
+            text = ("Malformed tool call: no <function=...> block found inside "
+                    "<tool_call>. Emit the call again in the specified format.")
+            rec = {"name": None, "args": {}, "ok": False, "hits": 0,
+                   "result": text}
+        else:
+            name, args = call
+            r = task.run_tool(name, args, ex)
+            text = r.text
+            rec = {"name": name, "args": args, "result": text, **r.meta}
+        ep.tool_calls.append(rec)
+        return tool_response_ids(tokenizer, text, **chat_kwargs, **ex.chat_kwargs)
+
+    groups, stats = rollout_episodes(
+        model, tokenizer, prompts, group_size, cfg.max_new_tokens, temperature,
+        on_tool=on_tool, tool_stop_ids=_tool_stop_ids(tokenizer),
+        max_tool_rounds=cfg.max_tool_rounds,
+        max_episode_tokens=cfg.max_episode_tokens or None,
+        extra_eos=tuple(cfg.extra_eos), share_prompt=cfg.share_prompt,
+        completion_batch_size=cfg.rollout_batch_size,
+    )
+    return groups, prompts, stats
+
+
+def _episode_record(tokenizer, ep, think_close) -> dict:
+    """What the task grades: the visible text of the LAST generated segment
+    (after the final think-close), the tool trace, and how it ended. An
+    episode that ended on a tool call (cap) or mid-generation has no reply."""
+    last = ep.last_generated
+    visible = ""
+    if last is not None and last.finish_reason == "stop":
+        toks = last.tokens[:-1]  # drop EOS
+        visible, _ = _visible_reply(tokenizer.decode(toks), think_close)
+    return {"visible": visible, "tool_calls": list(ep.tool_calls),
+            "finish": ep.finish_reason, "rounds": ep.rounds}
+
+
+def _injected_episode(tokenizer, task, ex, cfg, chat_kwargs):
+    """Build an Episode from the task's oracle segments (text, generated)."""
+    from .engine import Episode, Segment
+    eos_id = next(iter(sorted(tokenizer.eos_token_ids)))
+    ep = Episode()
+    segs = task.injected_episode(ex)
+    for k, (text, generated) in enumerate(segs):
+        if generated:
+            toks = tokenizer.encode(text, add_special_tokens=False)
+            last = k == len(segs) - 1
+            if last:
+                toks = toks + [eos_id]
+            ep.segments.append(Segment(tokens=toks, logprobs=[0.0] * len(toks),
+                                       generated=True,
+                                       finish_reason="stop" if last else "tool"))
+        else:
+            toks = tool_response_ids(tokenizer, text, **chat_kwargs, **ex.chat_kwargs)
+            ep.segments.append(Segment(tokens=toks, logprobs=[0.0] * len(toks),
+                                       generated=False))
+            ep.rounds += 1
+            call = parse_tool_call(segs[k - 1][0]) if k else None
+            if call:
+                r = task.run_tool(call[0], call[1], ex)
+                ep.tool_calls.append({"name": call[0], "args": call[1],
+                                      "result": r.text, **r.meta})
+    ep.finish_reason = "stop"
+    return ep
+
+
+def collect_episodes(model, tokenizer, examples, cfg: TrainConfig, task):
+    """Episode counterpart of collect_rollouts for tasks that own tools.
+    Returns (rollouts, stats, groups_skipped) — one Rollout per episode with
+    gen_mask marking generated vs injected tokens."""
+    inject_r = cfg.inject_r
+    n_sampled = cfg.group_size - inject_r
+    think_close = _think_close_marker(tokenizer, cfg, task)
+    chat_kwargs = {**getattr(task, "chat_template_kwargs", {}), **cfg.chat_kwargs}
+    groups, prompts, stats = _sample_episodes(
+        model, tokenizer, examples, cfg, task, n_sampled, cfg.temperature)
+    if inject_r:
+        for ex, group in zip(examples, groups):
+            for _ in range(inject_r):
+                group.append(_injected_episode(tokenizer, task, ex, cfg, chat_kwargs))
+    flat = [(ex, ep) for ex, group in zip(examples, groups) for ep in group]
+    records = [_episode_record(tokenizer, ep, think_close) for _, ep in flat]
+    results = task.episode_reward([ex for ex, _ in flat], records)
+    rollouts: list[Rollout] = []
+    it = iter(zip(records, results))
+    for ex, prompt, group in zip(examples, prompts, groups):
+        for gi, ep in enumerate(group):
+            rec, res = next(it)
+            toks = ep.completion_tokens
+            parts = dict(res.parts)
+            parts["base_reward"] = round(res.total, 4)
+            parts["gen_tokens"] = ep.gen_count
+            parts["tool_cap"] = float(ep.finish_reason == "tool_cap")
+            rollouts.append(Rollout(
+                prompt_tokens=list(prompt),
+                completion_tokens=toks,
+                sampling_logprobs=ep.sampling_logprobs,
+                text=tokenizer.decode(toks),
+                reward=res.total,
+                reward_parts=parts,
+                meta=ex.meta,
+                injected=gi >= n_sampled,
+                finish=ep.finish_reason,
+                gen_mask=ep.gen_mask,
+                tool_calls=[{k: v for k, v in c.items() if k != "result"}
+                            for c in ep.tool_calls],
+            ))
+    return rollouts, stats, 0
+
+
+def evaluate_episodes(model, tokenizer, task, cfg: TrainConfig):
+    """Greedy episode eval on the task's held-out split."""
+    if cfg.eval_max_new_tokens:
+        cfg = replace(cfg, max_new_tokens=cfg.eval_max_new_tokens)
+    rng = random.Random(cfg.seed + 100_000)
+    esample = getattr(task, "eval_sample", task.sample)
+    examples = [esample(rng) for _ in range(cfg.eval_n)]
+    groups, _, _ = _sample_episodes(model, tokenizer, examples, cfg, task, 1, 0.0)
+    think_close = _think_close_marker(tokenizer, cfg, task)
+    records = [_episode_record(tokenizer, g[0], think_close) for g in groups]
+    results = task.episode_reward(examples, records)
+    out = {
+        "eval_reward": float(np.mean([r.total for r in results])),
+        "eval_mean_len": float(np.mean([g[0].gen_count for g in groups])),
+        "eval_rounds": float(np.mean([g[0].rounds for g in groups])),
+    }
+    for key in sorted({k for r in results for k in r.parts}):
+        out[f"eval_{key}"] = float(np.mean([r.parts.get(key, 0.0) for r in results]))
+    # Per-regime slices: the falsification test lives here (post vs future
+    # on the same papers must differ).
+    for regime in sorted({ex.meta.get("regime") for ex in examples} - {None}):
+        sel = [r for ex, r in zip(examples, results) if ex.meta.get("regime") == regime]
+        out[f"eval_{regime}_reward"] = float(np.mean([r.total for r in sel]))
+        out[f"eval_{regime}_called"] = float(np.mean([r.parts.get("called", 0.0) for r in sel]))
+        out[f"eval_{regime}_n"] = len(sel)
+    return out

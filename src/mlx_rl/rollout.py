@@ -25,6 +25,13 @@ class Rollout:
     injected: bool = False  # off-policy demonstration injected by the task
     think_len: int | None = None  # tokens up to end-of-thinking (SAGE only)
     finish: str | None = None  # 'stop' | 'length' (truncation monitor)
+    # Segmented episodes (tool rounds): completion_tokens is the whole
+    # post-prompt sequence — generated spans AND injected tool responses —
+    # and gen_mask marks which of them the policy produced (1) versus was
+    # handed as context (0). None = every completion token was generated.
+    # Injected tokens are context, never actions: they stay out of the loss.
+    gen_mask: list[int] | None = None
+    tool_calls: list[dict] = field(default_factory=list)
 
 
 def eos_ids(tokenizer) -> set[int]:
@@ -69,6 +76,10 @@ def build_training_arrays(rollouts: list[Rollout], pad_id: int):
 
     Returns numpy arrays inp [B, L-1], tgt [B, L-1], mask [B, L-1] (1.0 on
     completion targets), old_lp [B, L-1] aligned to tgt.
+
+    Segmented rollouts (r.gen_mask set) mask only the GENERATED completion
+    tokens; injected spans (tool responses) are in the sequence as context
+    but carry mask 0, so the policy is never trained to predict them.
     """
     seqs = [r.prompt_tokens + r.completion_tokens for r in rollouts]
     B = len(seqs)
@@ -80,7 +91,11 @@ def build_training_arrays(rollouts: list[Rollout], pad_id: int):
         tokens[i, : len(s)] = s
         pl, cl = len(r.prompt_tokens), len(r.completion_tokens)
         # target position j predicts token j+1: completion targets start at pl-1
-        mask[i, pl - 1 : pl - 1 + cl] = 1.0
+        if r.gen_mask is None:
+            mask[i, pl - 1 : pl - 1 + cl] = 1.0
+        else:
+            assert len(r.gen_mask) == cl, "gen_mask must align with completion_tokens"
+            mask[i, pl - 1 : pl - 1 + cl] = np.asarray(r.gen_mask, dtype=np.float32)
         old_lp[i, pl - 1 : pl - 1 + cl] = r.sampling_logprobs
     return tokens[:, :-1], tokens[:, 1:], mask, old_lp
 
@@ -113,3 +128,26 @@ def score_logprobs(model, inp: np.ndarray, tgt: np.ndarray) -> np.ndarray:
     lp = token_logprobs(model(mx.array(inp)), mx.array(tgt)).astype(mx.float32)
     mx.eval(lp)
     return np.array(lp)
+
+
+def assistant_prefix(tokenizer, **chat_kwargs) -> str:
+    """The text the chat template puts after `<|im_start|>assistant\\n` on a
+    generation prompt — `<think>\\n\\n</think>\\n\\n` with thinking off, `<think>\\n`
+    with it on. Derived from the template, not assumed, so a spliced tool
+    round ends exactly where a fresh render would."""
+    text = tokenizer.apply_chat_template(
+        [{"role": "user", "content": "x"}], add_generation_prompt=True,
+        tokenize=False, **chat_kwargs)
+    marker = "<|im_start|>assistant\n"
+    return text.rsplit(marker, 1)[1] if marker in text else ""
+
+
+def tool_response_ids(tokenizer, result_text: str, **chat_kwargs) -> list[int]:
+    """Token ids of the block spliced after a `</tool_call>` stop: close the
+    assistant turn, a user turn wrapping <tool_response> (the template has no
+    tool role in its output), open the next assistant turn. Verified against
+    the qwen3 template's own rendering (tests/test_tool_round.py)."""
+    block = ("<|im_end|>\n<|im_start|>user\n<tool_response>\n"
+             f"{result_text}\n</tool_response><|im_end|>\n<|im_start|>assistant\n"
+             + assistant_prefix(tokenizer, **chat_kwargs))
+    return tokenizer.encode(block, add_special_tokens=False)

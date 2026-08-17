@@ -93,3 +93,66 @@ def test_sampled_rollouts_have_spread(tiny):
     )
     texts = {tuple(c.tokens) for c in groups[0]}
     assert len(texts) > 1, "temp=1 group should not be degenerate"
+
+
+def test_episode_cache_splice_matches_fresh_prefill(tiny):
+    """A row that stops on a tool token, gets a block prefilled onto its
+    own KV cache and resumes must continue exactly as a fresh prefill of
+    prompt + segment + block would (greedy). This is the invariant that
+    makes cache-spliced tool rounds identical to a re-rendered transcript."""
+    from mlx_rl.engine import rollout_episodes, rollout_groups
+
+    model, tokenizer = tiny
+    prompt = _prompt(tokenizer, "Write three short sentences about the sea.")
+    # First find a token the greedy continuation actually emits, to use as
+    # the "tool stop": the first token of the plain greedy completion after
+    # position 3 (so segment 1 is non-trivial).
+    plain, _ = rollout_groups(model, tokenizer, [prompt], 1, 24, 0.0,
+                              share_prompt=False)
+    toks = plain[0][0].tokens
+    assert len(toks) > 6
+    stop_tok = toks[4]
+    inject = tokenizer.encode(" Also:", add_special_tokens=False)
+    calls = []
+
+    def on_tool(pi, gi, ep, text):
+        calls.append(text)
+        return list(inject)
+
+    groups, _ = rollout_episodes(
+        model, tokenizer, [prompt], 1, 12, 0.0,
+        on_tool=on_tool, tool_stop_ids=(stop_tok,), max_tool_rounds=1,
+        share_prompt=False)
+    ep = groups[0][0]
+    assert len(calls) == 1
+    assert ep.rounds == 1
+    assert [s.generated for s in ep.segments] == [True, False, True]
+    seg1, inj, seg2 = ep.segments
+    assert seg1.tokens == toks[:5] and seg1.finish_reason == "tool"
+    assert inj.tokens == inject
+    assert ep.gen_mask == [1] * 5 + [0] * len(inject) + [1] * len(seg2.tokens)
+    assert len(seg2.tokens) > 0
+    # Fresh prefill of the spliced prefix must greedy-continue identically.
+    fresh, _ = rollout_groups(model, tokenizer, [prompt + seg1.tokens + inject],
+                              1, len(seg2.tokens), 0.0, share_prompt=False)
+    assert fresh[0][0].tokens == seg2.tokens
+
+
+def test_episode_shared_prompt_and_round_cap(tiny):
+    """Group members share the prompt cache; a stop on the tool token with
+    no rounds left ends the episode as 'tool_cap' rather than injecting."""
+    from mlx_rl.engine import rollout_episodes, rollout_groups
+
+    model, tokenizer = tiny
+    prompt = _prompt(tokenizer, "Count from one to ten in words.")
+    plain, _ = rollout_groups(model, tokenizer, [prompt], 1, 16, 0.0)
+    stop_tok = plain[0][0].tokens[3]
+    seen = []
+    groups, _ = rollout_episodes(
+        model, tokenizer, [prompt], 3, 16, 0.0,
+        on_tool=lambda *a: seen.append(a) or None,
+        tool_stop_ids=(stop_tok,), max_tool_rounds=0)
+    assert not seen
+    for ep in groups[0]:
+        assert ep.finish_reason == "tool_cap"
+        assert ep.segments[0].tokens == plain[0][0].tokens[:4]

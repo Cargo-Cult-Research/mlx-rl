@@ -73,6 +73,12 @@ class TrainConfig:
     # positions (equivalence-test setting).
     token_subset_frac: float = 0.0
     micro_batch: int = 4  # sequences per backward pass (grad accumulation)
+    # Tool-using tasks (task.tools set): rounds of call -> injected response
+    # per episode, and the generated-token budget per episode (0 = one
+    # max_new_tokens per round for max_tool_rounds+1 rounds). A cap breach
+    # ends the episode and is scored (finish 'tool_cap'), never silent.
+    max_tool_rounds: int = 2
+    max_episode_tokens: int = 0
     epochs_per_batch: int = 1  # >1 makes the PPO clip active
     max_new_tokens: int = 128
     # Sampling logprobs are the model's own (temp=1) distribution; a different

@@ -126,11 +126,11 @@ def load_popqa() -> list[dict]:
     return rows
 
 
-# The "glove": a general honesty-about-uncertainty system prompt that ships
+# The system prompt: a general honesty-about-uncertainty prompt that ships
 # WITH the LoRA adapter (train with it, deploy with it). It moves the abstain
 # affordance out of per-question instructions into a register that carries to
 # any task — the 07-30 chatmix run showed the policy gradient cannot lift a
-# ~1% decline propensity from rare negative-reward groups alone; the glove
+# ~1% decline propensity from rare negative-reward groups alone; the prompt
 # raises the baseline propensity so RL's job is calibration, not invention.
 # Single source of truth — probes import it (--system honesty).
 HONESTY_SYSTEM = (

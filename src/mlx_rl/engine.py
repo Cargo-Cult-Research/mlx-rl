@@ -511,3 +511,220 @@ def rollout_groups(
                  f"prompt {stats.prompt_tps:.0f} t/s, "
                  f"peak {stats.peak_memory:.1f} GB")
     return groups, stats
+
+
+# ---------------------------------------------------------------------------
+# Segmented episodes: tool rounds via KV-cache continuation
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Segment:
+    """One span of an episode. generated=True spans were sampled by the
+    policy (loss mask 1); generated=False spans were injected as context —
+    tool responses — and never enter the loss (mask 0)."""
+    tokens: list[int] = field(default_factory=list)
+    logprobs: list[float] = field(default_factory=list)
+    generated: bool = True
+    finish_reason: str | None = None  # generated spans: 'stop' | 'length' | 'tool'
+
+
+@dataclass
+class Episode:
+    """A multi-round rollout: prompt | gen | ⟨tool response⟩ | gen | ...
+
+    finish_reason: 'stop'     — the policy emitted EOS
+                   'length'   — a round or the episode budget ran out
+                   'tool_cap' — stopped on a tool call with no rounds left
+                   'tool_end' — the tool callback declined to continue
+    """
+    segments: list[Segment] = field(default_factory=list)
+    tool_calls: list[dict] = field(default_factory=list)  # filled by the callback
+    finish_reason: str | None = None
+    rounds: int = 0
+
+    @property
+    def completion_tokens(self) -> list[int]:
+        return [t for s in self.segments for t in s.tokens]
+
+    @property
+    def sampling_logprobs(self) -> list[float]:
+        return [lp for s in self.segments
+                for lp in (s.logprobs if s.generated else [0.0] * len(s.tokens))]
+
+    @property
+    def gen_mask(self) -> list[int]:
+        return [int(s.generated) for s in self.segments for _ in s.tokens]
+
+    @property
+    def gen_count(self) -> int:
+        return sum(len(s.tokens) for s in self.segments if s.generated)
+
+    @property
+    def last_generated(self) -> Segment | None:
+        for s in reversed(self.segments):
+            if s.generated:
+                return s
+        return None
+
+
+def rollout_episodes(
+    model,
+    tokenizer,
+    prompts: list[list[int]],
+    group_size: int,
+    max_new_tokens: int,
+    temperature: float,
+    *,
+    on_tool,
+    tool_stop_ids: tuple[int, ...],
+    max_tool_rounds: int = 2,
+    max_episode_tokens: int | None = None,
+    extra_eos: tuple[int, ...] = (),
+    share_prompt: bool = True,
+    completion_batch_size: int = 64,
+    prefill_batch_size: int = 8,
+    prefill_step_size: int = 2048,
+    kv_bits: int | None = None,
+) -> tuple[list[list[Episode]], BatchStats]:
+    """Sample group_size EPISODES per prompt, batched, with tool rounds.
+
+    A row that stops on one of `tool_stop_ids` (e.g. </tool_call>) is
+    handed to `on_tool(pi, gi, episode, segment_text)`, which runs the tool
+    and returns the token ids of the rendered tool-response block (or None
+    to end the episode). Those ids are PREFILLED onto the row's own KV cache
+    — the cache the generator hands back with the finished row, which holds
+    every token through the stop token inclusive — and the row re-enters the
+    batch to decode its next segment. Nothing is sampled after the stop
+    token and nothing is generated blind: decode halts at the tag,
+    injection is a prefill, decode resumes. Rows re-enter as they stop (no
+    per-round barrier), so the batch stays full across rounds.
+
+    max_new_tokens caps each generated segment; max_episode_tokens caps the
+    generated total per episode (default: max_new_tokens per round for
+    max_tool_rounds+1 rounds). Injected tokens are not budgeted here — the
+    caller owns the tool-response size.
+    """
+    eos = set(getattr(tokenizer, "eos_token_ids", None) or [tokenizer.eos_token_id])
+    eos |= set(extra_eos)
+    tool_stop = set(tool_stop_ids)
+    stops = sorted(eos | tool_stop)
+    if max_episode_tokens is None:
+        max_episode_tokens = max_new_tokens * (max_tool_rounds + 1)
+    tap = _tap()
+
+    gen_cls = BatchGenerator if kv_bits is None else _QuantizedKVBatchGenerator
+    gen_kw = {} if kv_bits is None else {"kv_bits": kv_bits}
+    gen = gen_cls(
+        model,
+        max_tokens=max_new_tokens,
+        stop_tokens=[[t] for t in stops],
+        sampler=make_sampler(temp=temperature),
+        completion_batch_size=max(completion_batch_size, group_size),
+        prefill_batch_size=prefill_batch_size,
+        prefill_step_size=prefill_step_size,
+        **gen_kw,
+    )
+    groups = [[Episode() for _ in range(group_size)] for _ in prompts]
+    uid_to: dict[int, tuple[int, int]] = {}
+    tap_st: dict[tuple[int, int], dict] = {}
+    stats = BatchStats()
+
+    def _start_segment(pi, gi):
+        seg = Segment(generated=True)
+        groups[pi][gi].segments.append(seg)
+        return seg
+
+    try:
+        with gen.stats(stats):
+            for pi, prompt in enumerate(prompts):
+                ptail = tokenizer.decode(prompt[-120:])[-400:]
+                if share_prompt and len(prompt) > 1:
+                    t_pre = time.perf_counter()
+                    base = prefill_cache(model, prompt, prefill_step_size,
+                                         kv_bits=kv_bits)
+                    _credit_prompt(gen, len(prompt) - 1,
+                                   time.perf_counter() - t_pre)
+                    uids = gen.insert(
+                        [[prompt[-1]] for _ in range(group_size)],
+                        caches=[clone_cache_list(base) for _ in range(group_size)],
+                    )
+                else:
+                    uids = gen.insert([list(prompt) for _ in range(group_size)])
+                for gi, u in enumerate(uids):
+                    uid_to[u] = (pi, gi)
+                    _start_segment(pi, gi)
+                    tap_st[(pi, gi)] = {
+                        "rid": tap.start(model=f"episode p{pi}g{gi}",
+                                         prompt=ptail, ptok=len(prompt)),
+                        "emitted": 0, "flushed": 0,
+                    }
+
+            done, total = 0, len(prompts) * group_size
+            while done < total:
+                responses = gen.next_generated()
+                if not responses:
+                    break
+                for r in responses:
+                    pi, gi = uid_to[r.uid]
+                    ep = groups[pi][gi]
+                    seg = ep.segments[-1]
+                    tok = int(r.token)
+                    seg.tokens.append(tok)
+                    seg.logprobs.append(float(r.logprobs[tok]))
+                    st = tap_st[(pi, gi)]
+                    if (len(ep.completion_tokens) - st["flushed"] >= 16
+                            or r.finish_reason is not None):
+                        text = tokenizer.decode(ep.completion_tokens)
+                        tap.text(st["rid"], text[st["emitted"]:])
+                        st["emitted"] = len(text)
+                        st["flushed"] = len(ep.completion_tokens)
+                    if r.finish_reason is None:
+                        continue
+                    del uid_to[r.uid]
+                    if tok in tool_stop:
+                        # Stopped on the tool tag: the row's cache holds every
+                        # token through the tag; nothing after it exists.
+                        seg.finish_reason = "tool"
+                        remaining = max_episode_tokens - ep.gen_count
+                        if ep.rounds >= max_tool_rounds:
+                            ep.finish_reason = "tool_cap"
+                        elif remaining <= 0:
+                            ep.finish_reason = "length"
+                        else:
+                            inject = on_tool(pi, gi, ep, tokenizer.decode(seg.tokens))
+                            if inject is None:
+                                ep.finish_reason = "tool_end"
+                            else:
+                                ep.rounds += 1
+                                ep.segments.append(Segment(
+                                    tokens=list(inject),
+                                    logprobs=[0.0] * len(inject),
+                                    generated=False))
+                                _start_segment(pi, gi)
+                                (new_uid,) = gen.insert(
+                                    [list(inject)],
+                                    max_tokens=[min(max_new_tokens, remaining)],
+                                    caches=[r.prompt_cache],
+                                    all_tokens=[list(r.all_tokens)],
+                                )
+                                uid_to[new_uid] = (pi, gi)
+                                continue
+                    else:
+                        seg.finish_reason = r.finish_reason
+                        ep.finish_reason = r.finish_reason
+                    tap.end(st["rid"], tok=len(ep.completion_tokens),
+                            finish=ep.finish_reason)
+                    done += 1
+    finally:
+        gen.close()
+        for (pi, gi), st in tap_st.items():
+            if groups[pi][gi].finish_reason is None:
+                tap.end(st["rid"], tok=len(groups[pi][gi].completion_tokens),
+                        finish="aborted")
+        n_rounds = sum(ep.rounds for g in groups for ep in g)
+        tap.note(f"episode batch done: {len(prompts)}x{group_size}, "
+                 f"{n_rounds} tool rounds, {stats.generation_tokens} tok @ "
+                 f"{stats.generation_tps:.0f} t/s aggregate decode, "
+                 f"prompt {stats.prompt_tps:.0f} t/s, "
+                 f"peak {stats.peak_memory:.1f} GB")
+    return groups, stats

@@ -6,7 +6,7 @@ HELD-OUT questions (the task's eval split — never trained, and only ~5/498
 overlap the training calib file), measure per-item:
 
   x = base-model pass@k under a forced-answer prompt (capability)
-  y = trained policy's decline rate in the FREE-CHAT frame + glove
+  y = trained policy's decline rate in the FREE-CHAT frame + system prompt
       (judged by the commitment parser)
 
 If the policy reads its own conditional sharpness, decline rate should
@@ -146,8 +146,8 @@ def main() -> None:
         import mlx.core as mx
         mx.clear_cache()
 
-        # phase 2: adapter + glove, chat frame
-        print("phase 2: policy decline@k (adapter + glove, chat frame)",
+        # phase 2: adapter + system prompt, chat frame
+        print("phase 2: policy decline@k (adapter + system prompt, chat frame)",
               flush=True)
         model, tokenizer = mlx_load(prof.model, adapter_path=a.adapter)
         pol = run_phase(
