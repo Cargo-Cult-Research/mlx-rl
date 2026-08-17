@@ -1,7 +1,8 @@
 # Tool rounds, multi-turn, and the stated date — design for review
 
-*Status: **arm 1 done (two adapters, evaluated on the real web), arm 2 running**
-(launched 2026-08-17 03:55, `runs/qa-arxiv-arm2_run.sh`). Results in §9. Written 2026-08-16, revised the same day after
+*Status: **arms 1 and 2 done** (2026-08-17); results in §9; the 8-cell
+serving grid (thinking × turns × tools) is being run on every adapter before
+arm 3. Written 2026-08-16, revised the same day after
 first review. Every number quoted as "measured" comes from a probe or run log
 in the tree; §5.2's projections have been replaced by step-0/1 measurements
 where noted.*
@@ -632,6 +633,25 @@ Readings, stated plainly:
 4. Caveats: fictional n=18–20 per arm; the tool weather (throttling,
    fallbacks) differs between arms' runs and is reported per arm; the judge
    is the same across arms.
+
+### 9.1b Arm 2 — multi-turn (done 2026-08-17 13:02)
+
+`runs/qa-arxiv-arm2-20260817`: 60 steps, 4 prompts × 8 members × 3 turns,
+init sandbox-v3-60, real tools (fallback share 0.3–0.45 — the engines were
+tired), ~8 min/step. Held-out 3-turn eval (`runs/arxiv-transfer-mt3-arm2-20260817`,
+n=32×3, greedy, real tools):
+
+| arm | all | turn 0 | turn 1 | turn 2 | fictional | findable | known |
+|---|---|---|---|---|---|---|---|
+| prompt-only | −0.33 | 0.47 | −0.44 | −1.00 | −1.95 | 0.11 | 0.06 |
+| sandbox-v3-60 | 0.76 | 0.97 | 0.77 | 0.52 | 0.55 | 0.79 | 0.91 |
+| **arm2-mt-60** | **0.95** | 0.97 | 0.87 | **1.00** | **1.00** | 0.94 | 0.92 |
+
+**Gate 5 met**: the behaviour holds at turn 3 (turn index 2) instead of
+decaying, at no cost to turn 0 or the decline side. Promoted as
+`~/models/adapters/qa-arxiv-mt-arm2-60`; this is the current deliverable of
+the tools+turns line. Not yet run on it: the SWE-bench capability gate and
+the prompt-off inertness check (both required before it ships).
 
 ### 9.2 What broke, and what it taught (the night of 2026-08-16)
 

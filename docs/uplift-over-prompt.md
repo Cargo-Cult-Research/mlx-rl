@@ -94,12 +94,20 @@ n=32 questions × 3 turns. Source: `runs/arxiv-transfer-mt3-20260817`.
 | prompt-only | 0.00 | 0.59 | −0.13 | −0.47 | −1.85 | 0.38 |
 | + sandbox-v3-60 (single-turn trained) | **0.67** | 0.97 | 0.71 | 0.34 | 0.55 | 0.67 |
 | + web-v4-120 (single-turn trained) | 0.50 | 0.98 | 0.34 | 0.19 | −0.15 | 0.62 |
-| + arm 2 (multi-turn trained) | *pending* | | | | | |
+| + **arm2-mt-60** (multi-turn trained, from sandbox-v3-60) | **0.95** | 0.97 | 0.87 | **1.00** | **1.00** | 0.94 |
 
-Reading: prompt-only decays to below zero by turn 2; the single-turn adapters
-lift every turn but decay too (0.97 → 0.34). Arm 2 trains against exactly
-that; its in-run n=16 eval read 0.99 / 0.74 / 0.97 at step 40 (baseline
-0.99 / 0.43 / −0.34) — the held-out n=32 number lands here when it finishes.
+(Second run of the same eval, `runs/arxiv-transfer-mt3-arm2-20260817`,
+2026-08-17 13:19: prompt-only −0.33 [0.47 / −0.44 / −1.00], sandbox-v3-60
+0.76 [0.97 / 0.77 / 0.52], arm2 0.95 [0.97 / 0.87 / 1.00] — the tool weather
+moves the base and the single-turn adapter between runs; arm 2's row is
+from that second run.)
+
+Reading: prompt-only decays to below zero by turn 2; the single-turn
+adapters lift every turn but decay too (0.97 → 0.34–0.52). Sixty steps of
+multi-turn training on top of sandbox-v3-60 (each member carrying its own
+transcript, every turn graded) removes the decay — turn 2 at 1.00 — without
+costing turn 0 or the decline side. Uplift over prompt-only at three turns:
+**+1.28**.
 
 ## How to reproduce a row
 
