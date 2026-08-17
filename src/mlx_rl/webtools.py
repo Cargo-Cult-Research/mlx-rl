@@ -118,10 +118,19 @@ def html_to_text(raw: str) -> str:
 class WebTools:
     """web_search / fetch_url with an on-disk cache and pacing."""
 
+    # Engines tried IN ORDER per query, first non-empty result wins. ddgs'
+    # backend="auto" fans out to every engine and surfaces the slowest
+    # failure (google/yandex refuse the connection outright from here);
+    # measured 2026-08-16 evening: bing/yahoo answer in <2 s, duckduckgo
+    # throttles after a few hundred anonymous calls. Anonymous scraping is
+    # weather, not infrastructure — a search API key is the stable answer.
+    ENGINES = ("bing", "yahoo", "duckduckgo", "brave")
+
     def __init__(self, cache_dir: str | Path = "runs/webcache", max_results: int = 5,
                  fetch_chars: int = 4000, search_chars: int = 2500,
-                 min_interval_s: float = 1.5, timeout_s: float = 15.0,
-                 error_ttl_s: float = 600.0):
+                 min_interval_s: float = 2.0, timeout_s: float = 10.0,
+                 error_ttl_s: float = 600.0, engines: tuple[str, ...] | None = None):
+        self.engines = tuple(engines) if engines else self.ENGINES
         self.dir = Path(cache_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.max_results = max_results
@@ -234,29 +243,32 @@ class WebTools:
         return dict(d, cached=False)
 
     def _search_live(self, q: str) -> dict:
-        try:
-            from ddgs import DDGS
-            hits = list(self._run_hard(
-                lambda: DDGS(timeout=self.timeout).text(q, max_results=self.max_results)))
+        from ddgs import DDGS
+        errors = []
+        for engine in self.engines:
+            try:
+                hits = list(self._run_hard(
+                    lambda: DDGS(timeout=self.timeout).text(
+                        q, max_results=self.max_results, backend=engine)))
+            except Exception as e:  # noqa: BLE001 — throttled / refused / hung
+                msg = str(e).strip().replace("\n", " ")[:60]
+                errors.append(f"{engine}: {type(e).__name__}: {msg}")
+                continue  # "No results found" from ddgs is an exception too: next engine
             results = [{"title": h.get("title", ""), "href": h.get("href", ""),
                         "body": h.get("body", "")} for h in hits]
-            if not results:
-                d = {"ok": True, "results": [], "text": f'No results found for "{q}".'}
-            else:
+            if results:
                 lines = [f"{i}. {r['title']}\n   {r['href']}\n   {r['body']}"
                          for i, r in enumerate(results, 1)]
-                d = {"ok": True, "results": results,
-                     "text": "\n".join(lines)[: self.search_chars]}
-        except Exception as e:  # noqa: BLE001 — rate limits, network, hangs
-            msg = str(e).strip().replace("\n", " ")[:80]
-            if "no results" in msg.lower():   # ddgs raises on an empty result set
-                d = {"ok": True, "results": [], "text": f'No results found for "{q}".'}
-            else:
-                with self._lock:
-                    self.stats["errors"] += 1
-                d = {"ok": False, "results": [], "error": f"{type(e).__name__}: {msg}",
-                     "text": "Error: search failed. Try again later."}
-        return d
+                return {"ok": True, "results": results, "engine": engine,
+                        "text": "\n".join(lines)[: self.search_chars]}
+        # Every engine came back empty or failed. Only "no results" from
+        # every engine is an honest empty; any hard failure is an error.
+        if errors and all("No results" in e or "no results" in e.lower() for e in errors):
+            return {"ok": True, "results": [], "text": f'No results found for "{q}".'}
+        with self._lock:
+            self.stats["errors"] += 1
+        return {"ok": False, "results": [], "error": " | ".join(errors)[:300],
+                "text": "Error: search failed. Try again later."}
 
     def fetch_url(self, url: str) -> dict:
         """-> {"ok", "text", "status", "cached"}"""
