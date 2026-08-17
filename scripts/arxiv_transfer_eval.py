@@ -59,6 +59,11 @@ def main() -> None:
     ap.add_argument("--batch", type=int, default=32,
                     help="rows in flight (64 long real-tool rows OOM'd Metal on 2026-08-17)")
     ap.add_argument("--regime-mix", default=None, help='JSON, e.g. {"known":.2,"uncertain":.2,"unknown":.3,"fictional":.3}')
+    ap.add_argument("--thinking", action="store_true",
+                    help="serve with the profile's thinking mode on (grading after the "
+                         "final </think>; unclosed think = no reply)")
+    ap.add_argument("--no-tools", action="store_true",
+                    help="serve WITHOUT tools offered (the no-tool cell of the grid)")
     ap.add_argument("--turns", type=int, default=1,
                     help=">1: multi-turn transcripts (each member carries its own history); "
                          "per-turn breakdown reported")
@@ -74,8 +79,15 @@ def main() -> None:
                        calib_file=a.calib, turns=a.turns, **kw)
     rng = random.Random(a.seed)
     examples = [task.eval_sample(rng) for _ in range(a.n)]  # SAME set for every arm
+    ck = dict(prof.chat_kwargs)
+    if a.thinking:
+        ck.update(prof.think_chat_kwargs)
+    if a.no_tools:
+        task.tools = []
+        for ex in examples:
+            ex.chat_kwargs = {}
     cfg = TrainConfig(model=prof.model, task="qa_arxiv", profile=a.profile,
-                      chat_kwargs=dict(prof.chat_kwargs), max_new_tokens=a.max_new_tokens,
+                      chat_kwargs=ck, max_new_tokens=a.max_new_tokens,
                       max_tool_rounds=a.max_tool_rounds, think_end=prof.think_end,
                       extra_eos=tuple(prof.extra_eos), rollout_batch_size=a.batch)
     out = Path(a.out)
