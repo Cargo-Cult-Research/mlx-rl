@@ -382,6 +382,8 @@ def update_policy(model, optimizer, loss_and_grad, rollouts, advantages, cfg,
 
 def evaluate(model, tokenizer, task, cfg: TrainConfig):
     """Greedy decode on a fixed held-out set (batched); returns mean reward + rates."""
+    if int(getattr(task, "turns", 1)) > 1:
+        return evaluate_multiturn(model, tokenizer, task, cfg)
     if getattr(task, "tools", None):
         return evaluate_episodes(model, tokenizer, task, cfg)
     if cfg.eval_max_new_tokens:
@@ -542,6 +544,7 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
         mx.reset_peak_memory()  # per-step peak, not a run-lifetime high-water
         t0 = time.time()
         rollouts, gen_stats, skipped1 = (
+            collect_multiturn if int(getattr(task, "turns", 1)) > 1 else
             collect_episodes if getattr(task, "tools", None) else collect_rollouts
         )(model, tokenizer, examples, cfg, task)
         t_gen = time.time() - t0
@@ -1157,4 +1160,129 @@ def evaluate_episodes(model, tokenizer, task, cfg: TrainConfig):
             out[f"eval_{tag}_called"] = float(np.mean([r.parts.get("called", 0.0) for r in sel]))
             out[f"eval_{tag}_correct"] = float(np.mean([r.parts.get("correct", 0.0) for r in sel]))
             out[f"eval_{tag}_n"] = len(sel)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Multi-turn (design D3): re-render, re-prefill, one training row per turn
+# ---------------------------------------------------------------------------
+
+def _episode_messages(ep, tokenizer, think_close) -> list[dict]:
+    """The chat messages a finished episode adds to a transcript: assistant
+    tool-call turns and their tool responses, then the final assistant
+    reply. Rendered through the template on the next turn, so completed
+    turns come out exactly as the template serves them (no think blocks)."""
+    msgs = []
+    calls = list(ep.tool_calls)
+    ci = 0
+    for seg in ep.segments:
+        if seg.generated:
+            toks = seg.tokens[:-1] if seg.finish_reason == "stop" else seg.tokens
+            text, _ = _visible_reply(tokenizer.decode(toks), think_close)
+            msgs.append({"role": "assistant", "content": text.strip()})
+        else:
+            result = calls[ci]["result"] if ci < len(calls) and "result" in calls[ci] else ""
+            ci += 1
+            msgs.append({"role": "tool", "content": result})
+    return msgs
+
+
+def collect_multiturn(model, tokenizer, examples, cfg: TrainConfig, task):
+    """Multi-turn rollouts for tasks that define `turns > 1` and
+    `followup(example, turn, history) -> Example`.
+
+    Turn 0 samples group_size members per example. Every member then
+    carries ITS OWN transcript: its reply (and tool rounds) plus the task's
+    next user message are re-rendered through the chat template and
+    re-prefilled for turn 1, and so on. Each turn is one training row —
+    prompt = rendered history (context, mask 0), completion = that turn's
+    generation (mask 1) — graded on its own turn's gold, grouped with its
+    seven siblings at the same turn (same example, same turn index) for the
+    GRPO baseline. Row order is [ex0 turn0 ×G, ex1 turn0 ×G, ..., ex0
+    turn1 ×G, ...] so `reshape(-1, group_size)` groups correctly.
+    Not stage-1-skippable (rows share no prompt after turn 0)."""
+    from .engine import Episode
+    G = cfg.group_size
+    tools = getattr(task, "tools", None)
+    think_close = _think_close_marker(tokenizer, cfg, task)
+    chat_kwargs = {**getattr(task, "chat_template_kwargs", {}), **cfg.chat_kwargs}
+    turns = int(getattr(task, "turns", 1))
+    # per-row state: current Example (messages = full history so far)
+    rows = [replace_example(ex) for ex in examples for _ in range(G)]
+    rollouts: list[Rollout] = []
+    stats = None
+    for t in range(turns):
+        if tools:
+            groups, prompts, stats = _sample_episodes(
+                model, tokenizer, rows, cfg, task, 1, cfg.temperature)
+            eps = [g[0] for g in groups]
+            recs = [_episode_record(tokenizer, ep, think_close) for ep in eps]
+            results = task.episode_reward(rows, recs)
+        else:
+            groups, prompts, stats = _sample_batched(
+                model, tokenizer, rows, cfg, 1, cfg.temperature, task)
+            eps = []
+            for g in groups:
+                comp = g[0]
+                ep = Episode()
+                from .engine import Segment
+                ep.segments.append(Segment(tokens=list(comp.tokens), logprobs=list(comp.logprobs),
+                                           generated=True, finish_reason=comp.finish_reason))
+                ep.finish_reason = comp.finish_reason
+                eps.append(ep)
+            results = _grade_batch(task, [
+                (ex, _visible_reply(_completion_text(tokenizer, g[0]), think_close)[0])
+                for ex, g in zip(rows, groups)])
+        for ex, prompt, ep, res in zip(rows, prompts, eps, results):
+            toks = ep.completion_tokens
+            parts = dict(res.parts)
+            parts["base_reward"] = round(res.total, 4)
+            parts["turn"] = float(t)
+            parts["gen_tokens"] = ep.gen_count
+            rollouts.append(Rollout(
+                prompt_tokens=list(prompt), completion_tokens=toks,
+                sampling_logprobs=ep.sampling_logprobs, text=tokenizer.decode(toks),
+                reward=res.total, reward_parts=parts, meta={**ex.meta, "turn": t},
+                finish=ep.finish_reason, gen_mask=ep.gen_mask,
+                tool_calls=[{k: v for k, v in c.items() if k != "result"} for c in ep.tool_calls],
+            ))
+        if t + 1 < turns:
+            new_rows = []
+            for ex, ep in zip(rows, eps):
+                history = list(ex.messages) + _episode_messages(ep, tokenizer, think_close)
+                new_rows.append(task.followup(ex, t + 1, history))
+            rows = new_rows
+    return rollouts, stats, 0
+
+
+def replace_example(ex):
+    from .tasks.base import Example
+    return Example(messages=list(ex.messages), meta=dict(ex.meta),
+                   chat_kwargs=dict(ex.chat_kwargs))
+
+
+def evaluate_multiturn(model, tokenizer, task, cfg: TrainConfig):
+    """Greedy multi-turn eval: per-turn reward and rates on the held-out
+    split, so 'does the behaviour survive to turn 3+' is a number."""
+    if cfg.eval_max_new_tokens:
+        cfg = replace(cfg, max_new_tokens=cfg.eval_max_new_tokens)
+    rng = random.Random(cfg.seed + 100_000)
+    esample = getattr(task, "eval_sample", task.sample)
+    examples = [esample(rng) for _ in range(cfg.eval_n)]
+    ecfg = replace(cfg, group_size=1, temperature=0.0)
+    rollouts, _, _ = collect_multiturn(model, tokenizer, examples, ecfg, task)
+    out = {"eval_reward": float(np.mean([r.reward for r in rollouts])),
+           "eval_mean_len": float(np.mean([len(r.completion_tokens) for r in rollouts]))}
+    for key in sorted({k for r in rollouts for k in r.reward_parts}):
+        out[f"eval_{key}"] = float(np.mean([r.reward_parts.get(key, 0.0) for r in rollouts]))
+    for t in sorted({r.meta.get("turn") for r in rollouts}):
+        sel = [r for r in rollouts if r.meta.get("turn") == t]
+        out[f"eval_turn{t}_reward"] = float(np.mean([r.reward for r in sel]))
+        for k in ("called", "correct", "abstain", "denial", "no_reply"):
+            out[f"eval_turn{t}_{k}"] = float(np.mean([r.reward_parts.get(k, 0.0) for r in sel]))
+        out[f"eval_turn{t}_n"] = len(sel)
+    for regime in sorted({r.meta.get("regime") for r in rollouts} - {None}):
+        sel = [r for r in rollouts if r.meta.get("regime") == regime]
+        out[f"eval_{regime}_reward"] = float(np.mean([r.reward for r in sel]))
+        out[f"eval_{regime}_n"] = len(sel)
     return out

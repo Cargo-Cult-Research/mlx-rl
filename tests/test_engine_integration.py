@@ -187,3 +187,42 @@ def test_episode_tools_run_off_thread_and_rows_reenter(tiny):
         assert ep.segments[1].tokens == inject
         assert ep.finish_reason in ("stop", "length")
     assert dt < 0.4 * 3 + 2.0  # not serialized: 3 rows, ~1 latency (+ decode)
+
+
+def test_collect_multiturn_rows_and_history(tiny):
+    """Two turns, two examples, G=2: rows come out [ex0 t0 ×2, ex1 t0 ×2,
+    ex0 t1 ×2, ex1 t1 ×2]; every turn-1 prompt contains that member's own
+    turn-0 reply; each row's mask covers only its own turn's tokens."""
+    import random
+    from mlx_rl.config import TrainConfig
+    from mlx_rl.tasks.base import Example, RewardResult
+    from mlx_rl.train import collect_multiturn
+
+    model, tokenizer = tiny
+
+    class T:
+        name = "mt"
+        turns = 2
+        def sample(self, rng):
+            return Example(messages=[{"role": "user", "content": "Say a colour."}], meta={"q": 0})
+        def followup(self, ex, turn, history):
+            return Example(messages=list(history) + [{"role": "user", "content": "Now a number."}],
+                           meta={"q": turn}, chat_kwargs=dict(ex.chat_kwargs))
+        def reward(self, ex, completion):
+            return RewardResult(float(len(completion) % 3), {"len3": float(len(completion) % 3)})
+
+    task = T()
+    cfg = TrainConfig(model="tiny", task="mt", group_size=2, max_new_tokens=8, temperature=1.0)
+    examples = [task.sample(random.Random(i)) for i in range(2)]
+    rollouts, _, _ = collect_multiturn(model, tokenizer, examples, cfg, task)
+    assert len(rollouts) == 2 * 2 * 2
+    turns = [r.meta["turn"] for r in rollouts]
+    assert turns == [0, 0, 0, 0, 1, 1, 1, 1]
+    for i in range(4):
+        r0, r1 = rollouts[i], rollouts[4 + i]
+        reply0 = r0.text.replace(tokenizer.eos_token or "", "").strip()
+        prompt1 = tokenizer.decode(r1.prompt_tokens)
+        assert reply0[:20] in prompt1  # own history carried forward
+        assert "Now a number." in prompt1
+        assert r1.gen_mask == [1] * len(r1.completion_tokens)
+        assert r1.reward_parts["turn"] == 1.0

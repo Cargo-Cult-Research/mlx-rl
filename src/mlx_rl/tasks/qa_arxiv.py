@@ -237,8 +237,13 @@ class QAArxivTask:
         judge_cache: str = "runs/judge/qa-arxiv-cache.jsonl",
         judge_model: str = "opus",
         judge: bool = True,
+        turns: int = 1,
         **_,
     ):
+        # Multi-turn (design D3): turns > 1 makes the trainer carry each
+        # member's own transcript forward and ask followup() for the next
+        # user message; every turn is its own graded training row.
+        self.turns = int(turns)
         self.wrong_penalty = wrong_penalty
         self.needless_call_cost = needless_call_cost
         if backend not in ("web", "snapshot"):
@@ -359,12 +364,38 @@ class QAArxivTask:
             meta={"id": row["id"], "title": row["title"], "qtype": qtype,
                   "aliases": aliases, "published": row.get("published"),
                   "today": today, "regime": regime, "band": band, "question": content,
+                  "split": split,
                   "asserted_year": year, "fictional": bool(row.get("fictional"))},
             chat_kwargs={"tools": self.tools},
         )
 
     def sample(self, rng: random.Random) -> Example:
         return self._example(rng, "train")
+
+    def followup(self, ex: Example, turn: int, history: list[dict]) -> Example:
+        """Next user turn for a running transcript: a fresh question about a
+        different paper under the SAME stated date, appended to the
+        member's own history (its replies and tool rounds included, so what
+        it said earlier is context for what it says now). Deterministic per
+        (paper, date, turn) so the eight siblings of a group get the same
+        follow-up question and stay comparable."""
+        seed = f"{ex.meta.get('id')}|{ex.meta.get('today')}|{turn}"
+        rng = random.Random(sum(seed.encode()))
+        split = ex.meta.get("split", "train")
+        today = ex.meta["today"]
+        for _ in range(50):
+            nxt = self._example(rng, split)
+            same = nxt.meta["id"] == ex.meta["id"]
+            pub = nxt.meta.get("published")
+            if not same and (pub is None or pub <= today):
+                break
+        # keep the transcript's date: rebuild the question with today fixed
+        meta = dict(nxt.meta, today=today, turn=turn, split=split,
+                    first_id=ex.meta.get("first_id", ex.meta.get("id")))
+        if meta["regime"] == "future":  # cannot happen with pub <= today, kept for safety
+            meta["regime"] = "post"
+        return Example(messages=list(history) + [{"role": "user", "content": nxt.meta["question"]}],
+                       meta=meta, chat_kwargs=dict(ex.chat_kwargs))
 
     def eval_sample(self, rng: random.Random) -> Example:
         return self._example(rng, "eval")
