@@ -103,3 +103,78 @@ If the run works, the honest headline is "TruthRL-style calibration
 training, reproduced end-to-end on consumer hardware, with a curriculum
 that makes it sample-efficient enough to be practical there" — not a new
 algorithm.
+
+## Consistency across rollouts as the ground truth (no gold) — prior work and a sketch
+
+Raised 2026-08-16 while watching arm 1: for questions we have no gold for,
+the *agreement across the group's own rollouts* can stand in for the label —
+the same move SAGE makes when its beam supplies the "oracle" chain, and the
+one thing GRPO gives us for free, since the G samples already exist.
+
+**Canonical references** (ids from memory; verify before citing outside):
+
+- **Self-Consistency** (Wang et al., [2203.11171](https://arxiv.org/abs/2203.11171))
+  — majority vote over sampled chains; the ancestor of everything below.
+- **Semantic Uncertainty / Semantic Entropy** (Kuhn, Gal, Farquhar,
+  [2302.09664](https://arxiv.org/abs/2302.09664); Nature 2024 follow-up
+  "Detecting hallucinations in LLMs using semantic entropy") — cluster the
+  samples into *meaning* equivalence classes with an entailment judge, take
+  the entropy over clusters. High entropy = the model does not know. **This
+  is the quantity our abstention reward wants**, and the judge-clustering is
+  exactly the "judged by Sonnet" step.
+- **SelfCheckGPT** (Manakul et al., [2303.08896](https://arxiv.org/abs/2303.08896))
+  — hallucination detection by cross-sample consistency, zero-resource.
+- **TTRL — Test-Time Reinforcement Learning** (Zuo et al.,
+  [2504.16084](https://arxiv.org/abs/2504.16084)) — *the closest thing to
+  the proposal*: RL on unlabeled prompts where the reward is agreement with
+  the majority answer of the rollout group itself. Double duty by
+  construction: the samples are the label source. Works surprisingly well on
+  math; the label is only as good as the base's majority.
+- **Can Large Reasoning Models Self-Train?** (Shafayat et al.,
+  [2505.21444](https://arxiv.org/abs/2505.21444)) — the cautionary tale for
+  TTRL-style training: performance rises, then **collapses to trivially
+  consistent outputs** (the policy learns to *agree*, not to be right).
+  Their fixes: early stopping, **offline pseudo-labels from an earlier /
+  frozen policy**, curriculum.
+- **Self-Consistency Preference Optimization** (Prasad et al.,
+  [2411.04109](https://arxiv.org/abs/2411.04109)) — the same signal used
+  as preferences rather than RL rewards.
+- Adjacent: **Intuitor / RL from internal feedback** (self-certainty as
+  reward, [2505.19590](https://arxiv.org/abs/2505.19590)), **Self-Rewarding
+  LMs** ([2401.10020](https://arxiv.org/abs/2401.10020)), **Absolute Zero**
+  ([2505.03335](https://arxiv.org/abs/2505.03335)); Co-rewarding
+  (contrastive-agreement rewards designed against the collapse — id
+  unverified, look up before citing).
+
+**What it would look like here.** Two variants, and the difference is where
+the label comes from:
+
+1. *Offline (safe).* Build a dataset once: for each gold-free question,
+   sample k=8 from the **base** policy, extract each reply's commitment
+   (the judge already does this: answer/abstain/denial + value), cluster
+   the values (normalized string first, judge for semantic equivalence on
+   the rest), and record the plurality cluster and its share. Share ≥ τ →
+   pseudo-gold; below → "unknown". That is a `calib.jsonl` with labels
+   attached, i.e. **the same known/uncertain/unknown banding we already use,
+   plus a pseudo-gold for the known side** — it drops straight into
+   qa_abstain / qa_arxiv. Costs one rollout pass per question up front; the
+   labels are frozen, so no collapse mode. Not double duty, but cheap.
+2. *On-policy (TTRL, double duty).* Reward each member by agreement with the
+   group's plurality cluster: majority answer +1, minority answer −P,
+   abstain 0 when a majority exists; when the group is split (semantic
+   entropy high) abstain +1, any answer −P. Efficient — no extra sampling
+   — and it is the collapse trap: the cheapest way to agree is to converge
+   on one confident fabrication per prompt, and to be "split" is to abstain
+   in unison. Guards if we try it: KL anchor, mix with verifiable tasks
+   (the arXiv snapshot rows are verifiable), pseudo-labels from the
+   *reference* policy rather than the current one (adapter scale 0 — a
+   second rollout pass, so half the efficiency), and a held-out **gold**
+   slice watched every eval so the SRT collapse is caught the step it
+   starts. Which is to say: variant 1 first, variant 2 as an arm against it.
+
+**Where the gold-free questions come from.** The interesting pool is not
+another benchmark — it is questions people actually ask the deployed thing:
+the demo's `flags.jsonl` visitor prompts, and open questions about the
+sweep papers the snapshot has no answer field for (e.g. "what does the
+paper propose?"). Semantic entropy over the base's 8 samples labels those
+for free.
