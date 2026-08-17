@@ -336,6 +336,23 @@ the tool calls, and the final visible reply.
 
 ---
 
+## 3b. Shortcuts and sandbox rules — called out, not swept under
+
+Every place the training environment differs from serving, with what it
+buys, what it risks, and how the difference is measured. Kept current as
+long as any of them is in use.
+
+| shortcut | where | why it exists | what it can hide | check |
+|---|---|---|---|---|
+| **Snapshot title index** as the search backend (`backend="snapshot"`, arm 1 v2/v3) | `qa_arxiv.ArxivIndex` | deterministic, free, fast; no live traffic | clean "No results" and 60%-word-coverage hits are regularities of the index, not the web; "decline on empty" learned against them may not transfer | `scripts/arxiv_transfer_eval.py`: sandbox-trained adapter vs web-trained adapter vs base on the same questions with the REAL tools |
+| **Date gate** (papers published after stated today are invisible) | `ArxivIndex.search(today)` | makes the "future" regime verifiable; the falsification test needs it | a real engine cannot hide an existing paper — the regime is a sandbox fiction; with web tools it does not exist | snapshot-only by construction; not claimed for the web arm |
+| **Frozen metadata for grading** (authors/year from the snapshot, not from what the tool returned) | `qa_arxiv._score` | keeps the reward verifiable while the tools are live | none for correctness; `grounded` = correct AND the target was in a result is bookkeeping, not proof the model *read* it | samples; a reading-based check is future work |
+| **Web cache after first sight** (`runs/webcache`) | `mlx_rl.webtools` | reproducibility; ~80 calls/step mostly repeat; kind to DDG | results freeze at first sight — a stale/odd first result is what every later episode sees for that exact query | live/hit/error counts per step in metrics + rl-dash |
+| **Fictional titles are generated** (anchor-free word-mashes) | `fetch_arxiv_snapshot.make_fictional` | a "not real" regime with no gold needed | real users' wrong titles are near-misses of real papers, not mashes; the "did you mean X" case is not trained or graded (v1/v2's recombined heads found the real paper on the web and got scored as fabrication — that was a grader-side unfairness, fixed by removing the anchor, not by grading the hedge) | future regime: near-miss titles with a "did you mean" reward |
+| **`known` band by calibration probe** ("reply with just the name", strict first-author match) | `scripts/arxiv_calibrate.py` | measured, not assumed | 4 samples per paper; a half-known paper can land in `known` and vice versa | band-sliced eval (`eval_band_*`) |
+| **Judge-graded commitment** (answer/abstain/denial) | `mlx_rl.judge` | deployment register is free chat, not tags | judge/human disagreement on what a reply asserts | samples; cache audit log |
+| **Fixed round cap** (2 sandbox, 3 web) with cap-breach = no reply = −P | `--max-tool-rounds` | bounded episodes; loops are scored | a served agent with a bigger budget behaves differently at round 3 | rounds per episode reported everywhere |
+
 ## 4. Reward hack surfaces (pre-registered)
 
 GRPO finds every hole. Known and anticipated:
