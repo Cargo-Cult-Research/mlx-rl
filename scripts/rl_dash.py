@@ -3,7 +3,13 @@
 """rl-dash — watch an mlx-rl training run's raw data live.
 
 Read-only, stdlib-only page on :8105 (tailnet name rl-dash.strawrunway.com
-via the strawrunway private Caddy). Tails the newest run under runs/ (or
+via the strawrunway private Caddy), plus a timer-gated PUBLIC mirror on
+:8106 (tunnel path strawrunway.com/rl-dash — same two-faced pattern as
+dash./cyber/social): off by default, "share public N h" from the private
+page or `curl -X POST 'http://127.0.0.1:8105/mirror?on=8'` (`?off=1` to
+close), expiry enforced server-side per request, so it always shuts itself
+off. The mirror is read-only and follows whatever run is newest, which is
+why it is a deliberate act, not the default. Tails the newest run under runs/ (or
 --run) — metrics.jsonl for the per-step scoreboard and samples.jsonl for the
 first group of every step: each member's reward, regime, tool calls (query ->
 hits / found), how it ended, and the visible reply, with the full transcript
@@ -14,19 +20,42 @@ The token stream itself (each episode as it decodes) is on the housekeeping
 dashboard (dash.strawrunway.com) via mlx_rl.dashtap; this page is the
 outcome view next to it. Nothing here writes anything.
 
-Run:  python3 scripts/rl_dash.py [--port 8105] [--runs runs] [--run runs/<dir>]
+Run:  python3 scripts/rl_dash.py [--port 8105] [--public-port 8106] [--runs runs] [--run runs/<dir>]
 """
 from __future__ import annotations
 
 import argparse
-import html
 import json
-import os
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
+MIRROR_FILE = Path(__file__).resolve().parent / ".rl-dash-public-until"  # gitignored
+MAX_HOURS = 24.0
+PUB_PREFIX = "/rl-dash"
+
+
+def mirror_until() -> float:
+    try:
+        return float(MIRROR_FILE.read_text().strip())
+    except Exception:
+        return 0.0
+
+
+def mirror_on() -> bool:
+    return time.time() < mirror_until()
+
+
+def set_mirror(hours: float | None) -> float:
+    if hours is None:
+        MIRROR_FILE.unlink(missing_ok=True)
+        return 0.0
+    until = time.time() + hours * 3600
+    MIRROR_FILE.write_text(f"{until:.0f}\n")
+    return until
 N_STEPS = 60          # metrics rows shown
 N_SAMPLE_STEPS = 6    # sample groups shown (newest first)
 MAX_TEXT = 6000       # chars of full transcript per member
@@ -117,6 +146,7 @@ td:first-child,th:first-child{text-align:left}
 .grp{border:1px solid #30363d;border-radius:6px;margin:10px 0;background:#161b22}
 .grp .hd{padding:6px 10px;border-bottom:1px solid #30363d;color:#c9d1d9}
 .grp .hd b{color:#d2a8ff}
+#share button{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;padding:1px 8px;font:inherit;cursor:pointer;margin-left:6px}
 .mem{padding:6px 10px;border-bottom:1px solid #21262d}
 .mem:last-child{border-bottom:0}
 .r{display:inline-block;min-width:52px;font-weight:bold}
@@ -130,7 +160,7 @@ summary{cursor:pointer;color:#8b949e}
 pre.full{white-space:pre-wrap;background:#0d1117;padding:6px;border-radius:4px;max-height:60vh;overflow:auto;color:#a5d6ff}
 h2{font-size:13px;color:#8b949e;margin:14px 0 4px;text-transform:uppercase;letter-spacing:.06em}
 </style></head><body>
-<header><h1>rl-dash</h1><span id="run" class="dim">…</span><span id="age" class="dim"></span><span id="abort" class="warn"></span></header>
+<header><h1>rl-dash</h1><span id="run" class="dim">…</span><span id="age" class="dim"></span><span id="abort" class="warn"></span><span id="share" class="dim"></span></header>
 <main>
 <h2>steps</h2><div class="wrap"><table id="steps"></table></div>
 <h2>eval</h2><div class="wrap"><table id="evals"></table></div>
@@ -153,7 +183,11 @@ function member(c){const p=c.parts||{};const calls=(c.tool_calls||[]).map(t=>`�
  return `<div class=mem><span class="r ${rcls(c.reward)}">${(c.reward>=0?"+":"")+Number(c.reward).toFixed(2)}</span> ${tags}${calls?`<div class=calls>${calls}</div>`:""}<div class=vis>${esc(vis.slice(0,700))}${vis.length>700?" …":""}</div><details><summary>full transcript</summary><pre class=full>${esc(txt)}</pre></details></div>`}
 function samples(list){const el=document.getElementById("samples");if(!list.length){el.innerHTML="<div class=dim>nothing yet</div>";return}
  el.innerHTML=list.map(s=>{const m=s.meta||{};return `<div class=grp><div class=hd><b>step ${s.step}</b> · ${esc(m.regime||"")} · today ${esc(m.today||"")} · pub ${esc(m.published||"—")} · ${esc(m.qtype||"")}<br><span class=dim>${esc(m.question||JSON.stringify(m).slice(0,200))}</span></div>${(s.completions||[]).map(member).join("")}</div>`}).join("")}
-async function tick(){try{const r=await fetch("/api/state",{cache:"no-store"});const s=await r.json();
+const B=location.pathname.replace(/\/$/,"");
+async function share(h){await fetch(B+"/mirror?"+(h?("on="+h):"off=1"),{method:"POST"});tick()}
+function shareBar(s){const el=document.getElementById("share");if(!("private" in s)){el.innerHTML=s.mirror_until?`public mirror · expires ${new Date(s.mirror_until*1000).toLocaleTimeString()}`:"";return}
+ const on=s.mirror_until&&s.mirror_until*1000>Date.now();el.innerHTML=(on?`public mirror ON until ${new Date(s.mirror_until*1000).toLocaleTimeString()} <button onclick="share(0)">off</button>`:`public mirror off <button onclick="share(8)">share public 8h</button>`)}
+async function tick(){try{const r=await fetch(B+"/api/state",{cache:"no-store"});const s=await r.json();shareBar(s);
  document.getElementById("run").textContent=s.run+"  "+JSON.stringify(s.config);
  const age=s.metrics_mtime?Math.round(s.now-s.metrics_mtime):null;document.getElementById("age").textContent=age==null?"":`last write ${age}s ago`;
  document.getElementById("abort").textContent=s.aborted?("ABORTED: "+s.aborted):"";
@@ -163,7 +197,13 @@ tick();setInterval(tick,15000);
 </script></body></html>"""
 
 
-def make_handler(runs_dir: Path, pinned: Path | None):
+OFF_PAGE = (b"<!doctype html><html><head><meta charset='utf-8'>"
+            b"<meta name='viewport' content='width=device-width'><title>rl-dash</title></head>"
+            b"<body style='background:#0d1117;color:#8b949e;font:14px ui-monospace,Menlo,monospace;"
+            b"text-align:center;padding-top:20vh'>the public mirror is currently off</body></html>")
+
+
+def make_handler(runs_dir: Path, pinned: Path | None, public: bool):
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):  # quiet
             pass
@@ -176,17 +216,46 @@ def make_handler(runs_dir: Path, pinned: Path | None):
             self.end_headers()
             self.wfile.write(body)
 
-        def do_GET(self):
+        def _path(self) -> str:
             p = self.path.split("?", 1)[0]
+            if public:  # cloudflared does not strip the matched prefix
+                if p == PUB_PREFIX:
+                    p = "/"
+                elif p.startswith(PUB_PREFIX + "/"):
+                    p = p[len(PUB_PREFIX):]
+            return p
+
+        def do_POST(self):
+            p = self._path()
+            if public or p != "/mirror":
+                return self._send(404, b"not found", "text/plain")
+            q = parse_qs(urlsplit(self.path).query)
+            if "off" in q:
+                until = set_mirror(None)
+            else:
+                try:
+                    hours = float(q.get("on", ["8"])[0])
+                except ValueError:
+                    hours = 8.0
+                until = set_mirror(min(max(hours, 0.1), MAX_HOURS))
+            self._send(200, json.dumps({"until": until}).encode(), "application/json")
+
+        def do_GET(self):
+            p = self._path()
+            if public and p in ("/", "/api/state") and not mirror_on():
+                if p == "/":
+                    return self._send(200, OFF_PAGE, "text/html; charset=utf-8")
+                return self._send(403, b'{"error":"mirror is off"}', "application/json")
             if p == "/":
                 return self._send(200, PAGE.encode(), "text/html; charset=utf-8")
             if p == "/api/state":
                 run = pinned or _newest_run(runs_dir)
-                if run is None:
-                    return self._send(200, json.dumps({"run": None, "steps": [], "evals": [],
-                                                       "samples": [], "now": time.time()}).encode(),
-                                      "application/json")
-                return self._send(200, json.dumps(_state(run)).encode(), "application/json")
+                st = (_state(run) if run is not None else
+                      {"run": None, "steps": [], "evals": [], "samples": [], "now": time.time()})
+                st["mirror_until"] = mirror_until()
+                if not public:
+                    st["private"] = True
+                return self._send(200, json.dumps(st).encode(), "application/json")
             if p == "/health":
                 return self._send(200, b"ok", "text/plain")
             self._send(404, b"not found", "text/plain")
@@ -196,12 +265,18 @@ def make_handler(runs_dir: Path, pinned: Path | None):
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--port", type=int, default=8105)
+    ap.add_argument("--public-port", type=int, default=8106,
+                    help="timer-gated public mirror (0 = none)")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--runs", default=str(ROOT / "runs"))
     ap.add_argument("--run", default=None, help="pin one run dir (default: newest)")
     a = ap.parse_args()
-    srv = ThreadingHTTPServer((a.host, a.port),
-                              make_handler(Path(a.runs), Path(a.run) if a.run else None))
+    runs, pinned = Path(a.runs), (Path(a.run) if a.run else None)
+    if a.public_port:
+        pub = ThreadingHTTPServer((a.host, a.public_port), make_handler(runs, pinned, True))
+        threading.Thread(target=pub.serve_forever, daemon=True).start()
+        print(f"rl-dash public mirror on http://{a.host}:{a.public_port} (gated)", flush=True)
+    srv = ThreadingHTTPServer((a.host, a.port), make_handler(runs, pinned, False))
     print(f"rl-dash on http://{a.host}:{a.port} runs={a.runs}", flush=True)
     srv.serve_forever()
 
