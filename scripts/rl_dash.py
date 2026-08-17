@@ -64,7 +64,8 @@ _KEYS = ["step", "reward_mean", "reward_std", "active_groups", "mean_len",
          "frac_called", "frac_correct", "frac_grounded", "frac_abstain",
          "frac_denial", "frac_no_reply", "frac_tool_cap", "frac_len_capped",
          "kl", "gen_s", "update_s", "gen_tok_s", "peak_gb",
-         "web_search_live", "web_search_hit", "web_fetch_live", "web_fetch_hit", "web_errors"]
+         "web_search_live", "web_search_hit", "web_fetch_live", "web_fetch_hit", "web_errors",
+         "web_search_real", "web_search_fallback_error", "web_search_fallback_empty", "frac_fallback"]
 
 
 def _newest_run(runs: Path) -> Path | None:
@@ -169,8 +170,8 @@ h2{font-size:13px;color:#8b949e;margin:14px 0 4px;text-transform:uppercase;lette
 <div id="samples"></div>
 </main>
 <script>
-const KEYS=["step","reward_mean","reward_std","active_groups","mean_len","frac_called","frac_correct","frac_grounded","frac_abstain","frac_denial","frac_no_reply","frac_tool_cap","frac_len_capped","kl","gen_s","update_s","gen_tok_s","peak_gb","web_search_live","web_search_hit","web_fetch_live","web_fetch_hit","web_errors"];
-const SHORT={reward_mean:"reward",reward_std:"±",active_groups:"active",mean_len:"len",frac_called:"called",frac_correct:"correct",frac_grounded:"grounded",frac_abstain:"abstain",frac_denial:"denial",frac_no_reply:"noreply",frac_tool_cap:"toolcap",frac_len_capped:"lencap",gen_s:"gen s",update_s:"upd s",gen_tok_s:"tok/s",peak_gb:"peak GB",web_search_live:"srch live",web_search_hit:"srch hit",web_fetch_live:"fetch live",web_fetch_hit:"fetch hit",web_errors:"web err"};
+const KEYS=["step","reward_mean","reward_std","active_groups","mean_len","frac_called","frac_correct","frac_grounded","frac_abstain","frac_denial","frac_no_reply","frac_tool_cap","frac_len_capped","kl","gen_s","update_s","gen_tok_s","peak_gb","web_search_live","web_search_hit","web_fetch_live","web_fetch_hit","web_errors","web_search_real","web_search_fallback_error","web_search_fallback_empty","frac_fallback"];
+const SHORT={reward_mean:"reward",reward_std:"±",active_groups:"active",mean_len:"len",frac_called:"called",frac_correct:"correct",frac_grounded:"grounded",frac_abstain:"abstain",frac_denial:"denial",frac_no_reply:"noreply",frac_tool_cap:"toolcap",frac_len_capped:"lencap",gen_s:"gen s",update_s:"upd s",gen_tok_s:"tok/s",peak_gb:"peak GB",web_search_live:"srch live",web_search_hit:"srch hit",web_fetch_live:"fetch live",web_fetch_hit:"fetch hit",web_errors:"web err",web_search_real:"real",web_search_fallback_error:"fb err",web_search_fallback_empty:"fb empty",frac_fallback:"ep fallback"};
 function esc(s){return (s??"").toString().replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
 function fmt(k,v){if(v==null)return"";if(typeof v!=="number")return esc(v);if(k==="step"||k==="active_groups"||k.startsWith("web_"))return v;if(k==="mean_len"||k==="gen_tok_s"||k==="gen_s"||k==="update_s")return v.toFixed(0);return v.toFixed(2)}
 function table(el,rows,keys){if(!rows.length){el.innerHTML="<tr><td class=dim>nothing yet</td></tr>";return}

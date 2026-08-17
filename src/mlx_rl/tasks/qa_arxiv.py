@@ -245,6 +245,8 @@ class QAArxivTask:
             raise ValueError(f"backend must be 'web' or 'snapshot', got {backend!r}")
         self.backend = backend
         self.web = WebTools(cache_dir=webcache_dir) if backend == "web" else None
+        self.tool_stats = {"search_real": 0, "search_fallback_error": 0,
+                           "search_fallback_empty": 0}
         if backend == "snapshot":
             self.tools = [WEB_SEARCH_TOOL]  # the sandbox index has no pages to fetch
         # Bands by measured pass rate; only the known band's calls are
@@ -394,10 +396,24 @@ class QAArxivTask:
             return ToolResult(self.index.render(hits, query),
                               {"ok": True, "hits": len(hits), "found_target": found})
         if name == "web_search":
-            r = self.web.web_search(args.get("query", ""))
-            return ToolResult(r["text"], {"ok": bool(r["ok"]), "hits": len(r.get("results", [])),
-                                          "found_target": self._found_in(r["text"], example),
-                                          "cached": bool(r.get("cached"))})
+            q = args.get("query", "")
+            r = self.web.web_search(q)
+            if r["ok"] and r.get("results"):
+                self.tool_stats["search_real"] += 1
+                return ToolResult(r["text"], {"ok": True, "hits": len(r["results"]),
+                                              "found_target": self._found_in(r["text"], example),
+                                              "cached": bool(r.get("cached")), "fallback": False})
+            # Live search failed or came back empty (tonight's engines
+            # throttle at connection level): FALL BACK to the snapshot index,
+            # rendered in the same result shape. A stopgap, counted per step
+            # (web_search_fallback vs web_search_real) so the mix is never
+            # invisible — the policy must not quietly overfit the fake shape.
+            self.tool_stats["search_fallback_error" if not r["ok"] else "search_fallback_empty"] += 1
+            hits = self.index.search(q, example.meta["today"])
+            found = any(h["id"] == example.meta["id"] for h in hits)
+            return ToolResult(self.index.render(hits, q),
+                              {"ok": True, "hits": len(hits), "found_target": found,
+                               "cached": False, "fallback": True})
         if name == "fetch_url":
             r = self.web.fetch_url(args.get("url", ""))
             return ToolResult(r["text"], {"ok": bool(r["ok"]), "hits": int(bool(r["ok"])),
@@ -457,8 +473,9 @@ class QAArxivTask:
         # near-misses). In the future/fictional regimes that is every honest
         # search, and it is what licenses a decline.
         checked = float(any(c.get("ok") for c in calls) and not found)
+        fallback = float(any(c.get("fallback") for c in calls))
         parts = {"called": called, "hits": hits, "found_target": found,
-                 "checked_absent": checked, "answered": 0.0, "correct": 0.0,
+                 "checked_absent": checked, "fallback": fallback, "answered": 0.0, "correct": 0.0,
                  "wrong": 0.0, "denial": 0.0, "abstain": 0.0, "grounded": 0.0,
                  "no_reply": 0.0, f"regime_{m['regime']}": 1.0,
                  f"band_{m.get('band', m['regime'])}": 1.0,
