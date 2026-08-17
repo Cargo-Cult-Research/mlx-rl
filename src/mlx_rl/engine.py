@@ -587,7 +587,7 @@ def rollout_episodes(
     prefill_step_size: int = 2048,
     kv_bits: int | None = None,
     tool_workers: int = 4,
-    tool_timeout_s: float = 90.0,
+    tool_timeout_s: float = 300.0,
 ) -> tuple[list[list[Episode]], BatchStats]:
     """Sample group_size EPISODES per prompt, batched, with tool rounds.
 

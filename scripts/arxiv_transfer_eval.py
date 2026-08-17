@@ -56,6 +56,8 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=424242)
     ap.add_argument("--max-new-tokens", type=int, default=512)
     ap.add_argument("--max-tool-rounds", type=int, default=3)
+    ap.add_argument("--batch", type=int, default=32,
+                    help="rows in flight (64 long real-tool rows OOM'd Metal on 2026-08-17)")
     ap.add_argument("--regime-mix", default=None, help='JSON, e.g. {"known":.2,"uncertain":.2,"unknown":.3,"fictional":.3}')
     ap.add_argument("--turns", type=int, default=1,
                     help=">1: multi-turn transcripts (each member carries its own history); "
@@ -75,7 +77,7 @@ def main() -> None:
     cfg = TrainConfig(model=prof.model, task="qa_arxiv", profile=a.profile,
                       chat_kwargs=dict(prof.chat_kwargs), max_new_tokens=a.max_new_tokens,
                       max_tool_rounds=a.max_tool_rounds, think_end=prof.think_end,
-                      extra_eos=tuple(prof.extra_eos))
+                      extra_eos=tuple(prof.extra_eos), rollout_batch_size=a.batch)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     arms = []
@@ -107,7 +109,18 @@ def main() -> None:
                                  "finish": r.finish} for r in rolls]
                     results = [RewardResult(r.reward, dict(r.reward_parts)) for r in rolls]
                 else:
-                    groups, _, stats = _sample_episodes(model, tokenizer, examples, cfg, task, k, temp)
+                    # Chunk so rows never queue behind the completion batch:
+                    # queued rows (their cloned prompt caches parked in the
+                    # generator's unprocessed list across many steps) came
+                    # back with corrupted KV on 2026-08-17 (empty-KV
+                    # broadcast error) — training never queues, evals did.
+                    per = max(1, a.batch // k)
+                    groups = []
+                    for lo in range(0, len(examples), per):
+                        g, _, stats = _sample_episodes(model, tokenizer, examples[lo:lo + per],
+                                                       cfg, task, k, temp)
+                        groups.extend(g)
+                        mx.clear_cache()
                     flat_ex, flat_rec, flat_ep = [], [], []
                     for ex, group in zip(examples, groups):
                         for ep in group:

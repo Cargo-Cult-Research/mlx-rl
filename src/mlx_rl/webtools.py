@@ -128,7 +128,7 @@ class WebTools:
 
     def __init__(self, cache_dir: str | Path = "runs/webcache", max_results: int = 5,
                  fetch_chars: int = 4000, search_chars: int = 2500,
-                 min_interval_s: float = 2.0, timeout_s: float = 10.0,
+                 min_interval_s: float = 1.0, timeout_s: float = 10.0,
                  error_ttl_s: float = 600.0, engines: tuple[str, ...] | None = None):
         self.engines = tuple(engines) if engines else self.ENGINES
         self.dir = Path(cache_dir)
