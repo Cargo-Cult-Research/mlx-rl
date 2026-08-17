@@ -650,3 +650,25 @@ Readings, stated plainly:
   hundred calls, Google/Yandex refused connections, Bing/Yahoo answered;
   ~30% of live searches fell back to the snapshot over the v4 run. A search
   API key is the reproducible backend if this is repeated.
+
+### 9.3 A pre-registered disagreement, settled by running both
+
+Worth keeping because it is how the project should work. On the evening of
+2026-08-16 the search backend was a title index over the snapshot — a
+sandbox with clean empties. Asked point-blank whether the tool was fake, the
+assistant (Fable) said yes, and predicted that the *calling* behaviour would
+transfer to real tools but the *decline-on-empty* side largely would not,
+because real search never returns clean empties. Urs pushed for the real
+web ("the noise is the point") **and** said the opposite was entirely
+plausible — that the sandbox might transfer cleanly — and asked that both
+be run and the shortcut be called out rather than abandoned or hidden.
+
+Both ran. On the real web, the sandbox-trained adapter scored 1.00 on the
+fictional/decline side against 0.56 for the web-trained one, and 0.92 vs
+0.89 overall. The sandbox *design* (Fable's) won; the *prediction* that it
+would transfer was Urs's; Fable's prediction was wrong on the part that
+mattered. Cost of finding out: one extra overnight run and one evaluation
+script. Cost of not finding out: shipping either belief. The rule that
+follows — when the two of us disagree about a mechanism, register both
+predictions and run both arms if it fits in a night — is cheaper than
+being right.
