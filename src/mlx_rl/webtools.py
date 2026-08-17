@@ -192,11 +192,16 @@ class WebTools:
         p.write_text(json.dumps(d, ensure_ascii=False))
 
     def _pace(self) -> None:
+        """Reserve the next start slot: slots are min_interval apart, and a
+        caller sleeps until its slot. (Earlier version advanced the slot by
+        the WAIT instead of the interval — a runaway backlog under load,
+        every call waited longer than the last; caught arm 1 v4 step 8.)"""
         with self._lock:
-            wait = self._last + self.min_interval - time.time()
-            self._last = max(self._last, time.time()) + max(0.0, wait)
-        if wait > 0:
-            time.sleep(wait)
+            now = time.time()
+            slot = max(self._last + self.min_interval, now)
+            self._last = slot
+        if slot > now:
+            time.sleep(slot - now)
 
     def _run_hard(self, fn, *args):
         """Run fn in a helper thread with a wall-clock cap. On timeout the
