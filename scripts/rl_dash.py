@@ -176,13 +176,19 @@ function table(el,rows,keys){if(!rows.length){el.innerHTML="<tr><td class=dim>no
  const ks=keys||Object.keys(rows[0]);let h="<tr>"+ks.map(k=>"<th>"+esc((SHORT[k]||k).replace(/^eval_/,""))+"</th>").join("")+"</tr>";
  for(const r of rows.slice().reverse())h+="<tr>"+ks.map(k=>"<td>"+fmt(k,r[k])+"</td>").join("")+"</tr>";el.innerHTML=h}
 function rcls(x){return x>0?"pos":(x<0?"neg":"zero")}
-function member(c){const p=c.parts||{};const calls=(c.tool_calls||[]).map(t=>`↳ ${esc((t.args||{}).query||t.name||"?")} → hits ${t.hits??"?"}${t.found_target?" ✓found":""}`).join("<br>");
+function member(c,step,i){const p=c.parts||{};const calls=(c.tool_calls||[]).map(t=>`↳ ${esc((t.args||{}).query||t.name||"?")} → hits ${t.hits??"?"}${t.found_target?" ✓found":""}`).join("<br>");
  const tags=[c.injected?'<span class="tag inj">injected</span>':"",c.finish?`<span class=tag>${esc(c.finish)}</span>`:"",`<span class=tag>${c.len} tok</span>`,p.regime_known?'<span class=tag>known</span>':"",p.regime_post?'<span class=tag>post</span>':"",p.regime_future?'<span class=tag>future</span>':"",p.regime_fictional?'<span class=tag>fictional</span>':"",
   p.answered?`<span class=tag>answer${p.correct?" ✓":" ✗"}</span>`:"",p.abstain?'<span class=tag>abstain</span>':"",p.denial?'<span class=tag>denial</span>':"",p.no_reply?'<span class=tag>no reply</span>':""].join("");
  const txt=c.text||"";const marker="<|im_start|>assistant\n";let vis=txt.includes(marker)?txt.slice(txt.lastIndexOf(marker)+marker.length):txt;vis=vis.replace(/^<think>\n\n<\/think>\n\n/,"").replace(/<\|im_end\|>|<\|endoftext\|>/g,"");
- return `<div class=mem><span class="r ${rcls(c.reward)}">${(c.reward>=0?"+":"")+Number(c.reward).toFixed(2)}</span> ${tags}${calls?`<div class=calls>${calls}</div>`:""}<div class=vis>${esc(vis.slice(0,700))}${vis.length>700?" …":""}</div><details><summary>full transcript</summary><pre class=full>${esc(txt)}</pre></details></div>`}
+ return `<div class=mem><span class="r ${rcls(c.reward)}">${(c.reward>=0?"+":"")+Number(c.reward).toFixed(2)}</span> ${tags}${calls?`<div class=calls>${calls}</div>`:""}<div class=vis>${esc(vis.slice(0,700))}${vis.length>700?" …":""}</div><details id="d-${step}-${i}"><summary>full transcript</summary><pre class=full>${esc(txt)}</pre></details></div>`}
 function samples(list){const el=document.getElementById("samples");if(!list.length){el.innerHTML="<div class=dim>nothing yet</div>";return}
- el.innerHTML=list.map(s=>{const m=s.meta||{};return `<div class=grp><div class=hd><b>step ${s.step}</b> · ${esc(m.regime||"")} · today ${esc(m.today||"")} · pub ${esc(m.published||"—")} · ${esc(m.qtype||"")}<br><span class=dim>${esc(m.question||JSON.stringify(m).slice(0,200))}</span></div>${(s.completions||[]).map(member).join("")}</div>`}).join("")}
+ // Re-render only when the sample set changed, and keep whatever the reader
+ // had expanded: the page refreshes itself every 15 s and a collapsing
+ // transcript mid-read is the wart this guards against.
+ const sig=list.map(s=>s.step+":"+(s.completions||[]).length).join(",");if(el.dataset.sig===sig)return;
+ const open=new Set([...el.querySelectorAll("details[open]")].map(d=>d.id));
+ el.innerHTML=list.map(s=>{const m=s.meta||{};return `<div class=grp><div class=hd><b>step ${s.step}</b> · ${esc(m.regime||"")} · today ${esc(m.today||"")} · pub ${esc(m.published||"—")} · ${esc(m.qtype||"")}<br><span class=dim>${esc(m.question||JSON.stringify(m).slice(0,200))}</span></div>${(s.completions||[]).map((c,i)=>member(c,s.step,i)).join("")}</div>`}).join("");
+ el.dataset.sig=sig;for(const id of open){const d=document.getElementById(id);if(d)d.open=true}}
 const B=location.pathname.replace(/\/$/,"");
 async function share(h){await fetch(B+"/mirror?"+(h?("on="+h):"off=1"),{method:"POST"});tick()}
 function shareBar(s){const el=document.getElementById("share");if(!("private" in s)){el.innerHTML=s.mirror_until?`public mirror · expires ${new Date(s.mirror_until*1000).toLocaleTimeString()}`:"";return}
