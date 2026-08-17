@@ -1,10 +1,7 @@
 # Tool rounds, multi-turn, and the stated date — design for review
 
-*Status: **arm 0 executed, arm 1 (v4, real web tools) running** (v1
-abandoned at step 12 after review; v2 abandoned at step 7 for the grader hole
-in §4.7; v3 — snapshot sandbox backend — converged by step 30 at eval 0.92
-and was stopped at 62 as a mechanics result, not a serving result; v4
-launched 2026-08-16 ~19:45 with `mlx_rl.webtools`, `runs/qa-arxiv-arm1_run.sh`). Written 2026-08-16, revised the same day after
+*Status: **arm 1 done (two adapters, evaluated on the real web), arm 2 running**
+(launched 2026-08-17 03:55, `runs/qa-arxiv-arm2_run.sh`). Results in §9. Written 2026-08-16, revised the same day after
 first review. Every number quoted as "measured" comes from a probe or run log
 in the tree; §5.2's projections have been replaced by step-0/1 measurements
 where noted.*
@@ -576,3 +573,80 @@ prompt-only baseline too: a prompt that passes it is a result.
    arm before it runs — in particular whether dropping the redundant `old_lp`
    pass (lever 4) is worth the change to a path that is currently a stated
    invariant.
+
+
+## 9. Results so far (2026-08-17, morning)
+
+### 9.1 Arm 1 — two adapters, one honest yardstick
+
+Two arm-1 adapters exist, trained against different search backends:
+
+- **sandbox-v3-60** — snapshot title index (clean empties, date gate); 60
+  steps of 8×8, converged by step 30 (in-sandbox eval 0.92).
+- **web-v4-120** — real `web_search`/`fetch_url` with snapshot fallback when
+  the live search failed (~30% of searches fell back over the run); 120
+  steps of 4×8; in-run eval 0.87–0.99 from step 40.
+
+Both were then measured the same way: `scripts/arxiv_transfer_eval.py`,
+same 64 held-out questions, **real tools** (live web + fallback, fallback
+share reported), k=2 samples at temperature 1, judge-graded, plus a 3-turn
+variant (greedy, own transcript per member). Numbers below are from the
+clean runs (`runs/arxiv-transfer-20260817b`, `runs/arxiv-transfer-mt3-20260817`);
+an earlier single-turn table (`…-20260817`) carried ~0.2 no-reply per arm from
+a harness bug (bursts queued past the 90 s park timeout) and is superseded.
+
+**Single turn** (n=128 episodes per arm):
+
+| arm | all | post (findable) | known | fictional | called |
+|---|---|---|---|---|---|
+| base | 0.40 | 0.85 | 0.99 | −2.61 | 0.68 |
+| sandbox-v3-60 | **0.92** | 0.91 | 0.90 (calls 1.00) | **1.00** (abstain 0.94 after checking) | 1.00 |
+| web-v4-120 | 0.89 | **0.95** | 0.94 (calls 0.57) | 0.56 (abstain 0.78, denial 0.11, loop 0.11) | 0.91 |
+
+**Three turns** (n=32 questions × 3 turns, greedy):
+
+| arm | all | turn 0 | turn 1 | turn 2 | fictional | post |
+|---|---|---|---|---|---|---|
+| base | 0.00 | 0.59 | −0.13 | −0.47 | −1.85 | 0.38 |
+| sandbox-v3-60 | **0.67** | 0.97 | 0.71 | 0.34 | 0.55 | 0.67 |
+| web-v4-120 | 0.50 | 0.98 | 0.34 | 0.19 | −0.15 | 0.62 |
+
+Readings, stated plainly:
+
+1. **The RL increment is real on the real web**: both adapters ≈ +0.5 over
+   the prompt-only base with the same tools, same questions. The base already
+   calls (0.68) and answers findable papers well (0.85); what it cannot do is
+   read five plausible junk results and decline (fictional −2.61).
+2. **The sandbox curriculum transferred cleanly — and won the decline
+   side.** The "fake" search's clean empties taught *search → nothing →
+   decline*, and that behaviour carried to real results (fictional 1.00 vs
+   web-trained 0.56). Called out in §3b as a shortcut; measured, it was a
+   good one. The web-trained adapter learned answer-from-results slightly
+   better (post 0.95, fewer needless calls on known papers) but its decline
+   side was undertrained — the live signal was noisier (fallback mix,
+   throttling) and it saw half the prompts per step.
+3. **Turn decay is real for every arm** — base 0.59 → −0.47, sandbox 0.97
+   → 0.34, web 0.98 → 0.19 by turn 2. Arm 2's pre-registered gate ("survives
+   to turn 3+") fails for both arm-1 adapters. Multi-turn training is
+   justified, not optional; arm 2 launched from sandbox-v3-60.
+4. Caveats: fictional n=18–20 per arm; the tool weather (throttling,
+   fallbacks) differs between arms' runs and is reported per arm; the judge
+   is the same across arms.
+
+### 9.2 What broke, and what it taught (the night of 2026-08-16)
+
+- **Real tools need training plumbing** the sandbox never did: async tool
+  execution (rows park on their KV cache; caches must be materialized —
+  the generator's extract is lazy and dangled over replaced arrays →
+  garbage offsets → empty KV → Metal OOM), hard per-call and per-row
+  timeouts (a hung HTTP client held a lock and deadlocked two processes),
+  in-flight de-duplication (eight siblings, one live call), pacing whose
+  slot arithmetic does not run away under load, hard process exit (ddgs
+  threads kept a dead trainer holding 30 GB of Metal buffers → the next
+  launch OOM'd), and never queuing rows behind the completion batch (queued
+  cloned caches came back corrupted — worked around by chunking; not yet
+  understood upstream).
+- **Anonymous search engines are weather.** DDG throttled after a few
+  hundred calls, Google/Yandex refused connections, Bing/Yahoo answered;
+  ~30% of live searches fell back to the snapshot over the v4 run. A search
+  API key is the reproducible backend if this is repeated.
