@@ -226,3 +226,31 @@ def test_collect_multiturn_rows_and_history(tiny):
         assert "Now a number." in prompt1
         assert r1.gen_mask == [1] * len(r1.completion_tokens)
         assert r1.reward_parts["turn"] == 1.0
+
+
+def test_init_adapter_loads_trainable_weights(tiny, tmp_path):
+    """--init-adapter: a saved adapter's tensors land in the freshly attached
+    LoRA layers (same keys), leaving the frozen base untouched."""
+    import mlx.core as mx
+    from mlx.utils import tree_flatten
+    from mlx_rl.config import LoraConfig
+    from mlx_rl.models import load_policy, save_adapter
+    from mlx_rl.profiles import get_profile
+
+    model, _ = tiny
+    # perturb the trainable params, save, then load into a fresh policy
+    params = dict(tree_flatten(model.trainable_parameters()))
+    bumped = {k: v + 0.5 for k, v in params.items()}
+    model.load_weights(list(bumped.items()), strict=False)
+    save_adapter(model, tmp_path, LoraConfig(rank=8), get_profile("tiny").model, 7)
+    fresh, _, _ = load_policy(get_profile("tiny").model, LoraConfig(rank=8))
+    before = dict(tree_flatten(fresh.trainable_parameters()))
+    weights = dict(mx.load(str(tmp_path / "adapter-00007.safetensors")).items())
+    fresh.load_weights(list(weights.items()), strict=False)
+    after = dict(tree_flatten(fresh.trainable_parameters()))
+    assert set(weights) == set(after)
+    k = next(iter(weights))
+    assert not mx.allclose(before[k], after[k]).item()
+    assert mx.allclose(after[k], bumped[k]).item()
+    # restore the shared fixture
+    model.load_weights(list(params.items()), strict=False)

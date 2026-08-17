@@ -79,6 +79,11 @@ class TrainConfig:
     # ends the episode and is scored (finish 'tool_cap'), never silent.
     max_tool_rounds: int = 2
     max_episode_tokens: int = 0
+    # Start from an existing adapter (dir with adapters.safetensors, e.g. a
+    # promoted checkpoint) instead of zero-initialised LoRA. Lets an arm add
+    # ONE variable on top of a trained policy. Caveat: the KL reference is
+    # still the frozen base (adapter scale 0), not the init adapter.
+    init_adapter: str | None = None
     epochs_per_batch: int = 1  # >1 makes the PPO clip active
     max_new_tokens: int = 128
     # Sampling logprobs are the model's own (temp=1) distribution; a different

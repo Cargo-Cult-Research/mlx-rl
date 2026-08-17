@@ -21,7 +21,7 @@ import mlx.core as mx
 import mlx.nn as nn
 import mlx.optimizers as optim
 import numpy as np
-from mlx.utils import tree_map
+from mlx.utils import tree_flatten, tree_map
 
 from . import machine
 from .config import LoraConfig, TrainConfig
@@ -487,6 +487,20 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
         vlm=cfg.vlm_policy,
     )
     print(f"loaded {cfg.model}: {info}")
+    if cfg.init_adapter:
+        apath = Path(cfg.init_adapter).expanduser()
+        wfile = apath / "adapters.safetensors" if apath.is_dir() else apath
+        n_before = sum(v.size for _, v in tree_flatten(model.trainable_parameters()))
+        weights = dict(mx.load(str(wfile)).items())
+        model.load_weights(list(weights.items()), strict=False)
+        mx.eval(model.parameters())
+        n_after = sum(v.size for _, v in tree_flatten(model.trainable_parameters()))
+        assert n_before == n_after
+        matched = sum(1 for k, _ in tree_flatten(model.trainable_parameters()) if k in weights)
+        print(f"init adapter {wfile}: {matched}/{len(weights)} tensors matched trainable params",
+              flush=True)
+        if matched == 0:
+            raise RuntimeError("init adapter matched no trainable parameters — LoRA config mismatch?")
     # Model-graded tasks (telephone's frozen-listener reward) need the live
     # model; tasks are constructed before load, so hand it over here.
     bind = getattr(task, "bind_model", None)
@@ -790,6 +804,9 @@ def main() -> None:
     p.add_argument("--max-episode-tokens", type=int, default=d.max_episode_tokens,
                    help="tool tasks: generated-token budget per episode "
                         "(0 = max_new_tokens per round)")
+    p.add_argument("--init-adapter", default=d.init_adapter,
+                   help="start from this adapter dir/file (promoted checkpoint) "
+                        "instead of zero LoRA")
     p.add_argument("--temperature", type=float, default=d.temperature)
     p.add_argument("--lr", type=float, default=d.lr)
     p.add_argument("--kl-coef", type=float, default=d.kl_coef)
@@ -903,6 +920,7 @@ def main() -> None:
         micro_batch=a.micro_batch,
         max_tool_rounds=a.max_tool_rounds,
         max_episode_tokens=a.max_episode_tokens,
+        init_adapter=a.init_adapter,
         epochs_per_batch=a.epochs_per_batch,
         max_new_tokens=a.max_new_tokens,
         temperature=a.temperature,

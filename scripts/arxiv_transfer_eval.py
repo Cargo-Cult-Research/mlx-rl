@@ -161,7 +161,7 @@ def main() -> None:
                     d = agg[key]
                     print(f"{key:10s} {d['n']:4d} {d['reward']:7.2f} {d['gen_tokens']:7.0f} {d['rounds']:6.2f} "
                           + " ".join(f"{d[p]:8.2f}" for p in PARTS))
-                del model, tokenizer, groups
+                del model, tokenizer
                 gc.collect()
                 mx.clear_cache()
                 (out / "summary.json").write_text(json.dumps(summary, indent=2))
