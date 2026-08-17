@@ -294,6 +294,8 @@ difficulty atlases that drive curriculum bands — see
   `--abort-inactive-window 30` as the backstop.
   Prior work and positioning:
   [docs/qa-abstain-related-work.md](docs/qa-abstain-related-work.md).
+  **Uplift over prompt-only, every phase, one table each:**
+  [docs/uplift-over-prompt.md](docs/uplift-over-prompt.md).
 - **`toolformat`** — canonical tool-call format + tool/arg correctness;
   doubles as a format regression detector for adapters.
 - **`telephone`** — emergent-code game: the policy must transmit a secret
