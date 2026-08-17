@@ -1022,9 +1022,19 @@ def _sample_episodes(model, tokenizer, examples, cfg: TrainConfig, task,
         ep.tool_calls.append(rec)
         return tool_response_ids(tokenizer, text, **chat_kwargs, **ex.chat_kwargs)
 
+    CAP_MSG = ("Error: tool call limit reached — no more tool calls are available "
+               "in this conversation. Answer the user now with what you have, or "
+               "say plainly what you could not find.")
+
+    def on_cap(pi, gi, ep):
+        ex = examples[pi]
+        ep.tool_calls.append({"name": None, "args": {}, "ok": False, "hits": 0,
+                              "capped": True, "result": CAP_MSG})
+        return tool_response_ids(tokenizer, CAP_MSG, **chat_kwargs, **ex.chat_kwargs)
+
     groups, stats = rollout_episodes(
         model, tokenizer, prompts, group_size, cfg.max_new_tokens, temperature,
-        on_tool=on_tool, tool_stop_ids=_tool_stop_ids(tokenizer),
+        on_tool=on_tool, on_cap=on_cap, tool_stop_ids=_tool_stop_ids(tokenizer),
         max_tool_rounds=cfg.max_tool_rounds,
         max_episode_tokens=cfg.max_episode_tokens or None,
         extra_eos=tuple(cfg.extra_eos), share_prompt=cfg.share_prompt,
@@ -1133,6 +1143,7 @@ def collect_episodes(model, tokenizer, examples, cfg: TrainConfig, task):
             parts["base_reward"] = round(res.total, 4)
             parts["gen_tokens"] = ep.gen_count
             parts["tool_cap"] = float(ep.finish_reason == "tool_cap")
+            parts["capped"] = float(ep.capped)
             rollouts.append(Rollout(
                 prompt_tokens=list(prompt),
                 completion_tokens=toks,

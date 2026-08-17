@@ -542,6 +542,7 @@ class Episode:
     tool_calls: list[dict] = field(default_factory=list)  # filled by the callback
     finish_reason: str | None = None
     rounds: int = 0
+    capped: bool = False  # hit the round cap and was told to answer
 
     @property
     def completion_tokens(self) -> list[int]:
@@ -588,6 +589,7 @@ def rollout_episodes(
     kv_bits: int | None = None,
     tool_workers: int = 4,
     tool_timeout_s: float = 300.0,
+    on_cap=None,
 ) -> tuple[list[list[Episode]], BatchStats]:
     """Sample group_size EPISODES per prompt, batched, with tool rounds.
 
@@ -613,6 +615,13 @@ def rollout_episodes(
     generated total per episode (default: max_new_tokens per round for
     max_tool_rounds+1 rounds). Injected tokens are not budgeted here — the
     caller owns the tool-response size.
+
+    on_cap(pi, gi, episode) -> ids | None: if given, a call made with no
+    rounds left is NOT executed; instead this block (e.g. "tool budget
+    exhausted — answer now") is injected once and the row gets one more
+    generated segment, so the episode ends with a visible reply that can be
+    graded (the served-agent behaviour). A further call after that ends the
+    episode as 'tool_cap'. Without on_cap the cap ends the episode at once.
     """
     eos = set(getattr(tokenizer, "eos_token_ids", None) or [tokenizer.eos_token_id])
     eos |= set(extra_eos)
@@ -744,7 +753,24 @@ def rollout_episodes(
                         # call runs on the pool; the row re-enters via _drain.
                         seg.finish_reason = "tool"
                         remaining = max_episode_tokens - ep.gen_count
-                        if ep.rounds >= max_tool_rounds:
+                        if ep.rounds >= max_tool_rounds and on_cap is not None \
+                                and not ep.capped and remaining > 0:
+                            inject = on_cap(pi, gi, ep)
+                            if inject is not None:
+                                ep.capped = True
+                                ep.segments.append(Segment(tokens=list(inject),
+                                                           logprobs=[0.0] * len(inject),
+                                                           generated=False))
+                                _start_segment(pi, gi)
+                                mx.eval([c.state for c in r.prompt_cache])
+                                (new_uid,) = gen.insert([list(inject)],
+                                                        max_tokens=[min(max_new_tokens, remaining)],
+                                                        caches=[r.prompt_cache],
+                                                        all_tokens=[list(r.all_tokens)])
+                                uid_to[new_uid] = (pi, gi)
+                                continue
+                            _finish(pi, gi, "tool_cap")
+                        elif ep.rounds >= max_tool_rounds:
                             _finish(pi, gi, "tool_cap")
                         elif remaining <= 0:
                             _finish(pi, gi, "length")

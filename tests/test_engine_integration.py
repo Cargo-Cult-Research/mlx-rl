@@ -254,3 +254,27 @@ def test_init_adapter_loads_trainable_weights(tiny, tmp_path):
     assert mx.allclose(after[k], bumped[k]).item()
     # restore the shared fixture
     model.load_weights(list(params.items()), strict=False)
+
+
+def test_episode_cap_message_gives_one_more_segment(tiny):
+    """With on_cap: a call made at the round cap is not run; the cap block is
+    injected once and the row generates a final segment. A call after that
+    ends the episode as tool_cap."""
+    from mlx_rl.engine import rollout_episodes, rollout_groups
+
+    model, tokenizer = tiny
+    prompt = _prompt(tokenizer, "List some fruits.")
+    plain, _ = rollout_groups(model, tokenizer, [prompt], 1, 16, 0.0)
+    stop_tok = plain[0][0].tokens[2]
+    inject = tokenizer.encode(" go", add_special_tokens=False)
+    cap = tokenizer.encode(" STOP", add_special_tokens=False)
+    caps = []
+    groups, _ = rollout_episodes(
+        model, tokenizer, [prompt], 1, 8, 0.0,
+        on_tool=lambda *a: list(inject), on_cap=lambda *a: caps.append(1) or list(cap),
+        tool_stop_ids=(stop_tok,), max_tool_rounds=0)
+    ep = groups[0][0]
+    assert ep.capped and caps == [1]
+    assert ep.segments[1].tokens == cap and not ep.segments[1].generated
+    assert len(ep.segments) >= 3
+    assert ep.finish_reason in ("stop", "length", "tool_cap")

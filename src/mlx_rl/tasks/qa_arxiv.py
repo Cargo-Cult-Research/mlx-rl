@@ -496,7 +496,7 @@ class QAArxivTask:
 
     def _score(self, ex: Example, ep: dict, verdict: dict | None) -> RewardResult:
         m = ex.meta
-        calls = ep.get("tool_calls", [])
+        calls = [c for c in ep.get("tool_calls", []) if not c.get("capped")]
         called = float(bool(calls))
         hits = float(any(c.get("hits", 0) > 0 for c in calls))
         found = float(any(c.get("found_target") for c in calls))
