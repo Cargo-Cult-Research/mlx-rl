@@ -35,7 +35,7 @@ from mlx_rl.train import _episode_record, _sample_episodes  # noqa: E402
 def _pair(task, row, qtype, frame, days):
     """Two examples for one paper: today = published +/- days, else identical."""
     from mlx_rl.tasks.base import Example
-    from mlx_rl.tasks.qa_arxiv import DATE_LINE, TOOL_FIRST, _surname
+    from mlx_rl.tasks.qa_arxiv import DATE_LINE, _surname
     out = []
     pub = date.fromisoformat(row["published"])
     content = frame.format(t=row["title"], y=row["published"][:4])
@@ -46,7 +46,7 @@ def _pair(task, row, qtype, frame, days):
         today = (pub + timedelta(days=delta)).isoformat()
         sys_parts = [task.system_text] if task.system_text else []
         if task.tool_first:
-            sys_parts.append(TOOL_FIRST)
+            sys_parts.append(task.tool_first)
         sys_parts.append(DATE_LINE.format(today=today))
         out.append(Example(
             messages=[{"role": "system", "content": " ".join(sys_parts)},

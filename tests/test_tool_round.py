@@ -21,12 +21,12 @@ def qtok():
 @pytest.mark.parametrize("thinking", [False, True])
 def test_spliced_tool_round_matches_template_render(qtok, thinking):
     from mlx_rl.rollout import tool_response_ids
-    from mlx_rl.tasks.qa_arxiv import SEARCH_TOOL, format_tool_call
+    from mlx_rl.tasks.qa_arxiv import WEB_SEARCH_TOOL, format_tool_call
 
-    kw = {"enable_thinking": thinking, "tools": [SEARCH_TOOL]}
+    kw = {"enable_thinking": thinking, "tools": [WEB_SEARCH_TOOL]}
     msgs = [{"role": "system", "content": "S. Today's date is 2026-08-16."},
             {"role": "user", "content": "Who wrote 'X'?"}]
-    call = format_tool_call("search_arxiv", query="X")
+    call = format_tool_call("web_search", query="X")
     result = "- X (2026-01-01)\n  authors: A, B"
     base = qtok.apply_chat_template(msgs, add_generation_prompt=True, tokenize=False, **kw)
     gen_text = ("thinking...\n</think>\n\n" if thinking else "") + call
@@ -131,3 +131,18 @@ def test_injected_episode_is_symmetric(tmp_path):
             assert [g for _, g in segs] == [True, False, True]
             assert "<tool_call>" in segs[0][0]
     assert {"known", "post", "future", "fictional"} <= seen
+    r = t.index.render([], "Nothing Here")
+    assert r == 'No results found for "Nothing Here".'
+    hits = t.index.search("Attention Residuals", today="2026-08-16")
+    assert t.index.render(hits, "x").startswith("1. Attention Residuals\n   https://arxiv.org/abs/2603.15031 · 2026-03-16 · Bo Li")
+
+
+def test_author_grading_closes_the_common_surname_hole():
+    from mlx_rl.tasks.qa_arxiv import author_or_year_match as m
+    al = ["Jinming Wang", "Wang"]
+    assert m("Jinming Wang, Hai Wang, Hongkai Wen", al)
+    assert m("Wang et al.", al)
+    assert m("J. Wang and colleagues", al)  # short reply naming the surname: fine
+    # a fabricated 8-name list that happens to contain a Wang is NOT correct
+    assert m("Haohan Wang, Yongfeng Zhang, Qiaoqiao Jin, Wei Li, Xin Chen, Yu Zhao, Song Wang, Li Na", al) is False
+    assert m("2022", ["2022"]) and not m("2023", ["2022"])

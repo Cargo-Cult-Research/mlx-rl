@@ -1,6 +1,8 @@
 # Tool rounds, multi-turn, and the stated date — design for review
 
-*Status: **arm 0 executed, arm 1 running** (launched 2026-08-16 16:52,
+*Status: **arm 0 executed, arm 1 (v3) running** (v1 launched 2026-08-16
+16:52, abandoned at step 12 after review; v2 launched ~18:00 with §0.1's
+changes, abandoned at step 7 for the grader hole in §4.7; v3 launched ~18:35,
 `runs/qa-arxiv-arm1_run.sh`). Written 2026-08-16, revised the same day after
 first review. Every number quoted as "measured" comes from a probe or run log
 in the tree; §5.2's projections have been replaced by step-0/1 measurements
@@ -18,8 +20,9 @@ Terminology used throughout:
 - **the LoRA adapter** / **C-200** — the shipped GRPO+LoRA adapter (on disk as
   `~/models/adapters/qa-gloveC-200-20260731`; the historical name is kept for
   lookup only, not used in text).
-- **the tool-first clause** — `TOOL_FIRST` in `demo/app.py:96`, one sentence
-  appended to the system prompt only when tools are offered.
+- **the tool-first clause** — `TOOL_FIRST` in `demo/app.py`, one sentence the
+  demo appends for the C-200 arm when tools are offered. Not part of the new
+  training prompt (§0.1).
 
 ---
 
@@ -34,6 +37,31 @@ We are **not** after an RL showcase. Whatever gets there cheaply with a prompt
 stays a prompt. RL is for the part the prompt cannot reach, and it must be
 measured as the increment over the best prompt-only arm — an outcome of "the
 prompt was enough for X" is a good outcome, not a failure of the project.
+
+### 0.1 Train like you serve (review, 2026-08-16)
+
+Four corrections from the first look at live rollouts, all applied before
+arm 1 v2:
+
+- **The tool is the served shape.** `search_arxiv` was a demo-specific tool
+  nobody deploys; the policy would overfit to it. Training now offers a
+  generic **`web_search`** (query → numbered results with title, URL, date,
+  snippet) — the schema a real harness offers — backed by the frozen
+  snapshot in training and by the arXiv API in the demo.
+- **Tool text is neutral.** `No results found for "…"`, no editorial about
+  what an empty result means. Interpreting the result is the policy's job
+  and the reward's to teach; a tool that argues the case is a prompt patch
+  wearing a tool costume.
+- **No tool-first clause in the training prompt.** The template's tools
+  reminder and the reward carry "check before declining"; the served prompt
+  for the new adapter is system prompt + date only. (The clause stays in the
+  demo for the C-200 arm, which measurably needs it.)
+- **Known groups were dead weight.** A famous paper the base gets right 8/8
+  yields no signal and burned an injected oracle member on top. Bands are
+  now known / uncertain / unknown by *measured* pass rate; known mix 0.35 →
+  0.15, the half-known famous papers (95 of them) get their own band where
+  guess-wrong / search-and-answer / abstain all occur in one group;
+  injection off; saturated groups abandoned at stage 1.
 
 The known weakness of prompts is that they are found ad hoc: the tool-first
 clause was written by hand after reading transcripts, and there is no
@@ -314,6 +342,12 @@ GRPO finds every hole. Known and anticipated:
 6. **All-abstain absorbing state** — the qa_abstain lesson: one-sided injection
    makes collapse gradient-free and permanent. Keep symmetric demonstrations and
    `--abort-inactive-window 30`.
+7. **Common-surname author lists** — *found live, arm 1 v2 step 5.* Grading
+   "authors" by first-author surname containment gave +1 to three fabricated
+   eight-name lists that happened to include a Wang. Grader now requires the
+   full first-author name; the bare surname counts only for replies of ≤ 4
+   words ("Chung et al."). Calibration was re-graded with the same rule (no
+   change to the 47 known).
 
 `samples.jsonl` gets the first prompt's whole episode group every step. Every
 reward hack this project has caught was found by reading samples, none by
@@ -454,8 +488,8 @@ claimed.
 
 | # | arm | new variable | gate to proceed |
 |---|---|---|---|
-| 0 | date-in-prompt plumbing + frozen arXiv snapshot + prompt-only baseline | — | **done 2026-08-16**: `data/arxiv_snapshot.jsonl` (97 famous + 1,760 sweep 2023-01..2026-08 + 300 fictional); `runs/arxiv-calib-20260816/calib.jsonl` (47 known of 1,857, all famous; 50 famous only partly known); demo renders the date at request time. Prompt-only baseline (= arm 1 step-0 eval, n=64): reward 0.65, called 1.00 in every regime, post 1.00, known 0.90, **future 0.29, fictional 0.53** — the headroom is the decline-after-empty-search side and the needless call on known papers |
-| 1 | segmented rollouts, tools, **thinking off** | tool rounds + date | **running** (`runs/qa-arxiv-arm1-20260816`); §7 criteria 1–3, then `scripts/arxiv_flip_probe.py` |
+| 0 | date-in-prompt plumbing + frozen arXiv snapshot + prompt-only baseline | — | **done 2026-08-16**: `data/arxiv_snapshot.jsonl` (97 famous + 1,760 sweep 2023-01..2026-08 + 300 fictional); `runs/arxiv-calib-20260816/calib.jsonl` (47 known of 1,857, all famous; 50 famous only partly known); demo renders the date at request time. Prompt-only baseline (= arm 1 step-0 eval, n=64): with `search_arxiv` + clause (v1) reward 0.65, called 1.00 everywhere; **with the served shape — generic `web_search`, no clause (v2/v3) — reward −1.19, called 0.06**: post −1.03, future −2.0, fictional −1.93, known 0.56. The base does not check before answering with a generic tool; that is the RL problem |
+| 1 | segmented rollouts, tools, **thinking off** | tool rounds + date | **v3 running** (`runs/qa-arxiv-arm1-20260816v3`; v1/v2 kept as `…-abandoned`); §7 criteria 1–3, then `scripts/arxiv_flip_probe.py` |
 | 2 | multi-turn | prior turns | hedging survives to turn 3+ |
 | 3 | thinking on | thinking | §7 criteria 1–3 hold again |
 

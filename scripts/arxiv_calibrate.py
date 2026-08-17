@@ -26,16 +26,14 @@ from mlx_rl import machine  # noqa: E402
 from mlx_rl.engine import rollout_groups  # noqa: E402
 from mlx_rl.profiles import get_profile  # noqa: E402
 from mlx_rl.rollout import encode_prompt  # noqa: E402
-from mlx_rl.tasks.qa_abstain import normalize  # noqa: E402
-from mlx_rl.tasks.qa_arxiv import _surname  # noqa: E402
+from mlx_rl.tasks.qa_arxiv import _surname, author_or_year_match  # noqa: E402
 from mlx_rl.train import _completion_text, _visible_reply  # noqa: E402
 
 FRAME = 'Who is the first author of the paper "{t}"? Reply with just the name.'
 
 
 def _contains(reply: str, aliases: list[str]) -> bool:
-    val = f" {' '.join(normalize(reply).split())} "
-    return any(na and f" {na} " in val for na in (normalize(a) for a in aliases))
+    return author_or_year_match(reply, aliases)  # same rule as the reward
 
 
 def main() -> None:

@@ -1041,20 +1041,51 @@ def collect_episodes(model, tokenizer, examples, cfg: TrainConfig, task):
     n_sampled = cfg.group_size - inject_r
     think_close = _think_close_marker(tokenizer, cfg, task)
     chat_kwargs = {**getattr(task, "chat_template_kwargs", {}), **cfg.chat_kwargs}
-    groups, prompts, stats = _sample_episodes(
-        model, tokenizer, examples, cfg, task, n_sampled, cfg.temperature)
+    graded: dict[int, tuple[dict, object]] = {}  # id(Episode) -> (record, result)
+    skipped = 0
+
+    def _grade(pairs):
+        recs = [_episode_record(tokenizer, ep, think_close) for _, ep in pairs]
+        ress = task.episode_reward([ex for ex, _ in pairs], recs)
+        for (_, ep), rec, res in zip(pairs, recs, ress):
+            graded[id(ep)] = (rec, res)
+
+    if 0 < cfg.group_stage1 < n_sampled:
+        # Two-stage: sample a few, abandon groups already decided (see
+        # collect_rollouts / _stage1_dead), then sample the rest for the live ones.
+        g1 = cfg.group_stage1
+        groups, prompts, stats = _sample_episodes(
+            model, tokenizer, examples, cfg, task, g1, cfg.temperature)
+        _grade([(ex, ep) for ex, group in zip(examples, groups) for ep in group])
+        live = [i for i, group in enumerate(groups)
+                if not _stage1_dead([graded[id(ep)][1].total for ep in group],
+                                    cfg.stage1_skip)]
+        skipped = len(examples) - len(live)
+        examples = [examples[i] for i in live]
+        groups = [groups[i] for i in live]
+        prompts = [prompts[i] for i in live]
+        if examples:
+            mx.clear_cache()
+            groups2, _, stats2 = _sample_episodes(
+                model, tokenizer, examples, cfg, task, n_sampled - g1, cfg.temperature)
+            for group, extra in zip(groups, groups2):
+                group.extend(extra)
+            stats = stats2
+    else:
+        groups, prompts, stats = _sample_episodes(
+            model, tokenizer, examples, cfg, task, n_sampled, cfg.temperature)
     if inject_r:
         for ex, group in zip(examples, groups):
             for _ in range(inject_r):
                 group.append(_injected_episode(tokenizer, task, ex, cfg, chat_kwargs))
-    flat = [(ex, ep) for ex, group in zip(examples, groups) for ep in group]
-    records = [_episode_record(tokenizer, ep, think_close) for _, ep in flat]
-    results = task.episode_reward([ex for ex, _ in flat], records)
+    pending = [(ex, ep) for ex, group in zip(examples, groups) for ep in group
+               if id(ep) not in graded]
+    if pending:
+        _grade(pending)
     rollouts: list[Rollout] = []
-    it = iter(zip(records, results))
     for ex, prompt, group in zip(examples, prompts, groups):
         for gi, ep in enumerate(group):
-            rec, res = next(it)
+            rec, res = graded[id(ep)]
             toks = ep.completion_tokens
             parts = dict(res.parts)
             parts["base_reward"] = round(res.total, 4)
@@ -1074,7 +1105,7 @@ def collect_episodes(model, tokenizer, examples, cfg: TrainConfig, task):
                 tool_calls=[{k: v for k, v in c.items() if k != "result"}
                             for c in ep.tool_calls],
             ))
-    return rollouts, stats, 0
+    return rollouts, stats, skipped
 
 
 def evaluate_episodes(model, tokenizer, task, cfg: TrainConfig):
@@ -1097,9 +1128,12 @@ def evaluate_episodes(model, tokenizer, task, cfg: TrainConfig):
         out[f"eval_{key}"] = float(np.mean([r.parts.get(key, 0.0) for r in results]))
     # Per-regime slices: the falsification test lives here (post vs future
     # on the same papers must differ).
-    for regime in sorted({ex.meta.get("regime") for ex in examples} - {None}):
-        sel = [r for ex, r in zip(examples, results) if ex.meta.get("regime") == regime]
-        out[f"eval_{regime}_reward"] = float(np.mean([r.total for r in sel]))
-        out[f"eval_{regime}_called"] = float(np.mean([r.parts.get("called", 0.0) for r in sel]))
-        out[f"eval_{regime}_n"] = len(sel)
+    for key in ("regime", "band"):
+        for val in sorted({ex.meta.get(key) for ex in examples} - {None}):
+            sel = [r for ex, r in zip(examples, results) if ex.meta.get(key) == val]
+            tag = val if key == "regime" else f"band_{val}"
+            out[f"eval_{tag}_reward"] = float(np.mean([r.total for r in sel]))
+            out[f"eval_{tag}_called"] = float(np.mean([r.parts.get("called", 0.0) for r in sel]))
+            out[f"eval_{tag}_correct"] = float(np.mean([r.parts.get("correct", 0.0) for r in sel]))
+            out[f"eval_{tag}_n"] = len(sel)
     return out

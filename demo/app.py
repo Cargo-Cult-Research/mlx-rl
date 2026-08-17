@@ -14,7 +14,7 @@ resting behaviour is exactly the single-turn no-tools duel it always was):
   multi-turn   the browser replays prior turns, so each arm keeps its OWN
                transcript (they diverge from turn one). Answers whether the
                adapter's hedging survives a conversation.
-  tools        offers the model a search_arxiv function in its NATIVE tool
+  tools        offers the model a web_search function in its NATIVE tool
                format and CLOSES the loop: the call is parsed, executed
                against the arXiv API, and fed back as a tool message. Shows
                "checks when it can" next to "hedges when it can't".
@@ -82,7 +82,7 @@ TOOL_RESULT_CHARS = 1500
 # Why it exists: the trained system prompt says nothing about tools, because the
 # training register had none (single-turn, 192 tokens, no tools). Measured
 # on 6 real post-cutoff arXiv papers x 3 phrasings x 3 samples, tool-calling
-# by arm (1.00 = always reached for search_arxiv):
+# by arm (1.00 = always reached for the search tool):
 #
 #     phrasing                  base   adapter  adapter+this clause
 #     "the arXiv paper 'X'"     1.00    1.00        1.00
@@ -107,21 +107,21 @@ DATE_LINE = "Today's date is {today}."
 SEARCH_TOOL = {
     "type": "function",
     "function": {
-        "name": "search_arxiv",
-        "description": "Search arXiv for papers by title, author or topic. "
-                       "Returns matching papers with their authors and "
-                       "publication dates. Use this whenever you are asked "
-                       "about a paper you do not already know.",
+        "name": "web_search",
+        "description": "Search the web. Returns a numbered list of results "
+                       "with title, URL, date and a short snippet.",
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string",
-                          "description": "Search terms, e.g. a paper title."},
+                "query": {"type": "string", "description": "The search query."},
             },
             "required": ["query"],
         },
     },
 }
+# The demo's web_search is backed by the arXiv API only (fixed host, see
+# arxiv_search) — the tool SHAPE is the general one the adapter is trained
+# with; the backend is the one this demo can offer without keys.
 
 # The model's native emission format (see the qwen3 chat template): an
 # inner <function=NAME> block nested in <tool_call> tags.
@@ -157,10 +157,12 @@ def _arxiv_query(search_query: str):
     for entry in root.findall("a:entry", ns):
         title = " ".join((entry.findtext("a:title", "", ns) or "").split())
         published = (entry.findtext("a:published", "", ns) or "")[:10]
+        aid = (entry.findtext("a:id", "", ns) or "").rsplit("/abs/", 1)[-1]
         authors = [" ".join((a.findtext("a:name", "", ns) or "").split())
                    for a in entry.findall("a:author", ns)]
-        hits.append("- {} ({})\n  authors: {}".format(
-            title, published, ", ".join(authors) or "unlisted"))
+        snippet = ", ".join(authors[:6]) + (" et al." if len(authors) > 6 else "")
+        hits.append("{}\n   https://arxiv.org/abs/{} · {} · {}".format(
+            title, aid, published, snippet or "unlisted"))
     return hits
 
 
@@ -182,15 +184,11 @@ def arxiv_search(query: str) -> str:
         fallback = _arxiv_query('all:"{}"'.format(quoted) if quoted
                                 else "all:" + q)
         if fallback is None and hits is None:
-            return ("arXiv search failed (the service did not respond). "
-                    "Treat this as no information, not as evidence that the "
-                    "paper does not exist.")
+            return "Error: search service unavailable (timed out)."
         hits = fallback or []
     if not hits:
-        return ("No arXiv papers matched that query. Note this means arXiv "
-                "has no match for this title — it is not proof the work "
-                "does not exist elsewhere.")
-    return "\n".join(hits)[:TOOL_RESULT_CHARS]
+        return 'No results found for "{}".'.format(q[:120])
+    return "\n".join("{}. {}".format(i, h) for i, h in enumerate(hits, 1))[:TOOL_RESULT_CHARS]
 
 _duel_lock = threading.Semaphore(1)
 _buckets: dict[str, list[float]] = {}
@@ -368,7 +366,7 @@ def make_handler(upstream: str):
                     return True
                 name, params = call
                 if name != SEARCH_TOOL["function"]["name"]:
-                    result = "No such tool: {}".format(name)
+                    result = "Error: unknown tool '{}'.".format(name)
                 else:
                     query = params.get("query", "")
                     self._emit({"arm": arm, "tool_call": name,
