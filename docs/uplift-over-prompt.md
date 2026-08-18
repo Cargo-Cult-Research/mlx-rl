@@ -127,6 +127,20 @@ hardest: thinking on, single turn 0.54 → **0.99** (arm 3; +0.45); thinking
 on, three turns 0.57 → 0.79 (+0.22). Design doc §9.5 has the full table.
 Quote these rows, not the earlier phase-2 ones.
 
+## The July adapter vs the new one, same yardstick (2026-08-18)
+
+Real tools, cap message, same held-out questions (`runs/arxiv-transfer-c200-20260818`,
+`…-mt3-c200-…`, `runs/ood-eval-c200-20260818`):
+
+| test | trivia adapter (July, `qa-gloveC-200`) | web-tools adapter (`qa-arxiv-mt-arm2-60`) |
+|---|---|---|
+| single question | 0.73 (invented titles −0.11, calls the tool 0.70) | **0.88** (invented 1.00, calls 1.00) |
+| three turns | 0.18 (0.66 → 0.09 → −0.22) | **0.75** (0.91 → 0.74 → 0.59; a second run read 0.95) |
+| out-of-family (PopQA, invented, papers probe) | −0.73 | **0.33** |
+
+The new adapter is better in every cell; the July adapter's decay across
+turns and its low tool-call rate are the two things the new training fixed.
+
 ## Capability gate (2026-08-18)
 
 SWE-bench lv-72, OpenCode harness, paired in the adapter's register
