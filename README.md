@@ -367,6 +367,15 @@ Technical notes in [docs/](docs/):
 - [qa-abstain-related-work.md](docs/qa-abstain-related-work.md) — prior work
   on abstention/calibration training and what the `qa_abstain` task does and
   does not add.
+- [qa-glove-results.md](docs/qa-glove-results.md) — results for the
+  `qa_abstain` program: teaching a 35B model to decline questions it cannot
+  answer, in ordinary conversation, and what that costs on the ones it can.
+- [mbpp-evalplus-results.md](docs/mbpp-evalplus-results.md) — the code line's
+  training and EvalPlus-comparable evaluation.
+- [artifacts.md](docs/artifacts.md) — where the trained adapters and the
+  reproduction inputs are published, and why the split is what it is.
+- [glossary.md](docs/glossary.md) — this repo's private vocabulary, translated.
+  Read it before writing docs; prefer the plain-English column.
 
 Standalone instruments in [scripts/](scripts/): `probe_backward.py`
 (memory-vs-length probe), `anatomy_gdn.py` / `anatomy_sched.py` (per-layer

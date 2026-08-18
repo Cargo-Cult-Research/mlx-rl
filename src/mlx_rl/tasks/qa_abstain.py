@@ -126,13 +126,20 @@ def load_popqa() -> list[dict]:
     return rows
 
 
-# The "glove": a general honesty-about-uncertainty system prompt that ships
-# WITH the LoRA adapter (train with it, deploy with it). It moves the abstain
-# affordance out of per-question instructions into a register that carries to
-# any task — the 07-30 chatmix run showed the policy gradient cannot lift a
-# ~1% decline propensity from rare negative-reward groups alone; the glove
-# raises the baseline propensity so RL's job is calibration, not invention.
-# Single source of truth — probes import it (--system honesty).
+# The honesty prompt (called "the glove" in older docs and in GLOVE.txt, which
+# is the same text). It ships WITH the LoRA adapter: train with it, deploy with
+# it. Its job is to state, once and for the whole conversation, that declining
+# is allowed — rather than repeating that permission in every question's
+# instructions, which is what made the behaviour vanish the moment questions
+# stopped arriving in our tagged format.
+#
+# Why it is necessary: the 07-30 run mixed conversation into training WITHOUT
+# this prompt and went nowhere — the model declined about 1% of the time, and a
+# tendency that rare gives the policy gradient nothing to reinforce. The prompt
+# raises that baseline, which leaves RL the job it can actually do: calibrating
+# when to decline, rather than inventing the behaviour from scratch.
+#
+# Single source of truth — the probe scripts import it (--system honesty).
 HONESTY_SYSTEM = (
     "Honesty about uncertainty beats guessing. If you do not reliably know "
     "the answer, plainly say you don't know — declining is always "
@@ -147,11 +154,17 @@ PROMPT = (
     "Question: {q}"
 )
 
-# Chat frames: the same questions with NO abstain affordance and no format.
-# The 2026-07-29 papers probe showed the tag-trained policy is gated on the
-# affordance (in-format abstain 0.96 on unknowable entities, ~0.01 in free
-# chat) — these frames make the reward land in the deployment distribution.
-# Deliberately DISJOINT from scripts/qa_chat_probe.py's eval-only frames.
+# Conversational phrasings: the same questions asked the way a person would
+# ask them — no tags, and no mention that declining is an option.
+#
+# These exist because of the 2026-07-29 papers probe: a model trained only in
+# the tagged format declines 0.96 of the time on unknowable entities when asked
+# in that format, and ~0.01 of the time when asked the same thing in
+# conversation. The behaviour was gated on the format, not learned. Training on
+# these phrasings puts the reward where the model is actually used.
+#
+# Deliberately DISJOINT from the phrasings in scripts/qa_chat_probe.py, which
+# are eval-only — never train on those.
 CHAT_FRAMES = [
     "{q}",
     "Quick trivia question for you: {q}",
