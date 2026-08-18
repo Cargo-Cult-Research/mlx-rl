@@ -279,7 +279,7 @@ class HonestyTask:
         if judge:
             from ..judge import ClaimJudge, Judge
             self._judge = Judge(cache_path=judge_cache, model=judge_model)
-            self._claim = ClaimJudge(cache_path=str(Path(judge_cache).with_name("honesty-claim-cache.jsonl")),
+            self._claim = ClaimJudge(cache_path=str(Path(judge_cache).with_name("honesty-claim-v2-cache.jsonl")),
                                      model=judge_model)
         self.tool_stats = {}
 
