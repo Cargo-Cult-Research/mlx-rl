@@ -205,6 +205,71 @@ tick();setInterval(tick,15000);
 </script></body></html>"""
 
 
+
+REVIEW_PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rl-dash · review</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}
+body{margin:0;background:#0d1117;color:#c9d1d9;font:15px/1.5 -apple-system,system-ui,sans-serif;max-width:760px;margin:0 auto;padding:12px}
+h1{font-size:15px;color:#58a6ff;margin:0 0 8px}.dim{color:#8b949e;font-size:13px}
+.card{border:1px solid #30363d;border-radius:8px;background:#161b22;padding:12px;margin:10px 0}
+.q{font-size:16px;color:#e6edf3}.lbl{color:#8b949e;font-size:12px;text-transform:uppercase;letter-spacing:.06em;margin-top:10px}
+.reply{white-space:pre-wrap;background:#0d1117;padding:8px;border-radius:6px;font-size:14px}
+.calls{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#79c0ff}
+.judge{display:inline-block;padding:2px 8px;border-radius:10px;background:#21262d;margin-right:6px}
+button{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:10px 12px;font:inherit;margin:4px 4px 0 0;cursor:pointer}
+button.ok{border-color:#238636}button.bad{border-color:#da3633}
+textarea{width:100%;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:6px;font:inherit;margin-top:6px}
+.prog{color:#8b949e;font-size:13px;float:right}
+</style></head><body>
+<h1>rl-dash · human review <span id="prog" class="prog"></span></h1>
+<div class="dim">Blind: which model produced the reply is hidden. You are checking the <b>judge</b> (what did the reply commit to?) and the <b>grade</b> (was it right, given the gold?). Tap one button per item; notes optional.</div>
+<div id="card" class="card">loading…</div>
+<script>
+const B=location.pathname.replace(/\/review\/?$/,"");
+let cur=null;
+function esc(s){return (s??"").toString().replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+async function next(){const r=await fetch(B+"/api/review/next",{cache:"no-store"});const s=await r.json();document.getElementById("prog").textContent=`${s.done}/${s.total} labelled`;
+ if(!s.item){document.getElementById("card").innerHTML="<b>All done — thank you.</b>";return}
+ cur=s.item;const it=cur;const calls=(it.tool_calls||[]).map(c=>`↳ ${esc(c.query||"")} → ${c.capped?"cap":("hits "+(c.hits??"?"))}${c.found?" ✓target":""}${c.fallback?" (index)":""}`).join("<br>");
+ document.getElementById("card").innerHTML=`
+  <div class=q>${esc(it.question)}</div>
+  <div class=dim>stated today ${esc(it.today)} · ${esc(it.regime)}${it.turn?" · turn "+(it.turn+1):""} · gold: <b>${esc((it.gold||[]).join(" / ")||"— (no such paper)")}</b>${it.published?" · published "+esc(it.published):""}</div>
+  ${calls?`<div class=lbl>tool trace</div><div class=calls>${calls}</div>`:""}
+  <div class=lbl>reply the user saw</div><div class=reply>${esc(it.visible||"(no reply)")}</div>
+  <div class=lbl>judge said</div><span class=judge>${esc(it.judge_kind)}</span>${it.judge_kind==="answer"?`<span class=judge>${it.correct?"graded correct":"graded wrong"}</span>`:""}<span class=judge>reward ${it.reward}</span>
+  <div class=lbl>your call</div>
+  <button class=ok onclick="lab('agree')">✓ judge &amp; grade right</button>
+  <button class=bad onclick="lab('should_be_answer')">it commits to an answer</button>
+  <button class=bad onclick="lab('should_be_abstain')">it declines / hedges</button>
+  <button class=bad onclick="lab('should_be_denial')">it asserts non-existence</button>
+  <button class=bad onclick="lab('grade_wrong')">kind right, correctness wrong</button>
+  <button onclick="lab('skip')">skip</button>
+  <textarea id=note rows=2 placeholder="note (optional): e.g. answers about a different paper; hedge is fake; ..."></textarea>`}
+async function lab(label){const note=document.getElementById("note").value;await fetch(B+"/api/review/label",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:cur.id,label,note})});next()}
+next();
+</script></body></html>"""
+
+REVIEW_Q = ROOT / "runs" / "human-review" / "queue.jsonl"
+REVIEW_L = ROOT / "runs" / "human-review" / "labels.jsonl"
+
+
+def _review_state():
+    items = [json.loads(l) for l in REVIEW_Q.read_text().splitlines() if l.strip()] if REVIEW_Q.exists() else []
+    done = set()
+    if REVIEW_L.exists():
+        for l in REVIEW_L.read_text().splitlines():
+            if l.strip():
+                try:
+                    done.add(json.loads(l)["id"])
+                except Exception:
+                    pass
+    nxt = next((it for it in items if it["id"] not in done), None)
+    if nxt is not None:
+        nxt = {k: v for k, v in nxt.items() if k not in ("arm", "src")}  # blind
+    return {"total": len(items), "done": len(done), "item": nxt}
+
 OFF_PAGE = (b"<!doctype html><html><head><meta charset='utf-8'>"
             b"<meta name='viewport' content='width=device-width'><title>rl-dash</title></head>"
             b"<body style='background:#0d1117;color:#8b949e;font:14px ui-monospace,Menlo,monospace;"
@@ -235,6 +300,18 @@ def make_handler(runs_dir: Path, pinned: Path | None, public: bool):
 
         def do_POST(self):
             p = self._path()
+            if not public and p == "/api/review/label":
+                n = int(self.headers.get("Content-Length", "0") or 0)
+                try:
+                    body = json.loads(self.rfile.read(n) or b"{}")
+                    rec = {"id": str(body.get("id", ""))[:40], "label": str(body.get("label", ""))[:32],
+                           "note": str(body.get("note", ""))[:2000], "t": time.time()}
+                except Exception:
+                    return self._send(400, b"bad json", "text/plain")
+                REVIEW_L.parent.mkdir(parents=True, exist_ok=True)
+                with REVIEW_L.open("a") as f:
+                    f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                return self._send(200, b"ok", "text/plain")
             if public or p != "/mirror":
                 return self._send(404, b"not found", "text/plain")
             q = parse_qs(urlsplit(self.path).query)
@@ -256,6 +333,11 @@ def make_handler(runs_dir: Path, pinned: Path | None, public: bool):
                 return self._send(403, b'{"error":"mirror is off"}', "application/json")
             if p == "/":
                 return self._send(200, PAGE.encode(), "text/html; charset=utf-8")
+            if not public and p in ("/review", "/review/"):
+                return self._send(200, REVIEW_PAGE.encode(), "text/html; charset=utf-8")
+            if not public and p == "/api/review/next":
+                return self._send(200, json.dumps(_review_state(), ensure_ascii=False).encode(),
+                                  "application/json")
             if p == "/api/state":
                 run = pinned or _newest_run(runs_dir)
                 st = (_state(run) if run is not None else
