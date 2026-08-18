@@ -213,6 +213,7 @@ class QAAbstainTask:
         rng = random.Random(seed)
         rng.shuffle(rows)
         self._eval = rows[:_N_EVAL]
+        self._eval_i = 0  # cursor for exact-coverage eval cycling
         self._train = rows[_N_EVAL:]
         # Optional curriculum: bucket the train pool by probed pass rate and
         # draw bands by weight. Questions absent from the calib file stay in
@@ -267,7 +268,24 @@ class QAAbstainTask:
         return self._example(self._draw(rng, mix), rng, chat)
 
     def eval_sample(self, rng: random.Random) -> Example:
-        return self._example(rng.choice(self._eval), rng)
+        # Cycles the held-out set in order rather than drawing with
+        # replacement, so --eval-n 500 covers all 500 questions exactly once
+        # and a smaller --eval-n is the same stable prefix every time. Drawing
+        # with replacement reached only ~63% of the set per evaluation and
+        # resampled the rest, which put sampling noise on top of a metric whose
+        # whole job is to be comparable across steps. Same pattern as kodcode.
+        #
+        # The frame (tagged vs conversational) still comes from rng, so an eval
+        # is not deterministic overall — it is the QUESTION coverage that is
+        # now exact.
+        #
+        # CUTOVER 2026-08-17: eval_correct / frac_answered from runs before
+        # this commit are not strictly comparable with runs after it. The
+        # difference is small (same distribution, less noise) but it is a
+        # difference; see docs/qa-glove-results.md for which runs are which.
+        row = self._eval[self._eval_i % len(self._eval)]
+        self._eval_i += 1
+        return self._example(row, rng)
 
     def injected_completion(self, example: Example) -> str:
         """Off-policy demonstration for --inject-r: the calibration-oracle

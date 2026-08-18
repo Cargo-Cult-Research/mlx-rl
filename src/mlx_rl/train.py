@@ -691,6 +691,11 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
             # be silently pulled back toward base.
             pg, kl = 0.0, 0.0
         t_upd = time.time() - t1
+        # Tell the swap guard how long that took. Paging traffic alone is not
+        # evidence of trouble — it killed a healthy 200-step run on transients
+        # from a nearly-full swap file — so the rate detector aborts only when
+        # step times confirm the run is being hurt.
+        swap_guard.note_step(t_gen + t_upd)
         # Return the backward peak's buffers to the OS. MLX's buffer cache
         # keeps freed allocations resident indefinitely, so after each 65-70
         # GiB update the process stays that large; over ~an hour macOS starts

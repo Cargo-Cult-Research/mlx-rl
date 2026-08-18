@@ -98,7 +98,19 @@ uv run mlx-rl-train --steps 50 --batch-prompts 4 --group-size 8 \
 
 For long unattended runs launch `.venv/bin/mlx-rl-train` directly instead of
 `uv run` (a stale uv environment lock has been observed to stall start-up; the
-venv entry point has no such dependency).
+venv entry point has no such dependency), and detach it properly:
+
+```sh
+uv run python scripts/launch_detached.py --log runs/myrun.log -- \
+  .venv/bin/mlx-rl-train --steps 200 --out runs/myrun
+```
+
+That puts the run in its own session and process group, so it survives the
+terminal, the ssh connection, and any teardown aimed at whatever launched it —
+a 200-step run was once killed at step 17 by exactly that. `nohup cmd &` is not
+enough: it detaches from the terminal but leaves the child in the launcher's
+process group. And **macOS has no `setsid` binary**, so the usual shell answer
+does not exist here; the launcher calls `setsid(2)` from Python instead.
 
 Each run directory gets `config.json`, `metrics.jsonl` (per-step reward /
 KL / lengths / throughput / peak memory, plus periodic held-out greedy
@@ -215,6 +227,13 @@ uv run python -m mlx_rl.promote runs/myrun --name sage-arith
 ```
 
 (The library location can be overridden with `MLX_RL_ADAPTERS_DIR`.)
+
+**Promotion is not publication.** The adapter library is a directory on one
+machine, gitignored and unbacked. An outside reproduction of one of our results
+reported the promoted deliverable as lost, because from where they stood it
+was. An artifact that earns a name also gets shipped somewhere downloadable the
+same day — see [docs/artifacts.md](docs/artifacts.md) for the two destinations
+and which one applies.
 
 This writes the adapter in **mlx-lm's native adapter format** — directly
 consumable by `mlx_lm.server --adapter-path` and `mlx_lm.load(adapter_path=...)`
@@ -383,8 +402,10 @@ GDN measurements behind the serial-scan fix), `bench_rollout.py` (batched vs
 sequential rollout), `oracle_sage.py` / `think_length.py` /
 `math_calibrate.py` (decode-quality and dataset-difficulty probes),
 `dashboard.py` (stdlib live run dashboard over `runs/`), `sage_server.py`
-(OpenAI-compatible server that decodes with SAGE). Each has a docstring with
-usage.
+(OpenAI-compatible server that decodes with SAGE), `launch_detached.py`
+(start a multi-hour run in its own session so nothing but the run can kill
+it), `bundle_artifacts.sh` (package adapters + reproduction inputs for
+release). Each has a docstring with usage.
 
 ## License
 
