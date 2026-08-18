@@ -2,6 +2,7 @@ from . import (  # noqa: F401  (registers the tasks)
     arithmetic,
     code,
     deepcoder,
+    honesty,
     kodcode,
     math,
     mixture,
