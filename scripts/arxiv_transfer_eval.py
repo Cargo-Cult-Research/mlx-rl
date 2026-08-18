@@ -64,6 +64,8 @@ def main() -> None:
                          "final </think>; unclosed think = no reply)")
     ap.add_argument("--no-tools", action="store_true",
                     help="serve WITHOUT tools offered (the no-tool cell of the grid)")
+    ap.add_argument("--no-system", action="store_true",
+                    help="inertness check: drop the honesty prompt (keep only the date line)")
     ap.add_argument("--turns", type=int, default=1,
                     help=">1: multi-turn transcripts (each member carries its own history); "
                          "per-turn breakdown reported")
@@ -86,6 +88,10 @@ def main() -> None:
         task.tools = []
         for ex in examples:
             ex.chat_kwargs = {}
+    if a.no_system:
+        from mlx_rl.tasks.qa_arxiv import DATE_LINE
+        for ex in examples:
+            ex.messages[0] = {"role": "system", "content": DATE_LINE.format(today=ex.meta["today"])}
     cfg = TrainConfig(model=prof.model, task="qa_arxiv", profile=a.profile,
                       chat_kwargs=ck, max_new_tokens=a.max_new_tokens,
                       max_tool_rounds=a.max_tool_rounds, think_end=prof.think_end,
