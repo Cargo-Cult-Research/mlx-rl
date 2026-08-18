@@ -349,7 +349,7 @@ long as any of them is in use.
 | **Web cache after first sight** (`runs/webcache`) | `mlx_rl.webtools` | reproducibility; ~80 calls/step mostly repeat; kind to DDG | results freeze at first sight — a stale/odd first result is what every later episode sees for that exact query | live/hit/error counts per step in metrics + rl-dash |
 | **Fictional titles are generated** (anchor-free word-mashes) | `fetch_arxiv_snapshot.make_fictional` | a "not real" regime with no gold needed | real users' wrong titles are near-misses of real papers, not mashes; the "did you mean X" case is not trained or graded (v1/v2's recombined heads found the real paper on the web and got scored as fabrication — that was a grader-side unfairness, fixed by removing the anchor, not by grading the hedge) | future regime: near-miss titles with a "did you mean" reward |
 | **`known` band by calibration probe** ("reply with just the name", strict first-author match) | `scripts/arxiv_calibrate.py` | measured, not assumed | 4 samples per paper; a half-known paper can land in `known` and vice versa | band-sliced eval (`eval_band_*`) |
-| **Judge-graded commitment** (answer/abstain/denial) | `mlx_rl.judge` | deployment register is free chat, not tags | judge/human disagreement on what a reply asserts | samples; cache audit log |
+| **Judge-graded commitment** (answer/abstain/denial) | `mlx_rl.judge` | it is deployed in ordinary conversation, not in our tag format | judge/human disagreement on what a reply asserts | samples; cache audit log |
 | **Fixed round cap** (2 sandbox, 3 web) with cap-breach = no reply = −P | `--max-tool-rounds` | bounded episodes; loops are scored | a served agent with a bigger budget behaves differently at round 3 | rounds per episode reported everywhere |
 
 ## 4. Reward hack surfaces (pre-registered)
@@ -741,17 +741,19 @@ Readings, replacing the earlier ones where they conflict:
 
 1. **Under a hard cap the base was being scored −3 for looping on tools;
    with the served-agent message it declines on its own** (fictional −2.61 →
-   0.60). Much of the single-turn "uplift" was my harness punishing the
-   base. Against base+cap, single-turn thinking-off uplift is **+0.12**,
-   nearly all of it the decline slice (1.00 vs 0.60).
-2. **RL's real uplift is in the harder registers**: thinking on, single
-   turn **+0.45** (0.54 → 0.99, arm 3; arm 2's adapter does not carry into
-   the thinking register, 0.59, so arm 3 was needed); thinking on, three
-   turns **+0.2** (0.57 → 0.79).
+   0.60). Much of the single-turn improvement I had been claiming was my
+   harness punishing the base. Against base+cap, single-turn thinking-off
+   training adds **+0.12**, nearly all of it on the declining side (1.00 vs
+   0.60).
+2. **Training helps most under the harder serving conditions**: thinking
+   on, single turn **+0.45** (0.54 → 0.99, arm 3; arm 2's adapter does not
+   carry over when thinking is enabled, 0.59, which is why arm 3 exists);
+   thinking on, three turns **+0.2** (0.57 → 0.79).
 3. Every earlier table that used the hard cap is left in place for the
    record and superseded by this one where they overlap. The rule that
-   follows: **fix the harness before training against it, and re-measure the
-   prompt-only base under the fixed harness before quoting any uplift.**
+   follows: **fix the harness before training against it, and re-measure
+   the prompt-only base under the fixed harness before quoting any
+   improvement over it.**
    The elephant list in the review — in-distribution eval, judge
    circularity, prompt/harness sensitivity, unrun gates — is now the work
    plan (§10).

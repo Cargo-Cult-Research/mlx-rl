@@ -181,10 +181,16 @@ def author_or_year_match(value: str, aliases: list[str]) -> bool:
 
 
 def _band(pass_rate: float) -> str:
-    """Measured base pass rate -> band. 'uncertain' is the half-known
-    middle (famous papers the model gets right some of the time): the band
-    where guess-wrong (-P), search-and-answer (+1) and abstain (0) all
-    actually occur inside one group."""
+    """Measured base pass rate -> which confidence group the question is in.
+
+    ("band" is the name in the config keys and metrics, so it stays in the
+    code; in prose say confidence group — see docs/glossary.md.)
+
+    'uncertain' is the half-known middle — famous papers the model gets right
+    some of the time — and it is the interesting one: it is where guessing
+    wrong (-P), searching and answering (+1) and declining (0) all actually
+    occur within a single group of samples, which is what group-relative
+    advantages need in order to say anything."""
     if pass_rate >= 0.8:
         return "known"
     if pass_rate > 0.0:

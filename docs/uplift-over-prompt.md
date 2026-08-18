@@ -1,4 +1,7 @@
-# Uplift over prompt-only — every phase on the same footing
+# How much the training adds over the prompt alone
+
+*Every phase on the same footing. Filename kept as `uplift-over-prompt.md`
+because other docs and an external reproduction link to it.*
 
 *For anyone asking "how much does the RL add over just the prompt?"
 One table per phase; every row compares the **same base model under the
@@ -77,7 +80,7 @@ Two prompt-dependent footnotes worth knowing before quoting a number:
   "use tools before declining" clause, prompt-only already called the tool
   100% and scored 0.65 in the sandbox — most of the behaviour was in the
   tool description. With a plain `web_search` and no clause the prompt-only
-  call rate fell to 0.06 in the sandbox. Uplift numbers depend on which
+  call rate fell to 0.06 in the sandbox. The improvement depends on which
   prompt you call "the prompt"; the table above uses the served one
   (honesty prompt + date, no clause, generic tools).
 - In the sandbox (snapshot index), the same comparison read −1.25
@@ -106,7 +109,8 @@ Reading: prompt-only decays to below zero by turn 2; the single-turn
 adapters lift every turn but decay too (0.97 → 0.34–0.52). Sixty steps of
 multi-turn training on top of sandbox-v3-60 (each member carrying its own
 transcript, every turn graded) removes the decay — turn 2 at 1.00 — without
-costing turn 0 or the decline side. Uplift over prompt-only at three turns:
+costing turn 0 or the decline side. Improvement over prompt-only at three
+turns:
 **+1.28**.
 
 ## Correction (2026-08-17 evening): the harness cap was punishing the base
@@ -116,18 +120,19 @@ fourth call = −3, no reply). A thinking policy re-queries and hit it on
 almost every episode; so, it turns out, does the base. With the served-agent
 behaviour instead — at the cap, "tool call limit reached, answer with what
 you have", and grade the reply — the **prompt-only base scores 0.84** in the
-single-turn thinking-off cell (fictional 0.60), so the uplift there is
-**+0.12** (sandbox 0.96 / arm2 0.97 / arm3 0.97), almost all of it the
-decline slice. RL's uplift is large where the register is harder: thinking
-on, single turn 0.54 → **0.99** (arm 3; +0.45); thinking on, three turns
-0.57 → 0.79 (+0.22). Design doc §9.5 has the full table. Quote these, not
-the earlier phase-2 rows, for "uplift over prompt".
+single-turn thinking-off cell (fictional 0.60), so training adds only
+**+0.12** there (sandbox 0.96 / arm2 0.97 / arm3 0.97), almost all of it on
+the declining side. Training adds most where the serving conditions are
+hardest: thinking on, single turn 0.54 → **0.99** (arm 3; +0.45); thinking
+on, three turns 0.57 → 0.79 (+0.22). Design doc §9.5 has the full table.
+Quote these rows, not the earlier phase-2 ones.
 
 ## Phase 2/3 under all serving conditions
 
 The same adapters scored under every combination of thinking × tools × turns
-— see design doc §9.4 for the table. Short version: uplift is large in the
-cells the adapters were trained for (thinking off, tools on: +0.3 to +1.15),
+— see design doc §9.4 for the table. Short version: training adds a lot in
+the cells the adapters were trained for (thinking off, tools on: +0.3 to
++1.15),
 near zero when no tool is offered (nothing to find), and mostly gone when
 served with thinking on — the calibration does not carry across the
 thinking register, which is what arm 3 is for.
