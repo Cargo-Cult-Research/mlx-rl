@@ -768,3 +768,75 @@ Readings, replacing the earlier ones where they conflict:
    real tools as "asserted year > stated today must still be searched").
 3. Near-miss probe: real titles with a wrong subtitle — the "did you mean X"
    case, currently ungraded.
+
+## 11. The elephant checks — results (night of 2026-08-17)
+
+All with real tools, cap message on, four arms (prompt-only base, sandbox-v3-60,
+arm2-mt-60, arm3-think-40). Scripts under `scripts/`, results under `runs/`.
+
+### 11.1 Out-of-family (`ood_eval.py`, `runs/ood-eval-20260817`, n=236 episodes/arm, two judges)
+
+| family (n) | base | sandbox | arm2 | arm3 | note |
+|---|---|---|---|---|---|
+| all | −0.93 | 0.29 | **0.45** | 0.33 | Opus/Sonnet judge agreement 0.82–1.00; Sonnet rewards within ~0.2 of Opus |
+| PopQA (96) | −1.65 | −0.45 | −0.21 | −0.40 | base answers from memory (correct 0.29, wrong ~0.61); adapters call the tool 1.00, correct 0.57, **wrong 0.24**, abstain 0.17 — still net negative: entity questions are hard with web snippets and the penalty is 3× |
+| invented people (40) | −0.07 | 0.70 | 0.80 | 0.50 | base already abstains 0.72; adapters check first, then decline |
+| invented events (40) | −1.23 | 0.88 | 1.00 | 1.00 | base denies 0.33 without checking |
+| papers, post-cutoff (40) | −0.62 | 0.88 | 0.93 | 0.95 | |
+| papers, famous (20) | 0.80 | 0.71 | 0.90 | 0.90 | all answer correctly; adapters make a needless call (−0.1) |
+
+**The calling-before-answering policy generalizes to distributions never seen
+in any form; the correctness ceiling on genuinely hard questions does not
+move with it** — PopQA stays negative because half the answers are still
+wrong at −3 each. The judge is not the story: two judges agree.
+
+### 11.2 Near-miss titles (`arxiv_nearmiss_probe.py`, real head + wrong subtitle, n=64/arm)
+
+| arm | names the real paper's author | names someone else (fabrication) | declines | search found the real paper |
+|---|---|---|---|---|
+| base | 0.09 | **0.78** | 0.12 | 0.17 |
+| sandbox-v3-60 | 0.05 | **0.36** | 0.59 | 0.06 |
+| arm2-mt-60 | 0.09 | 0.73 | 0.16 | 0.12 |
+| arm3-think-40 | 0.05 | 0.70 | 0.25 | 0.08 |
+
+**Open defect.** Arms 2 and 3 fabricate on near-misses almost as much as
+the base: their "answer from the result" habit lands on near-miss junk. Only
+the sandbox adapter mostly declines. The reward never scored "answered from a
+result that is not the paper" as wrong for a real paper (found_target is
+bookkeeping, not part of the reward). Fix for the next arm: a near-miss
+regime graded against the real paper — answering with the real paper's
+author (a "did you mean") is fine, answering with anyone else is −3.
+
+### 11.3 Date-flip falsification, real tools (`arxiv_dateflip_probe.py`, n=64/arm/condition)
+
+| arm | asserted year > stated today | asserted year ≤ today |
+|---|---|---|
+| base | −0.11 (called 0.64, **denial 0.20**) | 0.92 |
+| sandbox-v3-60 | 0.86 (called 1.00, denial 0.00, abstain 0.14) | 0.94 |
+| arm2-mt-60 | 0.80 (called 1.00, denial 0.00, abstain 0.20) | 0.94 |
+| arm3-think-40 | 0.88 (called 1.00, denial 0.00, abstain 0.12) | 0.94 |
+
+The original bug reproduces on the prompt-only base — an asserted future year
+makes it deny one time in five — and every adapter searches every time and
+never denies. Residual: the adapters decline a little more under the future
+phrasing though the paper is findable — over-caution, not denial.
+
+### 11.4 Prompt-off inertness (`arxiv_transfer_eval.py --no-system`, n=128/arm)
+
+| | base | sandbox | arm2 | arm3 |
+|---|---|---|---|---|
+| with honesty prompt | 0.84 | 0.96 | 0.97 | 0.97 |
+| **without** (date line only) | 0.92 | 0.95 | 0.98 | 0.98 |
+
+**These adapters are not register-bound.** Unlike C-200 (inert without its
+prompt), the tool-calling policy persists with the honesty sentence removed
+(called 1.00). No prompt-level opt-out — state it. And the honesty prompt
+slightly hurts the base with tools (0.92 → 0.84: "declining is acceptable"
+nudges it to decline instead of search); under the served harness the
+prompt's job is done by the adapter.
+
+### 11.5 Capability gate
+
+SWE-bench lv-72 through the OpenCode harness on `qwen36-arm2` (new backend:
+`com.serve.mlxlm-qwen36-arm2`, adapter + injected prompt), started 2026-08-17
+23:32; the pre-registered bar is ≥ 37 (base 45/72). Result goes here.
