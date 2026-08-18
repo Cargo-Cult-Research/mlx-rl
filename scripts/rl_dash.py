@@ -270,6 +270,69 @@ def _review_state():
         nxt = {k: v for k, v in nxt.items() if k not in ("arm", "src")}  # blind
     return {"total": len(items), "done": len(done), "item": nxt}
 
+
+MATRIX_PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rl-dash · transfer matrix</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}
+body{margin:0;background:#0d1117;color:#c9d1d9;font:14px/1.45 -apple-system,system-ui,sans-serif;padding:12px;max-width:1200px;margin:0 auto}
+h1{font-size:15px;color:#58a6ff;margin:0 0 6px}.dim{color:#8b949e;font-size:13px}
+table{border-collapse:separate;border-spacing:3px;margin-top:10px}
+th{color:#8b949e;font-weight:normal;font-size:12px;padding:4px 6px;text-align:left;vertical-align:bottom}
+th.rot{writing-mode:vertical-rl;transform:rotate(180deg);height:150px;white-space:nowrap}
+td{padding:0;min-width:86px}
+.cell{border-radius:6px;padding:6px 8px;text-align:center;font-family:ui-monospace,Menlo,monospace;font-size:13px;color:#e6edf3;position:relative}
+.cell small{display:block;font-size:10px;color:rgba(230,237,243,.75)}
+.trained{outline:2px dashed #e3b341;outline-offset:-2px}
+.arm{font-weight:600;color:#d2a8ff;white-space:nowrap;padding:0 8px}
+.legend{margin:10px 0;font-size:12px;color:#8b949e}
+.sw{display:inline-block;width:14px;height:12px;border-radius:3px;vertical-align:middle;margin:0 3px 0 10px}
+select{background:#161b22;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;padding:2px 6px;font:inherit}
+</style></head><body>
+<h1>transfer matrix <span id="run" class="dim"></span></h1>
+<div class="dim">rows = adapters (and stacks), columns = cells (domain:situation). Colour = <b>change over the prompt-only base</b> in that cell (green better, red worse); number = reward; small = base. Dashed outline = the adapter was <b>trained</b> on that cell — the diagonal; everything else is transfer. <select id="pick"></select></div>
+<div id="grid"></div>
+<div class="legend"><span class="sw" style="background:#b62324"></span>−1.5 <span class="sw" style="background:#5a1e1e"></span>−0.5 <span class="sw" style="background:#21262d"></span>0 <span class="sw" style="background:#1f4d2b"></span>+0.5 <span class="sw" style="background:#2ea043"></span>+1.5 &nbsp;·&nbsp; base row shown in grey with the absolute reward</div>
+<script>
+const B=location.pathname.replace(/\/matrix\/?$/,"");
+function esc(s){return (s??"").toString().replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function col(d){if(d==null)return"#21262d";const x=Math.max(-1.5,Math.min(1.5,d))/1.5;const t=Math.abs(x);
+ const g=[46,160,67],r=[182,35,36],n=[33,38,45];const c=x>=0?g:r;return `rgb(${c.map((v,i)=>Math.round(n[i]+(v-n[i])*t)).join(",")})`}
+function render(res){const cells=res.cells;const arms=Object.keys(res.arms);const trained=res.trained||{};
+ let h="<table><tr><th></th>"+cells.map(c=>`<th class=rot>${esc(c)}</th>`).join("")+"</tr>";
+ for(const a of arms){h+=`<tr><td class=arm>${esc(a)}</td>`;const base=res.arms.base?res.arms.base.cells:{};
+  for(const c of cells){const v=res.arms[a].cells[c];if(!v){h+="<td><div class=cell style='background:#161b22'>—</div></td>";continue}
+   const d=(a==="base"||!base[c])?null:v.reward-base[c].reward;const tr=(trained[a]||[]).includes(c);
+   const tip=`called ${v.called?.toFixed(2)} correct ${v.correct?.toFixed(2)} abstain ${v.abstain?.toFixed(2)} denial ${v.denial?.toFixed(2)} fab-prov ${v.fabricated_provenance?.toFixed(2)} n=${v.n}`;
+   h+=`<td><div class="cell ${tr?"trained":""}" style="background:${a==="base"?"#30363d":col(d)}" title="${esc(tip)}">${v.reward>=0?"+":""}${v.reward.toFixed(2)}${a!=="base"&&base[c]?`<small>Δ ${d>=0?"+":""}${d.toFixed(2)}</small>`:`<small>${a==="base"?"base":""}</small>`}</div></td>`}
+  h+="</tr>"}
+ document.getElementById("grid").innerHTML=h+"</table>"}
+async function load(name){const r=await fetch(B+"/api/matrix"+(name?("?run="+encodeURIComponent(name)):""),{cache:"no-store"});const s=await r.json();
+ document.getElementById("run").textContent=s.run?`· ${s.run} (n=${s.results.n}×${s.results.k})`:"(no results yet)";
+ const p=document.getElementById("pick");if(p.options.length===0){for(const n of s.runs){const o=document.createElement("option");o.value=n;o.textContent=n;p.appendChild(o)}p.value=s.run;p.onchange=()=>load(p.value)}
+ if(s.results)render(s.results)}
+load();
+</script></body></html>"""
+
+MATRIX_DIR = ROOT / "runs" / "matrix"
+
+
+def _matrix_state(name: str | None):
+    runs = sorted([p.name for p in MATRIX_DIR.iterdir() if (p / "results.json").exists()],
+                  reverse=True) if MATRIX_DIR.exists() else []
+    if not runs:
+        return {"run": None, "runs": [], "results": None}
+    pick = name if name in runs else runs[0]
+    res = json.loads((MATRIX_DIR / pick / "results.json").read_text())
+    legs = MATRIX_DIR / "legs.json"   # {arm: [trained cells]}
+    if legs.exists():
+        try:
+            res["trained"] = json.loads(legs.read_text())
+        except Exception:
+            pass
+    return {"run": pick, "runs": runs, "results": res}
+
 OFF_PAGE = (b"<!doctype html><html><head><meta charset='utf-8'>"
             b"<meta name='viewport' content='width=device-width'><title>rl-dash</title></head>"
             b"<body style='background:#0d1117;color:#8b949e;font:14px ui-monospace,Menlo,monospace;"
@@ -327,12 +390,18 @@ def make_handler(runs_dir: Path, pinned: Path | None, public: bool):
 
         def do_GET(self):
             p = self._path()
-            if public and p in ("/", "/api/state") and not mirror_on():
+            if public and p in ("/", "/api/state", "/matrix", "/matrix/", "/api/matrix") and not mirror_on():
                 if p == "/":
                     return self._send(200, OFF_PAGE, "text/html; charset=utf-8")
                 return self._send(403, b'{"error":"mirror is off"}', "application/json")
             if p == "/":
                 return self._send(200, PAGE.encode(), "text/html; charset=utf-8")
+            if p in ("/matrix", "/matrix/"):
+                return self._send(200, MATRIX_PAGE.encode(), "text/html; charset=utf-8")
+            if p == "/api/matrix":
+                q = parse_qs(urlsplit(self.path).query)
+                return self._send(200, json.dumps(_matrix_state(q.get("run", [None])[0])).encode(),
+                                  "application/json")
             if not public and p in ("/review", "/review/"):
                 return self._send(200, REVIEW_PAGE.encode(), "text/html; charset=utf-8")
             if not public and p == "/api/review/next":
