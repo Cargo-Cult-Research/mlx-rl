@@ -837,6 +837,17 @@ prompt's job is done by the adapter.
 
 ### 11.5 Capability gate
 
-SWE-bench lv-72 through the OpenCode harness on `qwen36-arm2` (new backend:
-`com.serve.mlxlm-qwen36-arm2`, adapter + injected prompt), started 2026-08-17
-23:32; the pre-registered bar is ≥ 37 (base 45/72). Result goes here.
+SWE-bench lv-72 through the OpenCode harness (bench-coding `grind.sh oc`),
+backend `qwen36-arm2` (`com.serve.mlxlm-qwen36-arm2`: adapter + injected
+prompt), 2026-08-18. Pre-registered bar: ≥ 37 (base 45/72).
+
+- **arm2-mt-60, served thinking OFF (its own register): 51/72.** Passes.
+  `results/oc-qwen36-arm2-gate`.
+- Served thinking ON (mlx-lm's template default, the register the base and
+  C-200 gates ran in): 1/8 on the first eight instances where base got 6
+  and C-200 5, with two INFRA hangs — stopped there
+  (`results/oc-qwen36-arm2-gate-thinkon-partial`). Consistent with §9.5:
+  the arm-2 adapter does not carry into the thinking register, and that
+  extends to coding. Gate the thinking arm (arm 3) thinking-on.
+- The +6 over base is not a paired comparison (base was gated thinking-on);
+  a base thinking-off leg (`qwen36-nothink`) is running to pair it.
