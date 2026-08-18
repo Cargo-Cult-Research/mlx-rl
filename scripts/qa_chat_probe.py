@@ -332,7 +332,7 @@ def main() -> None:
     ap.add_argument("--system", default=None,
                     help="system message for every item; the literal "
                          "'honesty' selects qa_abstain.HONESTY_SYSTEM "
-                         "(the glove that ships with glove-trained adapters)")
+                         "(the honesty prompt that ships with the adapter)")
     a = ap.parse_args()
 
     system = a.system

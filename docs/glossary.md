@@ -41,6 +41,10 @@ the released adapters. When you must use one, translate it on first use.
 | chat frame | the "tell me about this" question | Handing over a title and URL and asking about the paper. The same model behaves ~2× differently between the two, so always say which one a number came from. |
 | the deliverable pair | the adapter and its prompt | The unit we ship. Half of it alone does nothing. |
 
+One deliberate exception: `DATASETS.md` says **difficulty band** for the same
+idea applied to problems rather than questions ("restrict training draws to a
+difficulty band"). That one reads fine in context and stays.
+
 ## Artifact names you cannot rename
 
 These are baked into published run configs, the released adapters, and other

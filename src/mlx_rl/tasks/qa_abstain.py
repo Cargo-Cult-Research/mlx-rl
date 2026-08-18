@@ -197,10 +197,12 @@ class QAAbstainTask:
         # rest keep the verifiable tag format. The judge cache is shared
         # across runs on purpose — identical short replies are common.
         self.chat_frac = chat_frac
-        # Per-frame curriculum: chat frames may draw bands with their own mix
-        # (unknown-heavy so decline-signal groups fire every step — with the
-        # tag-tuned 0.65-known mix only ~1 in 4 chat groups contained a wrong
-        # answer and the 07-30 run learned nothing in chat).
+        # The conversational half can draw from the confidence groups with
+        # its own mix, weighted toward questions the model does NOT know, so
+        # that some group every step contains a decline worth reinforcing.
+        # With the tag-tuned 0.65-known mix only ~1 in 4 conversational
+        # groups held a wrong answer, and the 07-30 run learned nothing in
+        # conversation.
         self._chat_band_mix = chat_band_mix
         # system="honesty" selects HONESTY_SYSTEM; any other string is used
         # verbatim as the system message; None = no system message.

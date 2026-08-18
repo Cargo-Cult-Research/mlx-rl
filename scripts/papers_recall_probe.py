@@ -13,11 +13,12 @@ trained on:
     recall-famous-*   pre-cutoff controls with gold aliases: answering is
                       right, hedging is over-refusal
 
-If (hedge+denial) on recall-post rises under the adapter while the
-summarize-frame delta stays ~0, the recall-gate story is confirmed: the
-signal fires on recall asks and the policy acts on it — the papers failure
-is frame-bound, not a calibration failure. If recall-post is also flat, the
-trained decision does not transfer to paper-shaped entities at all.
+If declining on the post-cutoff papers rises under the adapter while the
+summarize-style questions stay flat, then the model's uncertainty does
+fire when it is asked to recall a fact and it does act on it — the failure
+was in how the question was phrased, not in the calibration. If declining
+stays flat there too, the trained decision does not reach paper-shaped
+entities at all.
 
 Same lexicons and eval-only discipline as qa_chat_probe (never train on
 these frames).
@@ -67,11 +68,14 @@ FRAMES = {
 
 
 def build_items(in_format: bool = False) -> list[dict]:
-    """in_format=True wraps each question in the qa_abstain training PROMPT
-    (the <answer>/<abstain/> affordance). This is the frame-vs-signal
-    control: if the adapter abstains here but not in chat, transfer failure
-    is frame-bound; if it answers confidently even here, the uncertainty
-    signal simply never fires for paper-title entities."""
+    """in_format=True wraps each question in the qa_abstain training
+    prompt, which tells the model in so many words that <abstain/> exists.
+
+    This separates two very different failures. If the adapter abstains with
+    that wrapper but not in plain conversation, the behaviour is tied to the
+    prompt format and simply did not transfer. If it answers confidently
+    even with the wrapper, then the model's own uncertainty never fires for
+    paper titles at all, and no amount of prompt formatting would help."""
     items = []
     for r in [json.loads(l) for l in (DATA / "papers_probe.jsonl").read_text().splitlines()]:
         kind = "famous" if r["control"] else "post"
