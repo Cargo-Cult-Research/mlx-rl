@@ -127,6 +127,12 @@ hardest: thinking on, single turn 0.54 → **0.99** (arm 3; +0.45); thinking
 on, three turns 0.57 → 0.79 (+0.22). Design doc §9.5 has the full table.
 Quote these rows, not the earlier phase-2 ones.
 
+## Capability gate (2026-08-18)
+
+SWE-bench lv-72, OpenCode harness, paired in the adapter's register
+(thinking off): **base 52/72, arm2-mt-60 51/72** — no capability cost. The
+earlier phase-1 gate was thinking-on: base 45, C-200 45.
+
 ## Phase 2/3 under all serving conditions
 
 The same adapters scored under every combination of thinking × tools × turns

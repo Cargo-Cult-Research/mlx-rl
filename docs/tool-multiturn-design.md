@@ -849,5 +849,13 @@ prompt), 2026-08-18. Pre-registered bar: ≥ 37 (base 45/72).
   (`results/oc-qwen36-arm2-gate-thinkon-partial`). Consistent with §9.5:
   the arm-2 adapter does not carry into the thinking register, and that
   extends to coding. Gate the thinking arm (arm 3) thinking-on.
-- The +6 over base is not a paired comparison (base was gated thinking-on);
-  a base thinking-off leg (`qwen36-nothink`) is running to pair it.
+- **Paired: base served thinking OFF (`qwen36-nothink`, no adapter, no
+  prompt) = 52/72; arm2-mt-60 thinking OFF = 51/72.** One instance apart —
+  zero capability cost in the adapter's own register. (Side finding for
+  bench-coding: qwen36 thinking-off 52 vs its thinking-on default 45 on this
+  harness.) `results/oc-qwen36-nothink-gate`.
+
+**Gate status for arm 2**: OOD generalization ✓ (§11.1), date-flip ✓
+(§11.3), capability ✓ (51 vs 52 paired), prompt-off inertness ✗ — not
+inert, stated (§11.4), seed replication — not run, near-miss defect open
+(§11.2). Arm 3: capability gate not yet run (serve thinking-on).
