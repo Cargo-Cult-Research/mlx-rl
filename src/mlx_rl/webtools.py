@@ -138,7 +138,8 @@ class WebTools:
         self.min_interval, self.timeout, self.error_ttl = min_interval_s, timeout_s, error_ttl_s
         self._lock = threading.Lock()   # cache + pacing bookkeeping only
         self._last = 0.0
-        self.hard_timeout = timeout_s + 10.0
+        self.hard_timeout = timeout_s + 5.0
+        self.search_budget_s = 2.5 * timeout_s   # total across the engine rotation
         # In-flight de-duplication: eight group members asking the same
         # title at once should cost ONE live call, not eight cache misses.
         self._inflight: dict[str, threading.Event] = {}
@@ -250,7 +251,11 @@ class WebTools:
     def _search_live(self, q: str) -> dict:
         from ddgs import DDGS
         errors = []
+        t_start = time.time()
         for engine in self.engines:
+            if time.time() - t_start > self.search_budget_s:
+                errors.append(f"{engine}: skipped (search budget {self.search_budget_s:.0f}s spent)")
+                continue
             try:
                 hits = list(self._run_hard(
                     lambda: DDGS(timeout=self.timeout).text(
