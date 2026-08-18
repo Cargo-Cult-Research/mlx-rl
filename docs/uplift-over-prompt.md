@@ -109,6 +109,20 @@ transcript, every turn graded) removes the decay — turn 2 at 1.00 — without
 costing turn 0 or the decline side. Uplift over prompt-only at three turns:
 **+1.28**.
 
+## Correction (2026-08-17 evening): the harness cap was punishing the base
+
+Every phase-2/3 table above was measured with a hard tool-round cap (a
+fourth call = −3, no reply). A thinking policy re-queries and hit it on
+almost every episode; so, it turns out, does the base. With the served-agent
+behaviour instead — at the cap, "tool call limit reached, answer with what
+you have", and grade the reply — the **prompt-only base scores 0.84** in the
+single-turn thinking-off cell (fictional 0.60), so the uplift there is
+**+0.12** (sandbox 0.96 / arm2 0.97 / arm3 0.97), almost all of it the
+decline slice. RL's uplift is large where the register is harder: thinking
+on, single turn 0.54 → **0.99** (arm 3; +0.45); thinking on, three turns
+0.57 → 0.79 (+0.22). Design doc §9.5 has the full table. Quote these, not
+the earlier phase-2 rows, for "uplift over prompt".
+
 ## Phase 2/3 under all serving conditions
 
 The same adapters scored under every combination of thinking × tools × turns

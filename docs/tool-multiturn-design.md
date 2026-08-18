@@ -721,3 +721,48 @@ thinking-off register does not carry into the thinking register. That is
 the case for arm 3 (thinking on, from arm2-mt-60, bigger budget, §5.3
 levers) — and against training the other thinking cells: the factorial
 lives in evaluation, the training path stays cumulative.
+
+### 9.5 Correction — the harness was doing a lot of the work (2026-08-17 evening)
+
+Arm 3 (thinking on) exposed a cliff in the round cap: a thinking policy
+re-queries, ran out of rounds on nearly every episode, and every cap breach
+was −3 with no reply. The fix is the served-agent one — at the cap, inject
+"tool call limit reached, answer with what you have" and grade the reply
+(`engine.rollout_episodes(on_cap=…)`). Re-running the grid's tool cells with
+that message, for all adapters, moves the *prompt-only base* a lot:
+
+| serving cell (cap message on) | prompt-only | sandbox-v3-60 | web-v4-120 | arm2-mt-60 | arm3-think-40 |
+|---|---|---|---|---|---|
+| think-off · tools · 1 turn | **0.84** (fict 0.60) | 0.96 (fict 1.00) | 0.86 (fict 0.20) | 0.97 (fict 1.00) | 0.97 (fict 1.00) |
+| think-on · tools · 1 turn | 0.54 (fict 0.20) | 0.92 | 0.67 | 0.59 (fict −0.20) | **0.99** |
+| think-on · tools · 3 turns | 0.57 | 0.66 | 0.61 | 0.78 | **0.79** |
+
+Readings, replacing the earlier ones where they conflict:
+
+1. **Under a hard cap the base was being scored −3 for looping on tools;
+   with the served-agent message it declines on its own** (fictional −2.61 →
+   0.60). Much of the single-turn "uplift" was my harness punishing the
+   base. Against base+cap, single-turn thinking-off uplift is **+0.12**,
+   nearly all of it the decline slice (1.00 vs 0.60).
+2. **RL's real uplift is in the harder registers**: thinking on, single
+   turn **+0.45** (0.54 → 0.99, arm 3; arm 2's adapter does not carry into
+   the thinking register, 0.59, so arm 3 was needed); thinking on, three
+   turns **+0.2** (0.57 → 0.79).
+3. Every earlier table that used the hard cap is left in place for the
+   record and superseded by this one where they overlap. The rule that
+   follows: **fix the harness before training against it, and re-measure the
+   prompt-only base under the fixed harness before quoting any uplift.**
+   The elephant list in the review — in-distribution eval, judge
+   circularity, prompt/harness sensitivity, unrun gates — is now the work
+   plan (§10).
+
+## 10. Next: the elephants (2026-08-17)
+
+1. Out-of-family eval: rephrased questions, non-arXiv entities, real
+   visitor prompts; scored by a second judge and a blind human sample
+   (rl-dash `/review`, 100 items, running).
+2. Gates on arm2-mt-60 / arm3-think-40: SWE-bench lv-72, prompt-off
+   inertness, seed replication, date-flip falsification (re-established for
+   real tools as "asserted year > stated today must still be searched").
+3. Near-miss probe: real titles with a wrong subtitle — the "did you mean X"
+   case, currently ungraded.
