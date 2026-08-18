@@ -33,3 +33,4 @@ demo/flags.jsonl
 data/deepcoder/
 scripts/.rl-dash-public-until
 runs/human-review/labels.jsonl
+data/pypi_master.txt

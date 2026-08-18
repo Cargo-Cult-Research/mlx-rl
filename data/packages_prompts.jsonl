@@ -1,0 +1,600 @@
+{"id": "pkg_0000", "capability": "imports the necessary ctypes libraries and wraps the GLFW3 functions using ctypes to provide a Python interface for creating windows, contexts, and managing input events"}
+{"id": "pkg_0001", "capability": "imports the json module and uses it to serialize and deserialize Python objects to and from JSON format"}
+{"id": "pkg_0002", "capability": "implements a simple templating system for rendering templates with placeholders for dynamic values, similar to the unmaintained templating system used by old versions of Supervisor"}
+{"id": "pkg_0003", "capability": "imports the `psutil` module and uses its `Process().memory_info()` method to monitor the memory usage of the current process, and optionally display alerts when memory usage exceeds a certain threshold"}
+{"id": "pkg_0004", "capability": "uses the `xmltodict` and `yaml` modules to process YAML/XML documents and perform operations similar to those of the `jq` command-line tool, such as filtering, sorting, and modifying data in the documents"}
+{"id": "pkg_0005", "capability": "creates an enterprise-scalable, real-time graphing system using a powerful database like Apache Cassandra or MongoDB to store data and a robust framework like Django or Flask to build the API and dashboard"}
+{"id": "pkg_0006", "capability": "uses the MaxMind GeoLite2 database to perform IP address geolocation lookups and return information such as country, region, city, latitude, and longitude"}
+{"id": "pkg_0007", "capability": "uses the `pytest-black` plugin to enable format checking with Black for a Python project"}
+{"id": "pkg_0008", "capability": "implements a REPL plugin for Click by defining a Click plugin that sets up a REPL loop in the terminal, allowing users to execute Click commands interactively"}
+{"id": "pkg_0009", "capability": "implements a pytest plugin to preserve test isolation in Flask-SQLAlchemy using database transactions, modeled after the `pytest_plugin` module in the `pytest` documentation"}
+{"id": "pkg_0010", "capability": "uses the `grpc` library to implement a client for the Cloud Spanner Instance Admin API, including methods to create, update, and delete instances, as well as to query instance metadata and retrieve logs"}
+{"id": "pkg_0011", "capability": "creates a structured configuration library using a dictionary-based data structure to store and retrieve configuration settings, with support for nested configurations and a simple syntax for accessing and modifying settings"}
+{"id": "pkg_0012", "capability": "imports the necessary libraries for creating DAQ components in Dash, including dash, dash_core_components, and dash_html_components"}
+{"id": "pkg_0013", "capability": "exports traces from OpenTelemetry to Jaeger using the Jaeger Thrift Exporter for OpenTelemetry, allowing for easy distributed tracing in complex systems"}
+{"id": "pkg_0014", "capability": "creates an AWS Route53 alias target using the CDK Construct Library, specifying the alias name, DNS name, and VPC endpoint"}
+{"id": "pkg_0015", "capability": "imports the necessary libraries and implements fuzzy string matching using techniques such as Levenshtein distance, Jaccard similarity, and N-gram models"}
+{"id": "pkg_0016", "capability": "imports a module providing basic functions for parsing mime-type names and matching them against a list of media-ranges, and uses these functions to parse and match mime-type names and media-ranges"}
+{"id": "pkg_0017", "capability": "uses the Slack Events API to handle incoming webhooks in a Flask application, allowing for real-time communication and integration between Slack and the app"}
+{"id": "pkg_0018", "capability": "increments the version number in a `version.py` file by running `sed -i'' 's/^version = \\\"[0-9.]+\\\"/$&\\'\\\"\\ Plus 1\\\"/g' version.py`"}
+{"id": "pkg_0019", "capability": "creates an AWS S3 bucket with a specified name and configuration using the CDK Construct Library"}
+{"id": "pkg_0020", "capability": "implements RFC 6570 URI Templates, allowing users to create templates with placeholders for URIs and replace them with actual values when needed, using a simple and efficient syntax"}
+{"id": "pkg_0021", "capability": "uses the `os` module to locate the closest `.editorconfig` file from the current working directory and interprets its contents using the `editorconfig` module, returning a dictionary of editor configuration settings"}
+{"id": "pkg_0022", "capability": "uses the Geocoding API to reverse geocode a list of latitude and longitude coordinates and returns the corresponding addresses without requiring internet connectivity"}
+{"id": "pkg_0023", "capability": "imports the dis module from Python 3.5+ and implements its functions in Python 2.7"}
+{"id": "pkg_0024", "capability": "imports the serial module and creates an asynchronous serial port connection for reading and writing data to a specified serial device using the async-compatible version of the serial module"}
+{"id": "pkg_0025", "capability": "sets up CloudWatch logging for your AWS account, including creating a CloudWatch log group and configuring a log stream to monitor logs from a specified source"}
+{"id": "pkg_0026", "capability": "uses the `marshmallow` library to convert JSON schema draft v7 documents into valid Python classes, and vice versa, using the `marshmallow.Schema` class"}
+{"id": "pkg_0027", "capability": "uses the Google Translate API to perform translation, detection, and language modeling tasks without any limitations or restrictions"}
+{"id": "pkg_0028", "capability": "imports the requests library and creates a session object with thread-safe connection pooling, files posting, and other features"}
+{"id": "pkg_0029", "capability": "creates a simple build system with a focus on speed, using the Ninja package, by running the command `ninja -C` in a terminal and passing the name of the build target as an argument"}
+{"id": "pkg_0030", "capability": "imports the necessary modules for the New Relic Telemetry SDK, initializes the SDK with a license key and account ID, and starts sending telemetry data to New Relic"}
+{"id": "pkg_0031", "capability": "implements a circle packing algorithm to efficiently place circles of varying sizes within a rectangular container, ensuring minimum overlap and maximum density"}
+{"id": "pkg_0032", "capability": "creates a modular and extensible web application framework using Flask or Django, allowing developers to build complex web applications with ease"}
+{"id": "pkg_0033", "capability": "uses the Splunk SDK to authenticate with a Splunk server, create and manage indexes, search and retrieve data, and create and manage dashboards"}
+{"id": "pkg_0034", "capability": "implements a shell tab completion feature for Python CLI applications using the argcomplete library and the pycompletion module"}
+{"id": "pkg_0035", "capability": "imports the necessary libraries and creates an instance of the TrafficManagerManagementClient class, which can be used to manage Azure Traffic Manager profiles, endpoints, and routing rules"}
+{"id": "pkg_0036", "capability": "defines a pytest plugin which provides variables to tests and fixtures using the `pytest.fixture` decorator and the `pytest.mark.variables` marker"}
+{"id": "pkg_0037", "capability": "imports the necessary modules, sets up a testing environment, and executes the given function with fresh local variables, without modifying the global state"}
+{"id": "pkg_0038", "capability": "implements OpenTracing support for PyMongo by using the OpenTracing API to create a tracer, decorating PyMongo methods with the tracer, and exporting traces to the OpenTracing collector"}
+{"id": "pkg_0039", "capability": "uses the `feedback` module in the Microsoft Azure Command-Line Tools to send feedback on the usage of the Azure CLI"}
+{"id": "pkg_0040", "capability": "instruments Starlette applications using OpenTelemetry, capturing performance metrics and tracing requests across services"}
+{"id": "pkg_0041", "capability": "parses a variety of data formats, including JSON, YAML, CSV, and XML, using the `json`, `yaml`, `csv`, and `xml.etree.ElementTree` modules"}
+{"id": "pkg_0042", "capability": "imports the necessary libraries and creates a JSON Web Token using the given payload and secret key, then verifies the token when provided with a request"}
+{"id": "pkg_0043", "capability": "creates a tabbed view for Sphinx documents, allowing users to navigate through multiple sections of a document within a single view"}
+{"id": "pkg_0044", "capability": "uses the `google-protobuf` library to convert Protocol Buffers version 3 (protobuf3) messages to SrcML format, and vice versa, using the `srcml` library"}
+{"id": "pkg_0045", "capability": "updates the ` PKG-INFO` file in the `.egg-info` directory of a Python package to include additional test information, such as test case names and descriptions, using the `pkg_resources` module"}
+{"id": "pkg_0046", "capability": "imports a module that replaces the datetime.timedelta function with a more efficient and flexible alternative for calculating time deltas, such as dateutil.relativedelta or python-dateutil"}
+{"id": "pkg_0047", "capability": "parses HTML documents according to the WHATWG HTML specification using a recursive descent parser"}
+{"id": "pkg_0048", "capability": "creates a ServiceBusClient object to interact with Azure Service Bus queues, topics, subscriptions, and rules, using the Azure.Identity library for authentication"}
+{"id": "pkg_0049", "capability": "formats logging messages in JSON or Logstash format using the `logging` module and `json` or `logstash` libraries, respectively"}
+{"id": "pkg_0050", "capability": "reads and writes Java .properties files using the built-in `python` module"}
+{"id": "pkg_0051", "capability": "implements a command-line interface for interacting with a database, allowing users to create, read, update, and delete data using SQL queries"}
+{"id": "pkg_0052", "capability": "imports the necessary libraries and sets up a basic layout for a web-based dashboard using the Dash framework, including a header, footer, and main content area"}
+{"id": "pkg_0053", "capability": "imports the necessary libraries and creates a Spotinst client object to interact with the Spotinst API, allowing users to manage their Elastic IP addresses, Security Groups, and instances"}
+{"id": "pkg_0054", "capability": "uses the `setuptools` and `scm` modules to create a plugin for Git archives, which allows developers to easily manage and track their project's dependencies and versioning using Git repositories"}
+{"id": "pkg_0055", "capability": "parses a CSS file and returns a dictionary where keys are CSS selectors and values are their corresponding CSS properties"}
+{"id": "pkg_0056", "capability": "imports the required libraries and defines a gRPC server stub for the Google Cloud Pub/Sub API, allowing for the creation, publication, and subscription of messages to topics"}
+{"id": "pkg_0057", "capability": "implements a function to create and compose stylesheets using CSS variables, allowing for easy manipulation of colors and typography across multiple platforms and applications"}
+{"id": "pkg_0058", "capability": "parses and manipulates URLs in markdown format, including resolving relative links and detecting broken links"}
+{"id": "pkg_0059", "capability": "instruments Flask applications with OpenTelemetry tracing and metrics using the `opentelemetry-python` library, allowing for the collection and export of trace data and metrics to OpenTelemetry collectors"}
+{"id": "pkg_0060", "capability": "imports the necessary libraries for generalized linear models with dask, including dask-ml, dask-glm, and any additional dependencies"}
+{"id": "pkg_0061", "capability": "imports the necessary modules for using Mixer as a fixtures replacement, supporting Django ORM, SqlAlchemy ORM, Mongoengine ODM, and custom Python objects"}
+{"id": "pkg_0062", "capability": "implements complete two-factor authentication for Django by using the otplib library to handle time-based one-time passwords, storing user secrets securely, and providing a customizable login template"}
+{"id": "pkg_0063", "capability": "imports the necessary modules and creates a Telegram client using the tgcrypto module for encryption"}
+{"id": "pkg_0064", "capability": "imports the Boto3 library and creates an instance of the IAM client, allowing you to interact with AWS IAM resources using the IAM API"}
+{"id": "pkg_0065", "capability": "imports the required libraries, loads resources from a package, and defines symbols for those resources"}
+{"id": "pkg_0066", "capability": "parses a given HTML file or string and extracts the readable text content, using BeautifulSoup and Requests libraries for fetching the HTML content, and featuring Python 3 support"}
+{"id": "pkg_0067", "capability": "imports the necessary libraries and creates an instance of the Azure IoT Hub Provisioning Service client, allowing you to create, update, and delete device registrations, as well as retrieve and query device twins"}
+{"id": "pkg_0068", "capability": "creates a process pool using the multiprocessing module, allowing for easy process management and parallelization of tasks"}
+{"id": "pkg_0069", "capability": "creates a command-line application framework with a user-friendly interface and full features for developers using the argparse library and other relevant libraries"}
+{"id": "pkg_0070", "capability": "creates a Django admin list filter with dropdowns using the `django-smart-select` library, allowing users to select multiple items from a list of choices and view associated details for each item"}
+{"id": "pkg_0071", "capability": "imports the selectors module and creates a selector object to handle events from multiple file descriptors, implementing a simple event loop that can be used to wait for events on any of the registered file descriptors"}
+{"id": "pkg_0072", "capability": "implements a simple signaling mechanism for object-to-object and broadcast communication using a PubSub module like `pubsub` from the `twisted` library"}
+{"id": "pkg_0073", "capability": "imports the necessary modules and configures an Apache Airflow provider using the `DockerOperator` to interact with Docker containers, allowing users to create workflows that incorporate containerized tasks and services"}
+{"id": "pkg_0074", "capability": "parses a configuration file in INI format and returns a dictionary representing the contents of the file, using the `configparser` library and the `dict()` function"}
+{"id": "pkg_0075", "capability": "imports the requests library and uses it to send HTTP requests to a Stan server, allowing users to perform Bayesian inference tasks using Stan's APIs"}
+{"id": "pkg_0076", "capability": "instruments Jinja2 templates with OpenTelemetry tracing using the `opentelemetry-python` library and patches the `jinja2` module to add tracing capabilities"}
+{"id": "pkg_0077", "capability": "implements a gRPC status proto mapping using the `google-protobuf` library, allowing for efficient and standardized communication between gRPC clients and servers"}
+{"id": "pkg_0078", "capability": "uses the ast module to parse Python source code and checks for instances of built-in functions or variables being used as variable names or function parameters"}
+{"id": "pkg_0079", "capability": "defines a pytest plugin which utilizes a cache to store test results, allowing for faster test execution and reduced computational overhead across multiple test runs"}
+{"id": "pkg_0080", "capability": "creates a class named `ConfigDefaults` that contains default configuration values for an app, and provides methods for accessing, updating, and resetting those values"}
+{"id": "pkg_0081", "capability": "imports the `requests` library and adds async-await support using the `asyncio` library, allowing you to write asynchronous HTTP requests that can be awaited in your code"}
+{"id": "pkg_0082", "capability": "uses the `requests` library to interact with the PagerDuty API, creating sessions and managing incident responses"}
+{"id": "pkg_0083", "capability": "implements a Swagger UI for Django REST Framework 3.5+ using the `drf-yasg` package, which provides a simple way to integrate Swagger UI with Django REST framework"}
+{"id": "pkg_0084", "capability": "imports the necessary libraries and sets up an API connection to interact with the SmartyStreets APIs, allowing developers to easily integrate address verification, geocoding, and other location-based services into their applications"}
+{"id": "pkg_0085", "capability": "establishes a connection to Xiaomi's cloud services and allows for authentication, data transfer, and control of Xiaomi devices using their official API"}
+{"id": "pkg_0086", "capability": "imports the necessary modules for automated testing, sets up test cases, and runs them with the ability to mock dependencies and assert expected results"}
+{"id": "pkg_0087", "capability": "imports the Google Cloud Videointelligence API client library and uses it to analyze a video, detecting objects, faces, and emotions within the video frames"}
+{"id": "pkg_0088", "capability": "implements a simple FIX Protocol client and server using the `socket` library, allowing for basic message sending and receiving between two parties over a network"}
+{"id": "pkg_0089", "capability": "implements a simple map-reduce framework using the multiprocessing module, allowing users to define their own mapping and reducing functions, and supporting both local and Hadoop distributed computing environments"}
+{"id": "pkg_0090", "capability": "imports the Kitchen package and uses its functionality to perform various tasks, such as data manipulation and visualization, statistical analysis, and machine learning tasks"}
+{"id": "pkg_0091", "capability": "parses and formats dates, times, and durations in ISO 8601 format using the `datetime` module and its methods such as `datetime.fromisoformat()` and `datetime.timetz()`"}
+{"id": "pkg_0092", "capability": "creates a Flask API using Flask-RESTful and documents it using Apidoc"}
+{"id": "pkg_0093", "capability": "parses an Excel 2007-2010 binary workbook (xlsb) file using the `openpyxl` library, extracting data from sheets and handling formula calculations"}
+{"id": "pkg_0094", "capability": "implements inter-process locks using the `multiprocessing` module and plays nice with Curator, a popular Python library for distributed locking and synchronization"}
+{"id": "pkg_0095", "capability": "uses the MLflow library to manage the end-to-end machine learning lifecycle, including project management, model training, and deployment, by orchestrating various machine learning tools and services"}
+{"id": "pkg_0096", "capability": "imports the necessary libraries for image processing and manipulation, such as Pillow, and allows users to perform various operations on images, including opening, displaying, modifying, and saving images in various formats"}
+{"id": "pkg_0097", "capability": "creates an object-oriented alternative to the os, os.path, and shutil modules by defining classes for file system operations and providing methods for working with files and directories"}
+{"id": "pkg_0098", "capability": "uses requests and BeautifulSoup to scrape data from JustWatch.com and returns a dictionary of movies and TV shows, along with their ratings and streaming availability"}
+{"id": "pkg_0099", "capability": "imports and wraps various image augmentation libraries, providing an easy-to-use interface for applying random transformations to images"}
+{"id": "pkg_0100", "capability": "uses the pytest-cov plugin to measure the coverage of a Python project, displaying the results in a readable format"}
+{"id": "pkg_0101", "capability": "imports the markdown module, creates a Markdown processor object, and uses it to convert Markdown text to HTML"}
+{"id": "pkg_0102", "capability": "uses the PyPDF2 library to read a PDF file and extract detailed information about each character, rectangle, and line, and stores the information in separate lists or dictionaries for easy analysis and manipulation"}
+{"id": "pkg_0103", "capability": "creates an asynchronous console interface using asyncio, allowing users to interactively execute commands and receive output in real-time, without blocking the main event loop"}
+{"id": "pkg_0104", "capability": "implements a well-behaved Unix daemon process using the `daemon` module, including proper initialization, signal handling, and graceful termination"}
+{"id": "pkg_0105", "capability": "implements a set of utility functions for working with Python classes, including methods for creating and modifying class constructors, accessing and modifying class attributes, and implementing custom inheritance hierarchies"}
+{"id": "pkg_0106", "capability": "imports the required packages, installs BreadSticks, and sets up the development environment for working with BreadSticks"}
+{"id": "pkg_0107", "capability": "imports the `os` module, creates a new directory named \"mydir\", sets the current working directory to \"mydir\", and prints \"Hello World!\" to the console"}
+{"id": "pkg_0108", "capability": "imports a retrying library such as `retrying` or `tenacity`, wraps the code to be retried in a function, and uses the retrying library to retry the function up to a specified number of times or until a specific condition is met"}
+{"id": "pkg_0109", "capability": "uses the scipy optimize library to solve a system of nonlinear equations, represented by a set of polynomial equations in standard form, using the Levenberg-Marquardt algorithm"}
+{"id": "pkg_0110", "capability": "creates migrations for Django applications using the south migration framework"}
+{"id": "pkg_0111", "capability": "implements a rotating logging handler for multiple processes using the TimedRotatingFileHandler class from the logging module, creating a new log file every day and keeping the last X logs, where X is a configurable parameter"}
+{"id": "pkg_0112", "capability": "wraps the AVFoundation framework on macOS, providing an easy-to-use interface for working with audio and video files"}
+{"id": "pkg_0113", "capability": "imports a random name and slug generator library, such as `faker` or `slugify`, and uses it to create a random name and slug for a given topic or industry"}
+{"id": "pkg_0114", "capability": "imports the necessary libraries and creates a function that sends notifications to users via email, SMS, or mobile push notifications using APIs like Twilio, Nexmo, or Firebase Cloud Messaging"}
+{"id": "pkg_0115", "capability": "imports the requests library and creates a class called \"RESTClient\" that provides a convenient way to consume a REST API by providing methods for common HTTP operations like GET, POST, PUT, DELETE, and authentication"}
+{"id": "pkg_0116", "capability": "imports the ruamel.yaml library and creates a schema dictionary and validate() function to validate YAML files against a provided schema"}
+{"id": "pkg_0117", "capability": "imports the necessary libraries and creates an instance of the Azure Synapse Artifacts client, allowing you to interact with Azure Synapse artifacts in your Python application"}
+{"id": "pkg_0118", "capability": "wraps os.path functions into a module, allowing for convenient path manipulation and accessibility"}
+{"id": "pkg_0119", "capability": "creates a data producer for Graphite graphing package, which collects metrics from various sources, performs transformations and aggregations on the data, and sends it to Graphite for visualization and alerting"}
+{"id": "pkg_0120", "capability": "imports the necessary libraries and creates a wrapper class for the ModelIO framework on macOS, allowing developers to easily interact with the framework's functionality in their Python scripts"}
+{"id": "pkg_0121", "capability": "imports the necessary libraries and uses the LUSID API to retrieve data, perform calculations, and create visualizations for financial analysis and modeling"}
+{"id": "pkg_0122", "capability": "imports the necessary libraries, parses the HTML of colorbrewer2.org, and uses matplotlib to display the color maps"}
+{"id": "pkg_0123", "capability": "implements a relay library for GraphQL Core, allowing for efficient and scalable data fetching and caching, with support for incremental loading and automatic handling of errors"}
+{"id": "pkg_0124", "capability": "creates a tool for managing Python packages, including functionality for installing, updating, and removing packages, as well as listing available packages and checking dependencies"}
+{"id": "pkg_0125", "capability": "imports the necessary libraries and sets up an inline matplotlib backend for Jupyter notebooks, allowing for interactive plotting and visualization of data"}
+{"id": "pkg_0126", "capability": "creates a TensorFlow Estimator to train and evaluate a machine learning model using high-level APIs, including preprocessing inputs, defining the model architecture, specifying hyperparameters, and deploying the model for prediction"}
+{"id": "pkg_0127", "capability": "uses ast.literal_eval to deserialize a JSON-like string into an actual Python object, similar to how the `json` module works, but without the need for quotes around strings"}
+{"id": "pkg_0128", "capability": "imports the required libraries, defines a message class with specified fields, and generates a stub file with the necessary methods to interact with the protobuf message"}
+{"id": "pkg_0129", "capability": "uses the Public Suffix List (PSL) to separate a URL's subdomain, domain, and public suffix, including support for private domains if desired"}
+{"id": "pkg_0130", "capability": "parses Torch7 binary serialized files using the `torch.serialization` module and returns the contained tensor data"}
+{"id": "pkg_0131", "capability": "implements server-side session support for Flask by creating a custom sessions module that uses a database or other data store to store session data, and modifies Flask's request and response objects to use the session data"}
+{"id": "pkg_0132", "capability": "imports the Neo4j Bolt driver and creates a connection to a Neo4j database, allowing the user to execute Cypher queries and manipulate data in the graph database"}
+{"id": "pkg_0133", "capability": "implements a Flake8 plugin to warn about unsafe functions, using the ast module to parse the source code and identify potentially dangerous function calls"}
+{"id": "pkg_0134", "capability": "uses the GitPython library to search through Git repositories for high entropy strings, by iterating through commits and analyzing the contents of each commit using the entropy module"}
+{"id": "pkg_0135", "capability": "imports the necessary libraries and sets up an authentication token for accessing the Polyaxon API"}
+{"id": "pkg_0136", "capability": "imports the necessary libraries and computes string edit distances and similarities between two given strings using dynamic programming and mathematical formulas"}
+{"id": "pkg_0137", "capability": "imports the necessary libraries and uses the official MS-COCO API to download and manipulate images and annotations from the COCO dataset"}
+{"id": "pkg_0138", "capability": "implements a function to determine whether two given numbers are of the same type, where the types are restricted to integers, floats, strings, and booleans"}
+{"id": "pkg_0139", "capability": "creates an API and CLI for securely managing secrets, using cryptography to protect sensitive information and utilizing environment variables for configuration"}
+{"id": "pkg_0140", "capability": "instruments the SQLAlchemy database API using OpenTelemetry, trace queries and errors, and exports traces to a Jaeger agent for distributed tracing"}
+{"id": "pkg_0141", "capability": "imports the necessary libraries and creates an etcd3 client using the grpc-gateway v3 API, allowing for interaction with an Etcd cluster"}
+{"id": "pkg_0142", "capability": "imports the cybox module and creates a CybOX object from a JSON file, then parses the object into a dictionary"}
+{"id": "pkg_0143", "capability": "imports the AKShare library and uses it to retrieve historical stock prices for a given ticker symbol"}
+{"id": "pkg_0144", "capability": "implements fundamental algorithms for scientific computing, including linear algebra, optimization, signal processing, and statistics, using efficient and well-tested libraries like NumPy and SciPy"}
+{"id": "pkg_0145", "capability": "formats test reports from JUnit XML files into readable format, similar to how flake8 does it"}
+{"id": "pkg_0146", "capability": "imports the logging module, creates a logging handler that sends log messages to Logstash via HTTP, sets up a formatter and logger, and logs information at different levels"}
+{"id": "pkg_0147", "capability": "imports the thrift library and creates a client for the Hive metastore using the Thrift protocol, allowing interaction with the metastore to perform operations such as querying tables, creating partitions, and managing databases"}
+{"id": "pkg_0148", "capability": "imports the hiveserver2 library and creates a connection to a Hive server, allowing for the execution of HiveQL queries and the retrieval of query results"}
+{"id": "pkg_0149", "capability": "imports the necessary modules and sets up an Apache Airflow provider for Google services, including authentication and authorization, using the `apache_airflow_providers_google` package"}
+{"id": "pkg_0150", "capability": "imports the necessary libraries and creates a basic structure for a web application using Flask, allowing users to interact with data exploration tools and visualizations"}
+{"id": "pkg_0151", "capability": "imports the required libraries, creates an asynchronous PostgreSQL connection pool, and defines an asynchronous function that executes a SQL query using the pool"}
+{"id": "pkg_0152", "capability": "uses Django's built-in image processing tools to automatically process images associated with Django models, such as resizing and cropping, before they are saved to the database"}
+{"id": "pkg_0153", "capability": "uses the `pytest` framework to discover and run tests in directories and files, using the `pytest.main()` function to execute the tests and report their results"}
+{"id": "pkg_0154", "capability": "imports the PyYAML library and defines a custom YAML tag representing an integer, with validation rules for non-integer values, using the `yaml.YAMLObject` class from PyYAML"}
+{"id": "pkg_0155", "capability": "creates a browser-based frontend to gdb, allowing users to debug C, C++, Go, or Rust programs using a web interface"}
+{"id": "pkg_0156", "capability": "imports the necessary libraries and sets up an access token for the Facebook Ads API SDK, allowing you to create and manage Facebook ad campaigns programmatically"}
+{"id": "pkg_0157", "capability": "uses the `swagger-python` library to parse Swagger/OpenAPI 2.0 and 3.0.0 definitions and extract information such as APIs, operations, request and response bodies, security schemes, and tags"}
+{"id": "pkg_0158", "capability": "imports the necessary libraries and sets up an interactive environment with async auto-updates and non-blocking cell execution using the IPython library"}
+{"id": "pkg_0159", "capability": "imports the required modules and performs the same tasks as the \"obsolete\" package, using the `abs-py` module instead"}
+{"id": "pkg_0160", "capability": "imports the unittest module and uses its plug-in architecture to create test suites and run tests with custom assertions and setup methods"}
+{"id": "pkg_0161", "capability": "imports the necessary libraries and sets up AWS4 authentication for making requests to AWS services using the Requests library"}
+{"id": "pkg_0162", "capability": "imports the necessary libraries and performs robust piecewise regression using the Least Absolute Deviation (LAD) criterion, similar to the R package RoPWR"}
+{"id": "pkg_0163", "capability": "implements a Japanese morphological analysis engine, capable of breaking down words into their individual components, such as roots, prefixes, and suffixes, and performing various linguistic analyses on them"}
+{"id": "pkg_0164", "capability": "creates a simple WSGI framework for small web applications, supporting basic routing and response handling, using a lightweight and efficient approach"}
+{"id": "pkg_0165", "capability": "defines a decorator which takes a function and returns a new function that checks if the number of arguments passed to it is the same as the number of parameters defined in the function, and raises an error if they don't match"}
+{"id": "pkg_0166", "capability": "imports the required libraries to interact with xlsx and xlsm files, provides functions for reading, manipulating, and writing data in these formats, and offers an easy-to-use interface for users to work with spreadsheets"}
+{"id": "pkg_0167", "capability": "imports the required libraries and creates a basic web crawler that can fetch and parse HTML pages, extract data using regular expressions or BeautifulSoup, and store the extracted data in a structured format such as CSV or JSON"}
+{"id": "pkg_0168", "capability": "creates a portable OpenGL context, allowing for cross-platform rendering of 2D and 3D graphics using the PyOpenGL library"}
+{"id": "pkg_0169", "capability": "imports the pytest module and uses it to run a subset of tests by splitting them into equally sized groups, using a fork of Mark Adams' original project pytest-test-groups"}
+{"id": "pkg_0170", "capability": "imports the os and stat modules, uses the os.path.getxattr() function to retrieve extended file system attributes, and raises a ValueError if the attribute is not found"}
+{"id": "pkg_0171", "capability": "imports the json module and creates a JSON decoder class that takes a string or bytes input and outputs a dictionary or list of dictionaries, similar to the ndjson package"}
+{"id": "pkg_0172", "capability": "imports the Braintree Python Library and creates a client instance for processing payments, subscriptions, and authentication"}
+{"id": "pkg_0173", "capability": "uses the Pillow library to read an image file and extract its dimensions, supporting PNG, JPEG, JPEG-2000, and GIF formats"}
+{"id": "pkg_0174", "capability": "adds a copy button to each code cell using the `ipywidgets` library by creating a widget for the button and adding it to the layout of the code cell"}
+{"id": "pkg_0175", "capability": "imports the necessary libraries and creates an instance of the AzureComputeManagementClient class, which can be used to manage Azure compute resources such as virtual machines, virtual machine scalesets, and availability sets"}
+{"id": "pkg_0176", "capability": "uses the `requests` and `beautifulsoup4` libraries to scrape zip code data from a website like USPS.com, then uses the `geopy` library to geocode the zip codes and calculate their proximity to a given address"}
+{"id": "pkg_0177", "capability": "imports the websocket library and creates a client object with a custom header and a callback function for message reception"}
+{"id": "pkg_0178", "capability": "uses the `mkdocs` library to automatically generate documentation for a project, including parsing source files and generating HTML pages, by running the command `mkdocs build`"}
+{"id": "pkg_0179", "capability": "imports the necessary libraries and sets up an AMQP connection to a RabbitMQ server, allowing for sending and receiving messages asynchronously using the Qpid AMQP protocol"}
+{"id": "pkg_0180", "capability": "implements an autocompletion tool for Python, using natural language processing and machine learning algorithms to provide intelligent suggestions for incomplete code, and integrating with popular text editors through APIs or plugins"}
+{"id": "pkg_0181", "capability": "uses the requests library to send HTTP requests to the Google Translate API, passing in the necessary parameters such as the source and target languages, the text to be translated, and any other required settings"}
+{"id": "pkg_0182", "capability": "creates a TensorBoard plugin for visualizing and analyzing profiling data from TensorFlow models, including support for multiple profiling formats and customizable visualizations"}
+{"id": "pkg_0183", "capability": "imports the necessary libraries and establishes communication with a ZiGate radio using the zigpy protocol"}
+{"id": "pkg_0184", "capability": "creates a sparse matrix using SciPy's lil_matrix class, performs matrix multiplication using NumPy's dot product, and selects the top-n elements of the resultant matrix using NumPy's argsort function"}
+{"id": "pkg_0185", "capability": "imports the necessary modules and uses the gobject_introspection module to provide Python bindings for GObject Introspection, allowing developers to easily interact with GObject-based libraries and frameworks"}
+{"id": "pkg_0186", "capability": "uses regular expressions to replace profanity and leet speak in strings with blazingly fast performance"}
+{"id": "pkg_0187", "capability": "uses the Jupyter Notebook API to highlight every instance of the current word in the notebook, using a callback function to iterate through all cells and apply the highlighting using HTML markup"}
+{"id": "pkg_0188", "capability": "uses the `dis` and `bytecode` modules to generate and modify bytecode, allowing for the creation of custom instructions and manipulation of existing bytecode files"}
+{"id": "pkg_0189", "capability": "uses the `openpyxl` library to read and write Open XML PowerPoint (.pptx) files, allowing for manipulation of slide content, addition of new slides, and modification of presentation settings"}
+{"id": "pkg_0190", "capability": "imports the required libraries and uses the TTS engines specified in the question to convert text to speech without an internet connection or delay"}
+{"id": "pkg_0191", "capability": "uses the `pytest` framework and the `pyspark` library to run Spark tests with the same functionality as the `pytest-spark` plugin"}
+{"id": "pkg_0192", "capability": "creates a Telegram bot using the python-telegram-bot library, allowing users to send messages and interact with the bot through commands and inline queries"}
+{"id": "pkg_0193", "capability": "creates a schedule for periodic tasks using the schedule module, allowing users to define tasks with their corresponding time intervals in a human-readable format and automatically running them at the specified times"}
+{"id": "pkg_0194", "capability": "imports the jsonref library and uses it to automatically dereference JSON Reference objects in a JSON document, allowing for easier access and manipulation of the data within the document"}
+{"id": "pkg_0195", "capability": "imports the necessary libraries and creates a simple bar chart using Vega-Altair"}
+{"id": "pkg_0196", "capability": "imports the required modules and creates a dictionary of boltons, each keyed by their name and valued by their respective module"}
+{"id": "pkg_0197", "capability": "imports the required libraries and performs LDL factorization on a given matrix using the QDLDL algorithm"}
+{"id": "pkg_0198", "capability": "imports a module only when its name is accessed, caching the imported module in a dictionary for subsequent accesses"}
+{"id": "pkg_0199", "capability": "creates a Spectrum instance using spotinst-agent, allowing for remote script execution, data collection, and application deployment"}
+{"id": "pkg_0200", "capability": "imports the necessary modules from the OpenCV library and creates a wrapper function for each module, allowing users to call the functions using a more Pythonic syntax"}
+{"id": "pkg_0201", "capability": "imports the necessary libraries and creates a Stackdriver Logging API client object to interact with Google Cloud's logging service, allowing users to create, read, update, and delete log entries and logs"}
+{"id": "pkg_0202", "capability": "uses the Paramiko library to copy files between hosts securely using SSH"}
+{"id": "pkg_0203", "capability": "imports the certifi module, adds the Windows certificate store to the list of trusted roots using the `certifi.add_root_CA()` function, and then updates the SSL context using the `certifi.create_default_context()` function"}
+{"id": "pkg_0204", "capability": "imports the necessary libraries, configures an AWS logging handler to write logs to an S3 bucket and a Kinesis stream, and uses multiple threads to log messages in parallel"}
+{"id": "pkg_0205", "capability": "imports the necessary modules and creates a `FuzzySet` class that inherits from `set` and implements fuzzy search using N-grams"}
+{"id": "pkg_0206", "capability": "imports the necessary modules for working with Aliyun services, such as boto3 for AWS and aliyun-python-sdk for Aliyun services, and sets up the credentials and configuration for accessing these services"}
+{"id": "pkg_0207", "capability": "implements type hints (PEP 484) support for the Sphinx autodoc extension, allowing developers to document their Python code with accurate type information, improving code readability and maintainability"}
+{"id": "pkg_0208", "capability": "implements a plugin system allowing developers to register and retrieve plugins, load and unload plugins at runtime, and manage dependencies between plugins"}
+{"id": "pkg_0209", "capability": "parses Gherkin files and extracts feature, scenario, and step information using the ast module to create an abstract syntax tree representation of the Gherkin content"}
+{"id": "pkg_0210", "capability": "creates a simple WSGI server using the Waitress library, which allows for asynchronous handling of requests and supports HTTP/1.1 and WebSocket protocols"}
+{"id": "pkg_0211", "capability": "implements a SigV4 authentication plugin for the open-source Datastax Python Driver for Apache Cassandra, using the AWS SDK for Python (Boto3) to interact with AWS services"}
+{"id": "pkg_0212", "capability": "creates an AWS CDK core library for defining cloud infrastructure in code, using constructs to represent real-world objects and their relationships, and providing a consistent API across multiple AWS services"}
+{"id": "pkg_0213", "capability": "creates a Pulumi package for managing AWS cloud resources, including resource creation, updates, and deletion, using Pulumi's AWS provider and SDK"}
+{"id": "pkg_0214", "capability": "imports the necessary modules for interacting with Tencent Cloud services, such as boto3 or tencent-sdk-python, and sets up the credentials and configuration for accessing the desired services"}
+{"id": "pkg_0215", "capability": "creates an interactive grid for sorting and filtering DataFrames in Jupyter Notebook using the ipywidgets library and the pandas library"}
+{"id": "pkg_0216", "capability": "uses the OpenTelemetry API to collect performance metrics and trace data from gRPC servers and clients, and exports this data to Prometheus for monitoring and Grafana for visualization"}
+{"id": "pkg_0217", "capability": "imports the necessary libraries and creates a connection to a Redshift database, allowing the user to execute SQL queries and interact with the database"}
+{"id": "pkg_0218", "capability": "imports the Prometheus Python client library and uses it to query the Prometheus API, retrieve metrics and alerts, and display them in a user-friendly format"}
+{"id": "pkg_0219", "capability": "imports the necessary libraries and creates an instance of the AzureRM Database class to manage a SQL database on an Azure VM"}
+{"id": "pkg_0220", "capability": "imports the datadiff library and uses it to generate human-readable differences between two Python data structures, such as lists, dictionaries, or Pandas DataFrames"}
+{"id": "pkg_0221", "capability": "imports the requests library and creates a declarative HTTP client using the Pydantic library to define APIs and models, allowing for easy creation of HTTP requests and responses with validated data"}
+{"id": "pkg_0222", "capability": "imports the mandrill module and creates an instance of the MandrillClient class, which can be used to interact with the Mandrill email service platform"}
+{"id": "pkg_0223", "capability": "imports the TensorFlow library and creates a simple neural network for handwritten digit recognition using the MNIST dataset"}
+{"id": "pkg_0224", "capability": "uses the python-teams library to format messages using placeholders and posts them to Microsoft Teams chat channels"}
+{"id": "pkg_0225", "capability": "uses the `pytest` module and the `random` module to shuffle the order of test functions before running them, allowing for some control over the randomness"}
+{"id": "pkg_0226", "capability": "imports the necessary libraries and uses efficient algorithms to resample signals at a higher or lower sampling rate, while preserving the original signal's characteristics and minimizing aliasing and artifacts"}
+{"id": "pkg_0227", "capability": "uses the winrm module to connect to a remote Windows machine and execute a command, similar to the Windows Remote Management (WinRM) service"}
+{"id": "pkg_0228", "capability": "imports the necessary libraries and creates a wrapper class for interacting with the Accounts framework on macOS, providing a simple interface for creating, modifying, and querying user accounts"}
+{"id": "pkg_0229", "capability": "imports the necessary libraries and creates a connection to a Druid server, allowing you to interact with Druid datasets and perform various data manipulation and analysis tasks"}
+{"id": "pkg_0230", "capability": "imports the necessary libraries and sets up an authentication token for the HubSpot API client"}
+{"id": "pkg_0231", "capability": "imports the usb module and uses it to iterate over all connected USB devices, printing their device names and classes"}
+{"id": "pkg_0232", "capability": "imports the necessary libraries and utilizes the `socket` module to iterate over all available network interfaces and print their corresponding IP addresses, including the loopback interface"}
+{"id": "pkg_0233", "capability": "imports the Zipkin library and uses it to instrument traces, log errors, and visualize distributed systems performance data"}
+{"id": "pkg_0234", "capability": "wraps basic LLVM functionality, such as compiling source code, creating executables, and running them, in a lightweight manner using the `llvm` module"}
+{"id": "pkg_0235", "capability": "imports the geolite2 library and uses it to retrieve IP address information from the MaxMind database"}
+{"id": "pkg_0236", "capability": "uses the pylint-celery plugin to recognize and understand errors caused by using the Celery library in a Pylint analysis"}
+{"id": "pkg_0237", "capability": "imports the required modules, sets up CORS support for aiohttp, and handles HTTP requests with CORS headers"}
+{"id": "pkg_0238", "capability": "imports the necessary libraries and sets up the necessary structures to interact with the MLeap platform"}
+{"id": "pkg_0239", "capability": "imports the necessary libraries and uses the `subprocess` module to send commands to the Chromecast device using the `chrome-cast` command line tool"}
+{"id": "pkg_0240", "capability": "uses the `pyebook` library to read and convert ebooks between EPUB2, EPUB3, and Kindle formats"}
+{"id": "pkg_0241", "capability": "creates a flexible, customizable automation framework for managing and executing complex build processes, using modular components and extensible architecture to accommodate diverse project requirements and workflows"}
+{"id": "pkg_0242", "capability": "creates a command line interface for formulating mathematical expressions, allowing users to enter symbols, numbers, and variables, and evaluating the resulting expression using a given solver"}
+{"id": "pkg_0243", "capability": "uses the WhoPy library to perform WHOIS queries and parse domain registration information, returning a dictionary containing details such as domain name, registrar, and expiration date"}
+{"id": "pkg_0244", "capability": "imports the necessary libraries, sets up an AWS SigV4 signature, and makes an HTTP request to an AWS API endpoint using the signed request"}
+{"id": "pkg_0245", "capability": "utilizes PlatformIO's collaborative ecosystem to develop embedded software projects with declarative principles, test-driven methodologies, and modern toolchains for optimal success"}
+{"id": "pkg_0246", "capability": "creates a line plot using matplotlib, labels the x-axis, y-axis, title, and legend, and saves the plot as a PNG file named \"line_plot.png\""}
+{"id": "pkg_0247", "capability": "imports the FlatBuffers library and creates a simple data structure consisting of a table with two columns, \"id\" and \"name\", and then Serializes it into a flat buffer"}
+{"id": "pkg_0248", "capability": "imports the necessary modules, classes, and functions from the `apache-airflow-backport-providers-snowflake` package to use its functionality in an Apache Airflow DAG"}
+{"id": "pkg_0249", "capability": "customizes the Django Admin interface for the models `Edit`, `ForeignKey`, `ManyToManyField`, and `CharField` by incorporating jQuery UI Autocomplete functionality"}
+{"id": "pkg_0250", "capability": "imports the necessary libraries and parses a feed from a given URL or file, handling RSS 0.9x, RSS 1.0, RSS 2.0, CDF, Atom 0.3, and Atom 1.0 formats"}
+{"id": "pkg_0251", "capability": "imports the necessary modules, sets up configuration options, and defines a configurable object using the Oslo Configuration API"}
+{"id": "pkg_0252", "capability": "creates a configuration system that allows users to manage application settings through a simple and intuitive interface, using a YAML configuration file and providing support for multiple environments"}
+{"id": "pkg_0253", "capability": "creates an interactive visualization of a Brunel diagram for Jupyter/IPython notebooks using Plotly library"}
+{"id": "pkg_0254", "capability": "imports the necessary modules and sets up an Azure CLI namespace using the `azure.cli` module, similar to the Microsoft Azure CLI Namespace Package"}
+{"id": "pkg_0255", "capability": "imports the requests library and creates a CircleCI API wrapper class with methods for authentication, retrieving job statuses, and posting build jobs"}
+{"id": "pkg_0256", "capability": "imports the Zstandard compression library and uses it to compress and decompress data in a manner similar to the bz2/lzma/zlib modules"}
+{"id": "pkg_0257", "capability": "imports the necessary libraries and defines a set of vectorized geospatial functions using NumPy, including calculations such as distances, angles, and projections between geometric objects like points, lines, and polygons"}
+{"id": "pkg_0258", "capability": "uses the pyobjc library to wrap the MapKit framework on macOS, allowing developers to create maps and map-related applications using Python"}
+{"id": "pkg_0259", "capability": "imports the Wikipedia API library and uses it to retrieve information from Wikipedia articles, including article titles, content, and links to other articles"}
+{"id": "pkg_0260", "capability": "creates a package named `packager` that takes a package name as input and packages the package into a tarball file, which can then be installed using pip"}
+{"id": "pkg_0261", "capability": "implements a module to deprecate Zope components, including a decorator to mark deprecated functions and a logger to log deprecation warnings"}
+{"id": "pkg_0262", "capability": "imports the necessary libraries for deep learning and creates a simple neural network using a functional programming style"}
+{"id": "pkg_0263", "capability": "creates a Django app with custom model, view, template, and URL configurations for a smart object creation facility"}
+{"id": "pkg_0264", "capability": "imports the bcrypt library and uses it to hash and derive keys for password storage and authentication"}
+{"id": "pkg_0265", "capability": "imports the necessary libraries and creates an interactive command line interface using the prompt_toolkit library, allowing users to input commands and receive responses based on the entered input"}
+{"id": "pkg_0266", "capability": "imports the necessary libraries and creates a Kafka client object to produce and consume messages in an Apache Kafka cluster"}
+{"id": "pkg_0267", "capability": "imports the necessary libraries and uses them to split, merge, crop, and transform PDF files"}
+{"id": "pkg_0268", "capability": "implements the AES block-cipher and common modes of operation using pure Python, without any external libraries or dependencies"}
+{"id": "pkg_0269", "capability": "performs factor analysis on a dataset using the PCA module and visualizes the results with matplotlib"}
+{"id": "pkg_0270", "capability": "imports the `pip` module and uses its functions to install a package from the PyPI repository, such as `pip install requests`"}
+{"id": "pkg_0271", "capability": "imports the libssh2 C library and provides a Python interface for accessing its functionality, including methods for connecting to remote servers, authenticating users, and executing commands over SSH"}
+{"id": "pkg_0272", "capability": "imports the necessary modules from the AVFoundation framework and creates classes that wrap the corresponding iOS frameworks, allowing developers to interact with the frameworks using Python instead of Objective-C"}
+{"id": "pkg_0273", "capability": "imports the necessary modules for interacting with the Google Logging API, creates a client object for the API, and logs a message to a specified log bucket"}
+{"id": "pkg_0274", "capability": "connects to an AWS RDS PostgreSQL database using Psycopg2 and performs CRUD operations on a sample table"}
+{"id": "pkg_0275", "capability": "imports the `jsonschema` library and uses it to validate a JSON document against a JSON schema, raising a `ValidationError` if there are any validation errors"}
+{"id": "pkg_0276", "capability": "uses the Pact framework to create and verify consumer-driven contracts by implementing the following functions: `create_contract`, `verify_contract`, and `generate_test_cases`"}
+{"id": "pkg_0277", "capability": "imports the necessary libraries, sets up an connection to an Artifactory instance, and uses the Artifactory REST API to perform CRUD operations on artifacts and repositories"}
+{"id": "pkg_0278", "capability": "uses the openpyxl library to write data to an Excel file in xlsx format, with support for both Python 2 and 3"}
+{"id": "pkg_0279", "capability": "imports libsndfile, CFFI, and NumPy, and uses them to manipulate audio files"}
+{"id": "pkg_0280", "capability": "imports the necessary libraries and sets up authentication with Azure Purview and Atlas, allowing you to interact with the Apache Atlas REST APIs for data lineage, governance, and management"}
+{"id": "pkg_0281", "capability": "implements a McCabe checker plugin for flake8, which checks for cyclomatic complexity in Python code and reports violations of a specified threshold as errors"}
+{"id": "pkg_0282", "capability": "imports and uses the `paramiko` library to connect to a remote server via SSH and perform various management tasks, such as creating and managing user accounts, updating server configurations, and monitoring system logs"}
+{"id": "pkg_0283", "capability": "minifies JavaScript code by removing unnecessary characters and whitespace, and optionally compressing variables and functions, using a library such as UglifyJS"}
+{"id": "pkg_0284", "capability": "parses and uses crontab schedules using the `crontab` module, which provides a convenient way to work with cron schedules in Python"}
+{"id": "pkg_0285", "capability": "imports the necessary libraries to interact with OLE2 files, such as `pyole2` or `pymssql`, and then use those libraries to parse, read, and write OLE2 files"}
+{"id": "pkg_0286", "capability": "uses the pyinfra library to define infrastructure as code and perform static analysis on it, raising alerts for any violations of best practices or potential issues"}
+{"id": "pkg_0287", "capability": "imports the requests library, sends an HTTP request to a specified URL, and handles potential errors by printing a custom error message if an SSL certificate is invalid or if the request times out"}
+{"id": "pkg_0288", "capability": "implements a distributed lock using Redis as the backend store, allowing for efficient and secure synchronization of access to shared resources among concurrent processes or threads"}
+{"id": "pkg_0289", "capability": "imports the necessary libraries and provides a simple wrapper around the OpenDirectory framework on macOS, allowing users to easily interact with the directory service from their Python scripts"}
+{"id": "pkg_0290", "capability": "creates an AWS CloudWatch alarm that triggers an action when a threshold is met, using the AWS CDK library"}
+{"id": "pkg_0291", "capability": "creates a CDK construct for an AWS Route53 resource, allowing developers to define declarative infrastructure for DNS zones, records, and related resources in their AWS environment"}
+{"id": "pkg_0292", "capability": "imports the necessary modules, configures an HTTP provider, and uses it to send an HTTP request to a specified URL"}
+{"id": "pkg_0293", "capability": "imports the CUDA runtime library and uses it to perform GPU-accelerated linear algebra operations, similar to the CUBLAS native runtime libraries"}
+{"id": "pkg_0294", "capability": "imports the required libraries and sets up authentication with OpenStack Identity services, allowing for management of users, groups, roles, and access control lists"}
+{"id": "pkg_0295", "capability": "imports the necessary libraries and creates a client object for interacting with the Google Cloud BigQuery Storage API, allowing users to list, create, update, and delete datasets, tables, and other BigQuery resources"}
+{"id": "pkg_0296", "capability": "imports the necessary modules for console printing and formatting, such as `print()` and `str.format()`, and provides a simple interface for users to print formatted messages to the console"}
+{"id": "pkg_0297", "capability": "uses the `contextlib` module to create a context manager that captures C-level output, similar to the `capture` function from the `unittest.mock` module, but for use outside of unit tests"}
+{"id": "pkg_0298", "capability": "implements a productivity-centric Python big data framework by combining modular components for data ingestion, processing, and visualization, leveraging popular libraries like Apache Beam, Apache Spark, and Matplotlib"}
+{"id": "pkg_0299", "capability": "imports the necessary libraries and creates a wrapper class for interacting with CloudKit on macOS, similar to the wrappers provided by the CloudKit framework"}
+{"id": "pkg_0300", "capability": "creates an asynchronous web scraping service using async-await and BeautifulSoup to scrape data from websites and save it to a MongoDB database"}
+{"id": "pkg_0301", "capability": "reads and writes files in the Jupyter Notebook format, allowing users to create, edit, and share documents containing live code, equations, visualizations, and narrative text"}
+{"id": "pkg_0302", "capability": "implements a fast and scalable distributed SCM system using the Git library, allowing users to manage and track changes to their codebase across multiple branches and repositories"}
+{"id": "pkg_0303", "capability": "creates a custom authentication backend for Django to keep track of failed login attempts, storing the data in a database and implementing rate limiting"}
+{"id": "pkg_0304", "capability": "imports and uses the necessary libraries to perform elegant astronomy calculations, such as calculating the positions of celestial bodies, determining the time of celestial events, and converting between different coordinate systems"}
+{"id": "pkg_0305", "capability": "imports the necessary libraries and creates an instance of the FTP client class, allowing for interaction with a remote FTP server and providing a virtual file system interface for manipulating files"}
+{"id": "pkg_0306", "capability": "uses the ast module to parse Python source code and checks for various issues such as unused variables, unnecessary imports, and redundant code"}
+{"id": "pkg_0307", "capability": "imports the necessary modules and creates a wrapper function for the FSEvents framework on macOS, allowing users to easily integrate file system event monitoring into their applications"}
+{"id": "pkg_0308", "capability": "imports the datetime module and creates a datetime object for the current date and time, allowing you to easily work with dates and times in your Python programs"}
+{"id": "pkg_0309", "capability": "imports the necessary modules and creates a wrapper class for the SyncServices framework on macOS, providing a simple interface for accessing the framework's functionality"}
+{"id": "pkg_0310", "capability": "creates a GUI application using PyQt5 and QML, including a custom plugin for data visualization and a designer plugin for creating and editing UI components"}
+{"id": "pkg_0311", "capability": "uses libraries like Pandas and NumPy to clean, transform, and preprocess tabular data, handling missing values, outliers, and data normalization, and outputs ready-to-use data frames for machine learning models"}
+{"id": "pkg_0312", "capability": "creates a command line interface using the argparse module, allowing users to define commands and arguments, and handling command-line parsing and error handling"}
+{"id": "pkg_0313", "capability": "defines a common interface for data container classes, including methods for adding, removing, and accessing elements, as well as a method to iterate over the contents of the container, using the ABC module"}
+{"id": "pkg_0314", "capability": "uses the Azure Artifacts API to automatically retrieve credentials for authenticating with Azure Artifacts"}
+{"id": "pkg_0315", "capability": "imports the necessary libraries and creates an object to interact with the Epidata API, similar to the interface provided by the Delphi programming language"}
+{"id": "pkg_0316", "capability": "imports the necessary libraries and sets up a log and progress bar manager for use in various environments, such as consoles, notebooks, and web applications"}
+{"id": "pkg_0317", "capability": "imports the necessary libraries and creates an instance of the AzureDataTableClient class, allowing you to interact with Azure Table Storage"}
+{"id": "pkg_0318", "capability": "uses the \"task\" module to define and execute a series of tasks, each with its own name, function, and arguments, and allows for dependencies between tasks to be specified using the \"depends_on\" keyword argument"}
+{"id": "pkg_0319", "capability": "implements a generic, spec-compliant, and thorough OAuth request-signing logic using the `requests` library and the `hmac` module for computing signatures"}
+{"id": "pkg_0320", "capability": "simplifies the process of building web APIs in Django by providing an easy-to-use interface for defining and handling API views, routing, authentication, and serialization"}
+{"id": "pkg_0321", "capability": "uses the `ast` module to parse Python source code and checks for print statements that are not part of a debug statement, raising an error if any are found"}
+{"id": "pkg_0322", "capability": "imports the necessary libraries and defines a shared API for binary quadratic model samplers, including functions for generating samples and calculating posterior summaries"}
+{"id": "pkg_0323", "capability": "imports the django.urls module, parses hostnames from URLs using the urlparse library, maps hostnames to URLconfs using a dictionary, and raises a Http404 error if no matching URLconf is found"}
+{"id": "pkg_0324", "capability": "imports the requests library and uses it to make HTTP requests to a Swagger-enabled API, parsing the API's documentation and generating client code for interacting with the API"}
+{"id": "pkg_0325", "capability": "imports TensorFlow and uses its probabilistic modeling and statistical inference capabilities to perform Bayesian linear regression, Gaussian mixture models, and KL divergence calculation"}
+{"id": "pkg_0326", "capability": "imports the necessary libraries and creates a unified framework for machine learning with time series data, including data preprocessing, feature engineering, model selection, training, validation, and forecasting"}
+{"id": "pkg_0327", "capability": "imports the necessary libraries and creates an instance of the AzureServiceLinkerManagementClient class to interact with Microsoft Azure Service Linker resources"}
+{"id": "pkg_0328", "capability": "imports the necessary libraries and creates a LightFM recommendation model using the Surprise library, which can handle implicit feedback data and provides a high-quality ranking of recommended items for users"}
+{"id": "pkg_0329", "capability": "uses the mbed-os-tools library to interact with Mbed OS, including building, testing, and working with Mbed OS projects"}
+{"id": "pkg_0330", "capability": "implements JOSE (JavaScript Object Signing and Encryption) using the `cryptography` library to sign and encrypt data, and the `requests` library to send HTTP requests"}
+{"id": "pkg_0331", "capability": "imports the configparser module and creates a configuration hierarchy with sections and options that can be easily accessed and modified using a dot notation"}
+{"id": "pkg_0332", "capability": "implements a component-based architecture for building web applications, using a combination of classes, modules, and interfaces to define components and their relationships"}
+{"id": "pkg_0333", "capability": "implements JOSE (JSON Web Tokens, JSON Web Signature, and JSON Web Encryption) using pycryptodome, including functions for generating and verifying tokens, signing and verifying signatures, and encrypting and decrypting data"}
+{"id": "pkg_0334", "capability": "sets the process title using the `psutil` library, allowing for customization of the title format and color"}
+{"id": "pkg_0335", "capability": "imports the necessary modules to read GCS, ABS, and local paths with the same interface as tensorflow.io.gfile, using the clone method to replicate the functionality of tensorflow.io.gfile"}
+{"id": "pkg_0336", "capability": "imports the necessary libraries and sets up an asynchronous Prometheus client using the aiohttp library, allowing for efficient monitoring of Prometheus metrics in an asyncio-based application"}
+{"id": "pkg_0337", "capability": "imports the necessary libraries and creates an Elastic Load Balancer using the CDK Construct Library for AWS, specifying the load balancer's name, security group, subnet, and type"}
+{"id": "pkg_0338", "capability": "imports the required packages for schema validation using Tentaclio, such as `tentaclio` and any additional dependencies, and sets up the necessary configurations for validating data against a schema in an S3 bucket"}
+{"id": "pkg_0339", "capability": "integrates Select2 into a Django application, allowing users to search and select items from a database table, using the Select2 widget in forms and templates"}
+{"id": "pkg_0340", "capability": "sets up a development environment for fastai similar to the Python supercharged package, including installing necessary dependencies, setting up directories, and configuring Jupyter Notebook settings"}
+{"id": "pkg_0341", "capability": "imports the necessary modules and defines stub functions for the urllib3 module, similar to how it is done in the `unittest` module, so that the stubs can be used to mock out HTTP requests in unit tests"}
+{"id": "pkg_0342", "capability": "uses the Swagger specification to create a client runtime for interacting with Azure services, utilizing the AutoRest tooling and the Azure-specific module"}
+{"id": "pkg_0343", "capability": "imports the MongoEngine module and creates a document model with fields for title, author, and content using the Meta class"}
+{"id": "pkg_0344", "capability": "creates a GraphQL mutation resolver using Graphene Django or Flask-Graphql, allowing users to upload files and store them in a specified directory, while also validating the uploaded files against a set of defined rules"}
+{"id": "pkg_0345", "capability": "implements a WebPush publication library, allowing users to send push notifications to subscribed clients via the WebPush protocol"}
+{"id": "pkg_0346", "capability": "creates a Cloud Development Kit (CDK) construct for an Amazon DynamoDB table, complete with attributes like table name, attribute definitions, primary index, and backup settings"}
+{"id": "pkg_0347", "capability": "imports the necessary libraries and sets up an instance of the SpotifyWebAPI class, which can be used to interact with the Spotify Web API"}
+{"id": "pkg_0348", "capability": "imports the required libraries and sets up a gRPC connection to the Google Cloud Datastore API, allowing for data retrieval and manipulation through the usage of gRPC methods"}
+{"id": "pkg_0349", "capability": "defines a schema for common machine learning applications and provides a set of decorators for web-based ML prediction applications"}
+{"id": "pkg_0350", "capability": "creates an experiment manager and version control system for AI models using TensorFlow, Git, and Docker"}
+{"id": "pkg_0351", "capability": "creates a set of MyPy stubs for Django, allowing for static type checking of Django's models, views, and templates"}
+{"id": "pkg_0352", "capability": "imports the pyfakefs module and creates a fake file system that can be used to mock the Python file system modules"}
+{"id": "pkg_0353", "capability": "creates a set of reusable Django model mixins and utilities for common data validation, filtering, and manipulation tasks, such as timestamped models, soft deletion, and related entity handling"}
+{"id": "pkg_0354", "capability": "uses the `behave` library to implement behavior-driven development for a given project, including defining test cases and steps, running tests, and reporting on test results"}
+{"id": "pkg_0355", "capability": "imports the necessary libraries and uses the `napari` library to read and write SVG files, allowing users to interact with the data and visualize it in 3D"}
+{"id": "pkg_0356", "capability": "imports the necessary libraries and uses the PyPSD module to read and manipulate PSD files, allowing users to access and modify layers, pixels, and other elements within the images"}
+{"id": "pkg_0357", "capability": "imports the necessary libraries and sets up an API connection to the Salesforce Marketing Cloud Fuel SDK, allowing for the creation, management, and analysis of marketing campaigns and customer interactions"}
+{"id": "pkg_0358", "capability": "creates a logo for a biological sequence using the WebLogo library, which provides a similar functionality to the R Bioconductor `seqlogo` package"}
+{"id": "pkg_0359", "capability": "imports the required libraries and creates a class that can turn functions and methods into fully controllable objects, allowing for easier testing and manipulation of function calls"}
+{"id": "pkg_0360", "capability": "imports the os module and uses its functions to easily access environment variables, including string, boolean, list, tuple, and dictionary types, and supports nested dictionaries"}
+{"id": "pkg_0361", "capability": "parses TOML-0.4.0 files and extracts the data using the `toml` library, raising a `SyntaxError` if the file is not well-formed"}
+{"id": "pkg_0362", "capability": "imports the necessary libraries and sets up an Amazon S3 compatible cloud storage connection using the MinIO Python SDK"}
+{"id": "pkg_0363", "capability": "imports the necessary libraries and sets up an API client for interacting with Cognite data sources, including authentication and configuration options"}
+{"id": "pkg_0364", "capability": "imports the necessary libraries and creates a pandas DataFrame with sample data for demonstrating SQL system data types using BigQuery and Spanner"}
+{"id": "pkg_0365", "capability": "uses libraries such as BeautifulSoup and lxml to create well-formed HTML, XHTML, and XML documents with ease"}
+{"id": "pkg_0366", "capability": "imports the necessary libraries, such as `iso8583` and `json`, and defines a function for serializing and deserializing ISO8583 data, leveraging the `iso8583.serialize()` and `iso8583.deserialize()` methods, respectively"}
+{"id": "pkg_0367", "capability": "imports the necessary libraries and creates an instance of the Google Cloud Dataform API client library, allowing you to interact with Google Cloud Dataform resources"}
+{"id": "pkg_0368", "capability": "implements a backport of the PEP 567 API for reproducible builds, including a custom build backend for reproducible builds and a hook for adding reproduceable build information to wheel files"}
+{"id": "pkg_0369", "capability": "imports the necessary modules and creates a SQLAlchemy dialect for interacting with Teradata databases using the Teradata SQL driver"}
+{"id": "pkg_0370", "capability": "compares two texts and finds their differences, then creates a patch file that can be applied to the original text to produce the modified text"}
+{"id": "pkg_0371", "capability": "imports the necessary modules and configures an Apache Airflow provider to interact with Slack, allowing users to create Slack messages and post them to specified channels using Airflow tasks"}
+{"id": "pkg_0372", "capability": "implements an SSH2 protocol library, allowing for secure remote access and file transfers using the SSH2 protocol"}
+{"id": "pkg_0373", "capability": "parses SNMP SMI/MIB files and extracts information about the managed objects, their attributes, and their relationships"}
+{"id": "pkg_0374", "capability": "implements an async JSON-RPC 2.0 protocol and server using asyncio, allowing for asynchronous handling of remote procedure calls and responses"}
+{"id": "pkg_0375", "capability": "wraps the SentencePiece model in a convenient API for tokenizing sentences, retrieving sentence lengths, and generating sentence pieces"}
+{"id": "pkg_0376", "capability": "extends the Sphinx documentation generator to support rendering OpenStack-specific documentation, including a custom theme and layout"}
+{"id": "pkg_0377", "capability": "creates a simple GUI window using EasyGUI, including a text input field, a button to submit user input, and a label to display the output"}
+{"id": "pkg_0378", "capability": "imports the necessary libraries and creates a conjurer object to interact with the Conjure API for creating, reading, updating, and deleting entities in a PostgreSQL database"}
+{"id": "pkg_0379", "capability": "imports the RQ library and creates a background job queue, allowing you to enqueue jobs and process them in the background, with the ability to handle failures and retrieve job results"}
+{"id": "pkg_0380", "capability": "imports the necessary modules and defines a class similar to the ipaddress module in Python 3, allowing for the manipulation and conversion of IP addresses"}
+{"id": "pkg_0381", "capability": "imports the necessary modules and creates a basic GUI window using the Qt application toolkit, demonstrating the ability to create a user interface and interact with it programmatically"}
+{"id": "pkg_0382", "capability": "imports the necessary libraries and creates an instance of the Azure Container Service Management client, allowing you to manage container clusters, create and delete containers, and scale container instances"}
+{"id": "pkg_0383", "capability": "formats timestamps, filesizes, and numbers using units of measurement, converts date and time to human-readable formats, and simplifies decimal numbers"}
+{"id": "pkg_0384", "capability": "parses a robots.txt file using a pure-python implementation, supporting modern conventions, and returns a dictionary containing the parsed rules"}
+{"id": "pkg_0385", "capability": "uses the `re` module to create regular expressions for parsing and manipulating JSON data, and the `json` module to convert between Python objects and JSON strings"}
+{"id": "pkg_0386", "capability": "creates a simple configuration class with support for loading configurations from JSON, YAML, or environment variables using a consistent API"}
+{"id": "pkg_0387", "capability": "defines a schema for core metadata, including title, author, date created, and custom fields, using the `typing` module and validating the schema using `jsonschema`"}
+{"id": "pkg_0388", "capability": "imports the Django middleware module, creates a new middleware class that captures the current request and user, and uses the `django.contrib.auth` module to retrieve the authenticated user"}
+{"id": "pkg_0389", "capability": "imports the `graphql-tag` library and uses it to define a GraphQL schema, create a client, and execute a query"}
+{"id": "pkg_0390", "capability": "parses durations in human-friendly format, such as \"2 weeks\" or \"3h\", and returns the equivalent timestamp value, using a context-aware approach that understands the nuances of natural language"}
+{"id": "pkg_0391", "capability": "imports the requests library and uses it to make HTTP GET, POST, PUT, and DELETE requests to the Salesforce REST API, authenticating using a provided access token, and parsing the JSON responses into Python objects"}
+{"id": "pkg_0392", "capability": "creates a suite of visual analysis and diagnostic tools for machine learning, including data visualization, feature engineering, model interpretation, and performance evaluation"}
+{"id": "pkg_0393", "capability": "uses BeautifulSoup to extract all the text elements from an HTML file and print them to the console"}
+{"id": "pkg_0394", "capability": "imports the necessary modules and converts Python values to C bit fields structs represented as Python byte strings, and vice versa, using the struct module and bytearray class"}
+{"id": "pkg_0395", "capability": "implements an OAuth version 1.0a library, providing functions for users to authenticate with a service provider and obtain access tokens to access protected resources"}
+{"id": "pkg_0396", "capability": "uses the ast module to parse a Python script, and then calls the respective tools to analyze the parsed AST, finally aggregating the results into a single report"}
+{"id": "pkg_0397", "capability": "imports the rust-decompress crate and uses its functions to decompress files, or use the rust-compress crate to compress files"}
+{"id": "pkg_0398", "capability": "imports the necessary libraries and sets up a basic structure for using Google Visualization tools in a Python application, similar to the functionality provided by the Python API for Google Visualization package"}
+{"id": "pkg_0399", "capability": "imports the requests library and uses its session object to make HTTP requests while respecting rate limits specified in a configuration file"}
+{"id": "pkg_0400", "capability": "imports the necessary libraries and creates a wrapper function for each PhotosUI method, allowing you to interact with the Photos app on a Mac using Python"}
+{"id": "pkg_0401", "capability": "builds a virtual environment for Python projects using the `venv` module, creating a self-contained directory tree with the selected Python version and necessary dependencies"}
+{"id": "pkg_0402", "capability": "imports the required libraries and creates an editable interval tree data structure, allowing for efficient insertion, deletion, and querying of intervals"}
+{"id": "pkg_0403", "capability": "uses the `protobuf` library to generate classes and methods for a gRPC service, based on a `.proto` file definition"}
+{"id": "pkg_0404", "capability": "uses the youtube-dl library to download YouTube videos and extract metadata such as title, author, and thumbnail"}
+{"id": "pkg_0405", "capability": "imports the ctypes module and uses it to interface with PAM (Pluggable Authentication Modules) to manage user authentication, password management, and session management for a Unix-like system"}
+{"id": "pkg_0406", "capability": "takes a string as input and returns its inflectional forms, such as singular, plural, and gender-specific forms, using a dataset of predefined inflection rules"}
+{"id": "pkg_0407", "capability": "implements a recursive descent parser using functional combinators to parse strings and produce abstract syntax trees"}
+{"id": "pkg_0408", "capability": "implements a minimal snowplow event tracker for Python using the Snowplow Analytics platform, including tracking events in Django apps, web applications, and games"}
+{"id": "pkg_0409", "capability": "converts between different document formats, such as Markdown, LaTeX, and HTML, using the pandoc library"}
+{"id": "pkg_0410", "capability": "parses the GDB machine interface output using the `subprocess` module to run GDB and capture its output, then uses regular expressions or parsing libraries like `pyparsing` or `ast` to extract relevant information from the output"}
+{"id": "pkg_0411", "capability": "creates a composable command line interface toolkit by defining modular, reusable commands and implementing a framework for combining them into more complex workflows"}
+{"id": "pkg_0412", "capability": "implements a support library for the Humanitarian Exchange Language (HXL) using the HXL standard, providing tools for data manipulation, transformation, and serialization in accordance with the HXL specifications"}
+{"id": "pkg_0413", "capability": "implements a hierarchical clustering algorithm using the information theory framework, such as the AgglomerativeClustering class in scikit-learn, taking in a dataset and returning a hierarchy of clusters"}
+{"id": "pkg_0414", "capability": "provides a set of utility functions for performing common click-related tasks, including clicking on elements, simulating mouse events, and handling click event listeners"}
+{"id": "pkg_0415", "capability": "uses PySpark to perform distributed time-series analysis on a Spark cluster, including data loading, cleaning, aggregation, and visualization"}
+{"id": "pkg_0416", "capability": "imports the necessary modules for creating a GUI application using the Qt framework, creates a window with a widget, and handles user input events"}
+{"id": "pkg_0417", "capability": "imports the necessary modules and creates a simple wrapper around the InputMethodKit framework on macOS, allowing for basic input method management operations such as enabling, disabling, and switching input methods"}
+{"id": "pkg_0418", "capability": "imports the necessary modules for sending emails using the modern Python library for emails"}
+{"id": "pkg_0419", "capability": "imports the necessary libraries and classes to interact with IBM Cloud Services, such as `ibmc_sdk` and `ibm_cloud_sdk`, and includes functions to perform common tasks like authentication, service management, and resource retrieval"}
+{"id": "pkg_0420", "capability": "implements a mercantile system with features for managing inventory, tracking orders, and generating invoices, using modular design principles for easy extensibility"}
+{"id": "pkg_0421", "capability": "imports the necessary libraries and sets up authentication with Google APIs to interact with Google Sheets, Drive, and Calendar through their respective APIs"}
+{"id": "pkg_0422", "capability": "uses the `exec` function to execute a JavaScript minification script, passing in the source code as a string and writing the minimized output to a file"}
+{"id": "pkg_0423", "capability": "imports the JDBC database driver using the `jdbc` module in Python 2/3 or Jython, creates a connection to a database using the driver, and executes a SQL query using the `cursor` object"}
+{"id": "pkg_0424", "capability": "uses the Paramiko library to connect to a remote server via SSH and perform various file transfer operations, such as uploading and downloading files, using the SFTP protocol"}
+{"id": "pkg_0425", "capability": "imports the necessary libraries and creates a function that takes a message type and returns a dictionary representing a ROS message structure, with keys corresponding to the message's fields and values set to their default values"}
+{"id": "pkg_0426", "capability": "instruments SQLAlchemy database operations using OpenTelemetry tracing API, including setting up trace context propagation and span creation for outbound requests"}
+{"id": "pkg_0427", "capability": "imports the Facebook PDQ hash library and creates a PDQ hash object to store and retrieve data"}
+{"id": "pkg_0428", "capability": "imports and uses the Cyrus-SASL library to provide Simple Authentication Service (SASL) authentication mechanisms for Python applications, including support for multiple SASL mechanisms such as DIGEST-MD5, CRAM-MD5, and ANONYMOUS"}
+{"id": "pkg_0429", "capability": "uses the `pytest` framework to write test reports in JSON format, using the `json` module to serialize the reports"}
+{"id": "pkg_0430", "capability": "implements a modern theme for the Django admin interface, using Bootstrap 4 and Font Awesome, including a customizable layout and styling options"}
+{"id": "pkg_0431", "capability": "imports Flask, MongoEngine, and WTF, and creates a Flask application with MongooEngine support and WTF model forms"}
+{"id": "pkg_0432", "capability": "uses the argparse module to parse command-line arguments in a natural way, while also providing a simple and intuitive API for defining and manipulating arguments"}
+{"id": "pkg_0433", "capability": "uses astroid to parse Python source files, and checks for \"blind\" except statements (i.e., except clauses without an associated exception type) and reports any violations found using pycodestyle's reporting mechanism"}
+{"id": "pkg_0434", "capability": "creates a high-level Twisted HTTP client API that allows users to send HTTP requests and handle responses in a simple, synchronous way, using the Twisted library for asynchronous I/O"}
+{"id": "pkg_0435", "capability": "uses the pytest framework to create data-driven tests with decorators for parameterized testing, fixtures, and test setup/teardown"}
+{"id": "pkg_0436", "capability": "defines a module with a small personal collection of utility functions, such as string formatting, file reading and writing, and data structure manipulation"}
+{"id": "pkg_0437", "capability": "imports the necessary libraries and sets up a headless Chrome instance for automation using the unofficial port of Puppeteer"}
+{"id": "pkg_0438", "capability": "imports the necessary libraries and creates a Treasure Data Driver instance to interact with a Treasure Data warehouse, allowing you to execute SQL queries, create and manage tables, and perform other data management operations"}
+{"id": "pkg_0439", "capability": "creates an embedded database using DuckDB, allowing for efficient data storage and querying within a single binary"}
+{"id": "pkg_0440", "capability": "creates an empty list called `aiosignal` to store registered asynchronous callbacks, and uses the `async def` syntax to define a decorator function that takes in a function argument and appends it to the `aiosignal` list"}
+{"id": "pkg_0441", "capability": "imports the necessary libraries and creates an instance of the AzureStorageClient class, allowing you to interact with Azure Storage accounts programmatically"}
+{"id": "pkg_0442", "capability": "uses a face recognition library such as OpenCV or scikit-image to detect and recognize faces in images or videos, either interactively or from the command line"}
+{"id": "pkg_0443", "capability": "uses the `Flask` framework to create an asset manager that compresses and merges CSS and JavaScript files, using the `cssmin` and `uglifyjs` libraries"}
+{"id": "pkg_0444", "capability": "imports the systemd library and provides a convenient interface for interacting with systemd services, units, and daemons"}
+{"id": "pkg_0445", "capability": "uses the `subprocess` module to run the `gcov` command on a given C/C++ program, capturing the output and parsing it to extract code coverage information"}
+{"id": "pkg_0446", "capability": "parses Pip requirement files using the `ast` module to parse the JSON data and extract the required packages and their versions"}
+{"id": "pkg_0447", "capability": "imports the necessary modules and creates classes to wrap the CoreMedia frameworks on macOS, providing a simpler interface for developers to interact with the system's media capabilities"}
+{"id": "pkg_0448", "capability": "wraps the CoreBluetooth framework on macOS, allowing for easy interaction with Bluetooth Low Energy devices from Python scripts and applications"}
+{"id": "pkg_0449", "capability": "imports the django-12factor package and sets up a Django application with 12factor-inspired environment variables for configuration"}
+{"id": "pkg_0450", "capability": "uses a dictionary to convert number words to numbers, like \"three hundred and forty two\" to 342"}
+{"id": "pkg_0451", "capability": "uses the xlrd and networkx libraries to read an Excel spreadsheet, convert its data into a graph structure, and visualize it using matplotlib"}
+{"id": "pkg_0452", "capability": "uses the AppKit and AddressBook frameworks to provide a user interface for managing contacts, similar to the functionality provided by ContactsUI on macOS"}
+{"id": "pkg_0453", "capability": "uses the `markdown` library to convert Markdown files in a project directory into HTML files, and includes a table of contents and links to external documentation"}
+{"id": "pkg_0454", "capability": "uses the kml module to read and parse KML files, and the geopy library to perform geometric calculations and convert between different coordinate systems"}
+{"id": "pkg_0455", "capability": "imports the necessary modules from the MXNet Gluon NLP Toolkit to perform various natural language processing tasks, such as tokenization, named entity recognition, part-of-speech tagging, and language modeling"}
+{"id": "pkg_0456", "capability": "imports the Enchant spellchecking system and provides bindings for its functions, allowing developers to integrate Enchant into their applications and perform spell checking on text input"}
+{"id": "pkg_0457", "capability": "imports the `jsonschema` library and uses it to validate a dictionary against a JSON schema"}
+{"id": "pkg_0458", "capability": "imports the necessary libraries and creates an efficient array of booleans using the NumPy library, which provides optimized array operations in C"}
+{"id": "pkg_0459", "capability": "uses the `hyperv` module to interact with Hyper-V virtual machines and networks in an OpenStack environment, similar to the `openstack-python-hyperv` package"}
+{"id": "pkg_0460", "capability": "creates an asynchronous concurrency framework using Tornado's IOLoop for efficient, non-blocking I/O operations and Backed Concurrent Futures for managing and scheduling concurrent tasks"}
+{"id": "pkg_0461", "capability": "imports the necessary modules and creates a wrapper class for the FinderSync framework on macOS, providing a simple interface for accessing its features and functionality"}
+{"id": "pkg_0462", "capability": "imports the required libraries and uses the `glob` module to search for files matching a specified pattern in a given directory, similar to the `re` module"}
+{"id": "pkg_0463", "capability": "imports the MySQL Connector library and creates a connection to a MySQL database using a given host, username, password, and database name"}
+{"id": "pkg_0464", "capability": "parses, compares, and formats date and time strings using natural language syntax, such as \"2015-06-11\" or \"in 3 hours\", with support for durations, time zones, and automatic handling of daylight savings time"}
+{"id": "pkg_0465", "capability": "creates an AWS Lambda function using the `lambda` module, and sets up an API endpoint using API Gateway, including a simple \"Hello World\" response"}
+{"id": "pkg_0466", "capability": "uses the `setuptools` library to create a package that can be installed via `pip`, including a setup script and a `MANIFEST.in` file, which will allow IPython notebook extension authors to distribute their extensions easily"}
+{"id": "pkg_0467", "capability": "implements a caching mechanism for a computational task, taking into account the costs of computation and storage, using a suitable data structure such as a dictionary or a cache library like joblib or scikit-learn's cache"}
+{"id": "pkg_0468", "capability": "sends an HTTP request to a specified URL and returns the response as a dictionary, including the headers and body of the response"}
+{"id": "pkg_0469", "capability": "defines a meta-class for generating interfaces with enforced method signatures and consistent documentation, using the `abc` module and docstrings to define the interface and its methods"}
+{"id": "pkg_0470", "capability": "uses the `wasmer` package to compile a WebAssembly module into a native binary using the Cranelift compiler"}
+{"id": "pkg_0471", "capability": "uses the requests library to send a POST request to the Mozilla blobber server, including the blob data in the request body, and prints the response status code"}
+{"id": "pkg_0472", "capability": "implements a polyfill package for Flake8 plugins by defining a set of functions that mimic the behavior of the missing plugins, allowing Flake8 to run without errors when encountering plugins that are not installed"}
+{"id": "pkg_0473", "capability": "creates a Flask API that serves time-series data from a PostgreSQL database to Altair charts frontend via RESTful APIs"}
+{"id": "pkg_0474", "capability": "imports the Thrift library and creates a TSaslClientTransport instance, allowing for SASL transport-level security when communicating with a Thrift server"}
+{"id": "pkg_0475", "capability": "creates a serverless function using Azure Functions, which can be triggered by HTTP requests, message queues, or other events, and scales automatically to handle large workloads without any infrastructure management required"}
+{"id": "pkg_0476", "capability": "uses randomization and string manipulation to produce valid, yet fake, credit card numbers, expiration dates, and security codes, while adhering to the Luhn check and other industry-standard validation rules"}
+{"id": "pkg_0477", "capability": "uses the requests library to send HTTP requests and the gevent library to manage concurrent connections, allowing for efficient and scalable API interactions"}
+{"id": "pkg_0478", "capability": "imports the Brotli library and provides a simple interface for compressing and decompressing data using the Brotli algorithm"}
+{"id": "pkg_0479", "capability": "creates a Django application and library for importing and exporting data with included admin integration, utilizing Django's built-in admin interface for managing data imports and exports"}
+{"id": "pkg_0480", "capability": "implements custom class-based views for Django, including render methods, URL patterns, and any necessary templates or forms, using Django's built-in view functionality as a starting point"}
+{"id": "pkg_0481", "capability": "imports the required libraries and creates an instance of aiohttp.ClientSession, which can be used to send GraphQL queries and retrieve responses asynchronously"}
+{"id": "pkg_0482", "capability": "parses a string using the same logic as the `format()` function, but in reverse"}
+{"id": "pkg_0483", "capability": "uses the `pytest` framework to create a custom test runner that runs tests in a specific order, defined by a list of test names or patterns, by implementing a plugin that modifies the default test collection mechanism"}
+{"id": "pkg_0484", "capability": "creates a FastAPI application with reusable utilities for handling common tasks such as pagination, filtering, and authentication"}
+{"id": "pkg_0485", "capability": "wraps the Trace.moe API into a convenient Python module, allowing users to easily interact with the Trace.moe service and retrieve information about Minecraft traces"}
+{"id": "pkg_0486", "capability": "refactors code by analyzing code, identifying repeated code, and replacing it with reuseable code"}
+{"id": "pkg_0487", "capability": "imports the necessary libraries and uses the Microsoft Azure Advisor Client Library for Python to interact with Azure Advisor and retrieve recommendations for optimizing Azure resources"}
+{"id": "pkg_0488", "capability": "implements an OpenTelemetry exporter using the OpenTelemetry Python Protocol"}
+{"id": "pkg_0489", "capability": "imports the required libraries and modules, and uses the pow() function to raise 2 to the power of 3"}
+{"id": "pkg_0490", "capability": "implements a set of Superlance plugins for Supervisord, which provide additional functionality for managing and monitoring processes, including job scheduling, resource management, and customizable workflows"}
+{"id": "pkg_0491", "capability": "uses the `lxml` library to validate an XML file against an XSD schema and decode the XML data into a Python object"}
+{"id": "pkg_0492", "capability": "imports the botto3 library and adds type hints for its functions, classes, and variables, allowing for code completion in IDEs like PyCharm"}
+{"id": "pkg_0493", "capability": "uses the `subprocess` module to create a new Git repository in the current directory, initializes the repository with a `.git` folder, and adds all files in the current directory to the repository"}
+{"id": "pkg_0494", "capability": "uses the google-api-python-client library to create, manage, and deploy APIs using the Google Endpoints API management platform"}
+{"id": "pkg_0495", "capability": "imports necessary libraries, defines classes and functions for simulating PV system performance, and returns results like power output, energy production, and financial analysis"}
+{"id": "pkg_0496", "capability": "creates an Amazon S3 Transfer Manager using the Boto3 library, allowing you to manage and automate data transfers between your local machine and Amazon S3 buckets"}
+{"id": "pkg_0497", "capability": "imports the necessary libraries and defines a class to interact with TI ZNP radios using Zigbee protocol, providing methods to send and receive data, and handle radio events"}
+{"id": "pkg_0498", "capability": "imports the needed modules for creating multisets and ordered sets, creates classes for Bag and SetList with appropriate methods, and provides examples of using these classes to demonstrate their functionality"}
+{"id": "pkg_0499", "capability": "creates a library for lightweight, throwaway instances of common databases, Selenium web browsers, or anything else that can run in a Docker container using Docker and Python's built-in libraries such as sqlite3, selenium, and docker"}
+{"id": "pkg_0500", "capability": "creates a DNS client that can perform various DNS operations such as querying DNS records, modifying DNS records, and testing DNS server connectivity"}
+{"id": "pkg_0501", "capability": "provides various utility functions for interactive computing, including printing tables, debugging, timing, and profiling, similar to the functionality offered by the Vestigial utilities from IPython"}
+{"id": "pkg_0502", "capability": "imports the os and shutil modules, and uses them to manipulate directories and files in the manner described by the twitter.common package"}
+{"id": "pkg_0503", "capability": "imports the necessary libraries and creates an AMQP connection to a RabbitMQ server, allowing you to send and receive messages using the AMQP protocol"}
+{"id": "pkg_0504", "capability": "imports the requests library, makes an HTTP GET request to the HSTS Preload List URL, parses the response as JSON, extracts the domain names from the HSTS entries, and saves them to a file in the format of a PEM certificate"}
+{"id": "pkg_0505", "capability": "implements a Jupyter protocol server and client library, allowing for interactive computing and data sharing between processes"}
+{"id": "pkg_0506", "capability": "creates a Junos automation script for non-programmers using the Juniper Networks' Junos OS, allowing them to easily configure network devices without needing extensive programming knowledge"}
+{"id": "pkg_0507", "capability": "uses the `numpy` library to perform vectorization and parallel computing tasks, similar to the functionality provided by the `Accelerate` package"}
+{"id": "pkg_0508", "capability": "implements a TFTP client and server using the `socket` library, allowing for efficient file transfer over UDP"}
+{"id": "pkg_0509", "capability": "connects to the IBM Watson IoT Platform and allows users to interact with the platform's APIs, including creating and managing devices, applications, and sensors, as well as processing data and sending commands"}
+{"id": "pkg_0510", "capability": "uses urllib3 to create a framework for building good API client libraries, including functions for making HTTP requests, handling authentication, and parsing responses"}
+{"id": "pkg_0511", "capability": "uses the ` PackageKit` library to resolve abstract dependencies into concrete ones by calling the `get_package_dependency_spec()` function on each abstract dependency and then using the resulting spec to fetch the required packages"}
+{"id": "pkg_0512", "capability": "installs Apache/mod_wsgi using a simple script that automates the installation process, including downloading and configuring the necessary packages, setting up the virtual environment, and enabling mod_wsgi in the Apache server"}
+{"id": "pkg_0513", "capability": "implements a linter that checks for strict adherence to coding standards, including naming conventions, indentation, and syntax, and fails if any violations are found"}
+{"id": "pkg_0514", "capability": "uses the `datetime` module to parse a cron-like string and checks if the current date and time match the specified conditions"}
+{"id": "pkg_0515", "capability": "uses the `coveralls` library to upload coverage data to Coveralls.io and display the coverage statistics online"}
+{"id": "pkg_0516", "capability": "imports the hashlib library and uses the keccak256 function to perform an Ethereum-style hash of a given input string, similar to the eth-hash package"}
+{"id": "pkg_0517", "capability": "imports the requests library and sends a GET request to the specified URL, returning the response object"}
+{"id": "pkg_0518", "capability": "implements a WebSocket client and server using the RFC 6455 and 7692 protocols, supporting both text and binary messages, with customizable subprotocols and error handling"}
+{"id": "pkg_0519", "capability": "uses the Geopy library to perform approximate geocoding by converting addresses into coordinates with a max_results parameter to control the number of nearest locations returned"}
+{"id": "pkg_0520", "capability": "imports the necessary libraries and creates a basic neural network model for text classification using the open-source NLP research library and PyTorch"}
+{"id": "pkg_0521", "capability": "uses Apache Spark and Keras to distribute deep learning models across multiple nodes and perform efficient distributed training"}
+{"id": "pkg_0522", "capability": "parses email messages and extracts relevant information using the Mailgun API, including message headers, sender and recipient information, and attachment data"}
+{"id": "pkg_0523", "capability": "imports the necessary libraries and creates a vector space model using a sparse matrix representation, allowing for efficient computation and manipulation of large-scale datasets"}
+{"id": "pkg_0524", "capability": "imports the required libraries and sets up an asynchronous Fortnite API wrapper using the `asyncio` library and `fortnite-api` package, allowing for easy access to Fortnite data without blocking main thread"}
+{"id": "pkg_0525", "capability": "uses the `subprocess` module to periodically check if the Puppet agent is running, and sends a notification if it is not"}
+{"id": "pkg_0526", "capability": "creates a cross-platform curses-based monitoring tool using the `curses` library, allowing users to monitor system resources and processes on both Linux and Windows platforms"}
+{"id": "pkg_0527", "capability": "defines a `Rect` class with properties for x, y, width, and height, and methods for updating the position and size of the rectangle, and checking for collision with another rectangle"}
+{"id": "pkg_0528", "capability": "imports the Django framework, creates a new Django app, and sets up a basic admin interface with a jazz-inspired color scheme and styling"}
+{"id": "pkg_0529", "capability": "parses command line arguments using the ArgumentParser class from the argparse module, allowing users to define custom argument types and handling default values, required arguments, and validation"}
+{"id": "pkg_0530", "capability": "imports the necessary libraries and provides a class for handling IPv4 and IPv6 addresses and networks, including methods for validating addresses, calculating subnets, and performing DNS lookups"}
+{"id": "pkg_0531", "capability": "imports the necessary libraries for Facebook authentication using the Facebook Graph API and official Facebook JavaScript SDK, including `requests` for making HTTP requests and `json` for parsing JSON data"}
+{"id": "pkg_0532", "capability": "parses browser user agent strings to identify devices (phones, tablets) and their capabilities using a library such as User Agent Strings or UA-Parser"}
+{"id": "pkg_0533", "capability": "uses the `pytest` module to run tests in a way that mimics the behavior of the `distutils` command, including resolving dependencies"}
+{"id": "pkg_0534", "capability": "uses the Google Auth library to authenticate users and obtain access tokens for accessing Google APIs"}
+{"id": "pkg_0535", "capability": "imports and uses the `scipy` library to read and write a variety of file formats, including images, videos, scientific data, and volumetric data"}
+{"id": "pkg_0536", "capability": "imports the necessary libraries and sets up authentication with the QuickBooks API using OAuth 2.0, allowing users to interact with their QuickBooks data through Python scripts"}
+{"id": "pkg_0537", "capability": "builds a distribution package using Flit, handling the creation of source and wheel archives, as well as publishing the package to PyPI"}
+{"id": "pkg_0538", "capability": "implements a parameterization framework for scientific simulations using dictionaries to store parameters and perform automated validation and interpolation of input parameters"}
+{"id": "pkg_0539", "capability": "implements an OpenID Connect extension for Flask, allowing users to authenticate with external Identity Providers and obtain access tokens for protected resources"}
+{"id": "pkg_0540", "capability": "imports the `requests` library and uses it to send a GET request to a GraphQL endpoint, parsing the response as a JSON object and returning the data as a Python dictionary"}
+{"id": "pkg_0541", "capability": "imports the pandoc library and wraps its functions in a thin layer of convenience functions, providing an easy-to-use interface for converting between different document formats"}
+{"id": "pkg_0542", "capability": "imports the Discord module and creates a bot instance using the commands extension, allowing you to use the various functions provided by the DiscordUtils library in conjunction with the bot"}
+{"id": "pkg_0543", "capability": "uses pytest-xdist to run tests in random order, and controls the random seed for reproducibility"}
+{"id": "pkg_0544", "capability": "adds a JSON field to a Django model, allowing flexible data storage and serialization using the JSON format"}
+{"id": "pkg_0545", "capability": "uses the Boto3 library to interface with AWS CloudWatch Logs, allowing users to search, filter, and analyze log data from various sources within their AWS environment"}
+{"id": "pkg_0546", "capability": "imports TensorFlow and creates a recommendation system using collaborative filtering and matrix factorization"}
+{"id": "pkg_0547", "capability": "imports the requests library and uses it to send an HTTP request to a given URL, retrieve the HTML content of a webpage, and print the title of the webpage"}
+{"id": "pkg_0548", "capability": "parses HL7 v2.x messages using the `hl7` library, which provides a Python implementation of the HL7 standard for healthcare information exchange"}
+{"id": "pkg_0549", "capability": "imports the necessary libraries and creates a wrapper class for the PreferencePanes framework on macOS, allowing developers to easily integrate preferences panes into their applications"}
+{"id": "pkg_0550", "capability": "creates standard barcodes using a provided barcode number, including support for multiple barcode types and optional image output using Pillow"}
+{"id": "pkg_0551", "capability": "uses the subprocess module to run the pdftoppm and pdftocairo commands to convert PDF files to a PIL Image list"}
+{"id": "pkg_0552", "capability": "creates a Django form with a text input field, a choice field with three options, and a Boolean field, and validates user input using Django's built-in validation framework"}
+{"id": "pkg_0553", "capability": "reads the requirements.txt file, hashes each requirement using a chosen algorithm, and writes the hashed requirements back to the file"}
+{"id": "pkg_0554", "capability": "implements a sacriments system for a church, including tools for tracking member participation and automating communication, using Flask as the web framework and MongoDB as the database"}
+{"id": "pkg_0555", "capability": "allows humans to interact with the web using HTTP, including sending requests, receiving responses, parsing HTML, and making API calls, using intuitive syntax and handling common tasks such as authentication, cookies, and caching"}
+{"id": "pkg_0556", "capability": "imports a plugin module and its dependencies, loads the plugin's metadata, and registers the plugin with a Plugin Manager class"}
+{"id": "pkg_0557", "capability": "imports the Elastic APM module and sets up tracing for a web application, including automatic instrumentation of popular frameworks like Flask and Django, with customizable data gathering and reporting options"}
+{"id": "pkg_0558", "capability": "copies examples from a directory and saves them in a new directory with a specified name, fetches data from an API and saves it to a CSV file, and demonstrates how to use the requests library to make HTTP requests"}
+{"id": "pkg_0559", "capability": "uses the `kubernetes` library to retrieve Kubernetes resources, and then uses a schema validation library such as `jsonschema` to validate the resources against predefined schemas"}
+{"id": "pkg_0560", "capability": "implements a SubUnit test streaming protocol, allowing for real-time transmission of test results from a test runner to a test consumer, using the `subunit` module and leveraging its ability to serialize and deserialize test data"}
+{"id": "pkg_0561", "capability": "imports the queue module and creates a persistent queue using the queue.Queue class, and also creates a non-persistent queue using the queue.LifoQueue class"}
+{"id": "pkg_0562", "capability": "implements a cryptographic library for Telegram, providing end-to-end encryption for secret chats, support for multiple cryptographic algorithms, and secure authentication"}
+{"id": "pkg_0563", "capability": "imports the Python Imaging Library and creates a collection of utilities and processors for image processing and manipulation, such as resizing, cropping, thresholding, and converting between different image formats"}
+{"id": "pkg_0564", "capability": "creates an interactive widget for deck.gl maps, allowing users to explore and interact with 3D maps in a web browser"}
+{"id": "pkg_0565", "capability": "analyzes a given piece of code using the coala tool and provides a report of any issues found, including suggestions for improvement"}
+{"id": "pkg_0566", "capability": "imports and uses the TensorFlow or PyTorch libraries to interact with trained machine learning models"}
+{"id": "pkg_0567", "capability": "uses the `inotify` module to monitor filesystem events on Linux, such as file creations, deletions, and modifications, and outputs the events to the console"}
+{"id": "pkg_0568", "capability": "imports the necessary modules, parses a DBF file using agate-dbf, and extracts the data into a Pandas DataFrame"}
+{"id": "pkg_0569", "capability": "imports the necessary libraries and uses the `requests` library to make API calls to the EnergyCapApi, allowing users to manipulate energy consumption data and create reports"}
+{"id": "pkg_0570", "capability": "imports the necessary libraries and creates an instance of the DeploymentManager class to interact with Azure Resource Manager (ARM) resources using the Microsoft Azure Deployment Manager Client Library for Python"}
+{"id": "pkg_0571", "capability": "calculates Word Mover's Distance using an accelerated function, which quickly computes the distance between two words by utilizing a pre-computed matrix of pairwise distances between all words in a vocabulary"}
+{"id": "pkg_0572", "capability": "implements a basic computer algebra system (CAS) capable of evaluating and simplifying mathematical expressions, including differentiation, integration, and solving equations"}
+{"id": "pkg_0573", "capability": "imports the necessary libraries and creates a simple hidden Markov model using scikit-learn's API, similar to how it would be done in a real-world application"}
+{"id": "pkg_0574", "capability": "parses LookML files and extracts metadata, such as field names and data types, using a robust and efficient algorithm"}
+{"id": "pkg_0575", "capability": "creates a middleware framework for building APIs, using Flask or Django as the web framework, and supports authentication, rate limiting, and caching, with configurable dependencies and support for custom plugins"}
+{"id": "pkg_0576", "capability": "imports the unittest module and creates a mock object class called \"MockObject\" that can be used to mock any object, method or function in Python"}
+{"id": "pkg_0577", "capability": "uses the combination of libxml2, libxslt, and ElementTree to process XML files in a powerful and Pythonic way"}
+{"id": "pkg_0578", "capability": "uses the `jinja2` library to parse Jinja templates and extract information such as template variables, functions, and includes, and outputs the information in a structured format such as JSON or CSV"}
+{"id": "pkg_0579", "capability": "imports the necessary libraries and sets up a connection to Humio using the provided API key or username and password"}
+{"id": "pkg_0580", "capability": "uses image processing techniques, such as edge detection and thresholding, to identify the knee point in an X-ray image of a patient's leg"}
+{"id": "pkg_0581", "capability": "imports the pytest framework and defines a plugin class that implements the `pytest.Plugin` interface, which can be used to register multiple failure markers for a single test function"}
+{"id": "pkg_0582", "capability": "creates a secure editor for encrypting and decrypting files using cryptography library, allowing users to edit sensitive information without revealing the plaintext"}
+{"id": "pkg_0583", "capability": "uses the `allure` library to integrate Behave tests into a larger test suite, providing a simple way to organize and run acceptance tests along with other types of tests"}
+{"id": "pkg_0584", "capability": "imports the necessary modules for PPMd compression/decompression and uses them to compress and decompress files"}
+{"id": "pkg_0585", "capability": "configures a password reset strategy for Django Rest Framework by creating a custom password reset view and linking it to a custom email template, while also implementing security measures such as rate limiting and CSRF protection"}
+{"id": "pkg_0586", "capability": "uses the discord.py library to create a Discord bot that supports slash commands, allowing users to execute custom commands by typing \"/command\" in a server channel"}
+{"id": "pkg_0587", "capability": "disables migrations when running Django tests by adding the following line to the settings.py file: `MIGRATION_MODULES = ['django.contrib.auth.migrations', 'django.contrib.contenttypes.migrations']`"}
+{"id": "pkg_0588", "capability": "creates a developer-friendly load testing framework by using existing libraries such as Locust and BeautifulSoup to create a simple and efficient way to test the performance of web applications"}
+{"id": "pkg_0589", "capability": "imports the dataclass module and defines a function that takes in a dataclass instance as an argument, and returns a Marshmallow schema equivalent to the dataclass"}
+{"id": "pkg_0590", "capability": "uses the flask_compression package to compress responses in a Flask app with gzip, deflate, or brotli"}
+{"id": "pkg_0591", "capability": "imports the necessary libraries and creates an instance of the AzureServerManager class to interact with Azure server management APIs"}
+{"id": "pkg_0592", "capability": "implements a custom deep learning operation using TensorFlow or PyTorch, including data preprocessing, model architecture, training, and inference"}
+{"id": "pkg_0593", "capability": "imports the `urllib.parse` module and uses its functions to parse and manipulate URLs, such as splitting and combining URL parts, resolving relative URLs, and encoding and decoding URL components"}
+{"id": "pkg_0594", "capability": "creates a Flask plugin system, allowing developers to create and register plugins using a consistent API, and providing a way to load and use the plugins in a Flask application"}
+{"id": "pkg_0595", "capability": "uses the `transformers` library to train a multilingual language model and generates word embeddings for various languages, allowing for easy integration into downstream natural language processing tasks"}
+{"id": "pkg_0596", "capability": "imports the necessary modules and creates a dictionary for storing sudachi words, their meanings, and example sentences"}
+{"id": "pkg_0597", "capability": "imports the MPI module and creates a communicator for distributing data among processes"}
+{"id": "pkg_0598", "capability": "imports the necessary libraries, creates an instance of the EC2 meta data client, caches the client and queries the EC2 metadata API"}
+{"id": "pkg_0599", "capability": "imports the necessary modules and sets up the environment for using the Microsoft Azure Command-Line Tools Core Module"}
