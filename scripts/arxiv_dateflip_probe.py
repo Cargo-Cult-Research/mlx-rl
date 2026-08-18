@@ -81,7 +81,14 @@ def main():
         with (out / "episodes.jsonl").open("w") as f:
             for name, adapter in arms:
                 model, tokenizer = mlx_load(prof.model, adapter_path=adapter)
-                groups, _, _ = _sample_episodes(model, tokenizer, examples, cfg, task, a.k, 1.0)
+                # never queue rows behind the completion batch (queued cloned caches
+                # come back corrupted — see the transfer eval); chunk to batch // k
+                groups = []
+                per = max(1, cfg.rollout_batch_size // a.k)
+                for lo in range(0, len(examples), per):
+                    g, _, _ = _sample_episodes(model, tokenizer, examples[lo:lo + per], cfg, task, a.k, 1.0)
+                    groups.extend(g)
+                    mx.clear_cache()
                 fx, frec = [], []
                 for ex, g in zip(examples, groups):
                     for ep in g:
