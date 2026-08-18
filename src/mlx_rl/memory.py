@@ -113,30 +113,70 @@ class SwapGuard:
     prints a banner and hard-exits (`os._exit`, so the thrashing mx.eval can't
     swallow the signal). A PID-aware external lease command (see machine.py)
     can still detect the dead holder and restore whatever it displaced.
+
+    Two detectors, because swap VOLUME and swap THRASHING are different
+    things. macOS allocates swap in 1 GB files on demand and will happily add
+    a few while tens of GB of RAM sit free — that costs nothing, but a
+    level-only guard reads it as danger and kills healthy runs (observed: a
+    150-step run died at step 69 on +3.4 GB drift with 68 GB RAM available).
+    What actually turns a 6 s step into 40 minutes is sustained paging, so the
+    primary detector is the page-in/page-out RATE; the level check stays as a
+    slower backstop with a wider default margin.
+
+    The rate detector needs a second opinion too (2026-08-17). Paging traffic
+    is not by itself proof of trouble: on a nearly-full swap file macOS
+    produces bursts of ~270 MB/s that the run never feels, and the rate
+    detector killed a correctly-configured 200-step run on one. The reason we
+    care about paging at all is that it destroys step times, so step times are
+    the ground truth — feed them in with `note_step()` and a paging burst can
+    only abort the run if the run has ALSO slowed to `slow_factor`x its own
+    established pace (or is currently overdue by that much).
+
+    The gate deliberately does not apply before a baseline exists. Thrashing
+    during model load or the first backward is the case where paging is the
+    only signal available, and it is a real one: an over-sized LoRA
+    configuration that thrashed at its first backward is the rate detector's
+    one true positive so far. Withheld kills are logged, never silent.
     """
 
     def __init__(
         self,
-        margin_gb: float = 3.0,
+        margin_gb: float = 8.0,
         interval_s: float = 3.0,
         abort_marker: Path | None = None,
+        rate_mb_s: float = 200.0,
+        rate_samples: int = 3,
+        slow_factor: float = 3.0,
+        baseline_steps: int = 5,
     ):
         self.margin_gb = margin_gb
         self.interval_s = interval_s
         self.abort_marker = abort_marker
+        self.rate_mb_s = rate_mb_s
+        self.rate_samples = rate_samples
+        self.slow_factor = slow_factor
+        self.baseline_steps = baseline_steps
+        self._step_lock = threading.Lock()
+        self._step_dts: list[float] = []   # durations seen while establishing pace
+        self._step_baseline_s: float | None = None
+        self._last_step_dt: float | None = None
+        self._last_step_end: float | None = None  # monotonic, for the overdue check
         self.baseline_gb = 0.0
+        self._hot = 0  # consecutive over-threshold samples
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(self) -> "SwapGuard":
-        if self.margin_gb <= 0:  # disabled
+        if self.margin_gb <= 0 and self.rate_mb_s <= 0:  # disabled
             return self
         self.baseline_gb = swap_used_gb()
         self._thread = threading.Thread(target=self._run, name="swap-guard", daemon=True)
         self._thread.start()
         print(
             f"[swap-guard] armed: baseline {self.baseline_gb:.1f} GB, "
-            f"abort if +{self.margin_gb:.1f} GB (every {self.interval_s:.0f}s)",
+            f"abort if +{self.margin_gb:.1f} GB or paging >= "
+            f"{self.rate_mb_s:.0f} MB/s for {self.rate_samples} samples "
+            f"(every {self.interval_s:.0f}s)",
             flush=True,
         )
         return self
@@ -144,11 +184,111 @@ class SwapGuard:
     def stop(self) -> None:
         self._stop.set()
 
-    def _run(self) -> None:
-        while not self._stop.wait(self.interval_s):
-            grown = swap_used_gb() - self.baseline_gb
+    def note_step(self, dt_s: float, now: float | None = None) -> None:
+        """Report a completed training step, so the rate detector can tell
+        'the machine is paging' from 'the run is being hurt by paging'.
+
+        The first `baseline_steps` durations set the run's healthy pace. Step 0
+        carries compilation and first-touch costs, so it is dropped rather than
+        allowed to inflate the baseline into uselessness.
+        """
+        now = time.monotonic() if now is None else now
+        with self._step_lock:
+            self._last_step_dt = dt_s
+            self._last_step_end = now
+            if self._step_baseline_s is not None:
+                return
+            self._step_dts.append(dt_s)
+            if len(self._step_dts) > self.baseline_steps:
+                usable = sorted(self._step_dts[1:])  # drop the warm-up step
+                self._step_baseline_s = usable[len(usable) // 2]
+                print(f"[swap-guard] step pace established: "
+                      f"{self._step_baseline_s:.1f}s/step — paging bursts now "
+                      f"need a {self.slow_factor:.0f}x slowdown to abort",
+                      flush=True)
+
+    def _run_is_hurting(self, now: float | None = None) -> tuple[bool, str]:
+        """Is the run actually slowed? -> (verdict, one-line evidence).
+
+        Unknown counts as hurting: with no pace to compare against, paging is
+        the only evidence there is, and load-time thrashing is real.
+        """
+        now = time.monotonic() if now is None else now
+        with self._step_lock:
+            base, last_dt, last_end = (
+                self._step_baseline_s, self._last_step_dt, self._last_step_end)
+        if base is None:
+            return True, "no step pace established yet (load or first steps)"
+        threshold = base * self.slow_factor
+        if last_dt is not None and last_dt >= threshold:
+            return True, (f"last step {last_dt:.1f}s vs {base:.1f}s baseline "
+                          f"(>= {self.slow_factor:.0f}x)")
+        overdue = now - last_end if last_end is not None else 0.0
+        if overdue >= threshold:
+            return True, (f"current step overdue {overdue:.0f}s vs "
+                          f"{base:.1f}s baseline")
+        return False, (f"steps healthy: last {last_dt:.1f}s, "
+                       f"{overdue:.0f}s into the current one, "
+                       f"baseline {base:.1f}s")
+
+    def classify(self, moved_bytes: float, dt_s: float, used_gb: float,
+                 now: float | None = None):
+        """One sample -> ('rate', mb_s) | ('level', grown_gb) | None.
+
+        Factored out of the sampling loop so the policy can be tested without
+        spawning a thread: a stray daemon thread outliving a test reads REAL
+        swap and can hard-exit the test runner.
+        """
+        rate = max(moved_bytes, 0.0) / max(dt_s, 1e-6) / 1e6
+        if self.rate_mb_s > 0 and rate >= self.rate_mb_s:
+            self._hot += 1
+            if self._hot >= self.rate_samples:
+                hurting, why = self._run_is_hurting(now)
+                if hurting:
+                    return "rate", rate
+                # Paging, but the run is fine. Say so — a guard that withholds
+                # a kill silently is indistinguishable from one that is broken.
+                print(f"[swap-guard] paging {rate:.0f} MB/s for "
+                      f"{self._hot} samples, NOT aborting — {why}", flush=True)
+                self._hot = 0
+        else:
+            self._hot = 0
+        if self.margin_gb > 0:
+            grown = used_gb - self.baseline_gb
             if grown > self.margin_gb:
-                self._abort(grown)
+                return "level", grown
+        return None
+
+    def _run(self) -> None:
+        prev, prev_t = psutil.swap_memory(), time.monotonic()
+        while not self._stop.wait(self.interval_s):
+            cur, now = psutil.swap_memory(), time.monotonic()
+            # Counters are cumulative; clamp in case they wrap or reset.
+            moved = max(cur.sin - prev.sin, 0) + max(cur.sout - prev.sout, 0)
+            verdict = self.classify(moved, now - prev_t, cur.used / 1e9)
+            prev, prev_t = cur, now
+            if verdict is None:
+                continue
+            kind, value = verdict
+            if kind == "rate":
+                self._abort_rate(value, self._hot)
+            else:
+                self._abort(value)
+
+    def _abort_rate(self, rate_mb_s: float, samples: int) -> None:
+        msg = (
+            "\n" + "=" * 72 + "\n"
+            "[swap-guard] ABORT — sustained paging (thrashing).\n"
+            f"  {rate_mb_s:.0f} MB/s swapped for {samples} consecutive "
+            f"{self.interval_s:.0f}s samples "
+            f"(threshold {self.rate_mb_s:.0f} MB/s).\n"
+            "  This is the failure mode that makes a 6 s step take 40 min.\n"
+            "  FIX: --grad-checkpoint, lower --max-new-tokens/--batch-prompts,\n"
+            "  or free resident memory (stop other big jobs on the box).\n"
+            + "=" * 72 + "\n"
+        )
+        self._die(msg, f"swap-guard abort: paging {rate_mb_s:.0f} MB/s for "
+                       f"{samples} samples (threshold {self.rate_mb_s:.0f})")
 
     def _abort(self, grown_gb: float) -> None:
         now = swap_used_gb()
@@ -164,11 +304,14 @@ class SwapGuard:
             "  (free resident memory / stop other big jobs on the box).\n"
             + "=" * 72 + "\n"
         )
-        sys.stderr.write(msg)
-        sys.stderr.flush()
-        write_abort_marker(
-            self.abort_marker,
+        self._die(
+            msg,
             f"swap-guard abort: swap {now:.1f} GB, +{grown_gb:.1f} GB over "
             f"baseline {self.baseline_gb:.1f} GB (margin {self.margin_gb:.1f})",
         )
+
+    def _die(self, msg: str, marker: str | None = None) -> None:
+        sys.stderr.write(msg)
+        sys.stderr.flush()
+        write_abort_marker(self.abort_marker, marker or msg.strip())
         os._exit(SWAP_ABORT_EXIT)

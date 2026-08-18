@@ -56,6 +56,15 @@ def main() -> None:
                     help="questions per rollout_groups call")
     ap.add_argument("--out", default=f"runs/qa-calib-{time.strftime('%Y%m%d')}")
     ap.add_argument("--no-manage-machine", action="store_true")
+    ap.add_argument("--adapter", default=None, help=(
+        "probe a trained adapter instead of the base model. The confidence "
+        "groups a run trains against are measured once, against the base, and "
+        "then frozen — but the policy moves during the run, so by step 200 "
+        "the groups may describe a model that no longer exists. Re-probing "
+        "the SAME questions through a checkpoint quantifies that drift. Note "
+        "the probe sends no system prompt: an adapter trained to respond to "
+        "one will look inert here, which is the correct comparison for band "
+        "membership but not for behaviour."))
     a = ap.parse_args()
 
     out = Path(a.out)
@@ -65,6 +74,7 @@ def main() -> None:
         "qa_calibrate": True, "model": prof.model, "profile": prof.name,
         "dataset": a.dataset, "n": a.n, "k": a.k, "seed": a.seed,
         "max_new_tokens": a.max_new_tokens, "chat_kwargs": prof.chat_kwargs,
+        "adapter": a.adapter,
     }, indent=2) + "\n")
 
     task = get_task("qa_abstain", dataset=a.dataset)  # split seed 12345
@@ -75,7 +85,7 @@ def main() -> None:
     if not a.no_manage_machine:
         holder = machine.acquire(38.0, note="qa_abstain calibration probe")
     try:
-        model, tokenizer = mlx_load(prof.model)
+        model, tokenizer = mlx_load(prof.model, adapter_path=a.adapter)
         t0 = time.time()
         with (out / "calib.jsonl").open("w") as f:
             for lo in range(0, len(rows), a.batch_questions):

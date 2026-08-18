@@ -90,6 +90,16 @@ class TrainConfig:
     # rollout temperature introduces an off-policy mismatch the ratio does not
     # correct for. Keep 1.0 for training runs.
     temperature: float = 1.0
+    # Continue a previous run: load its newest resumable checkpoint (weights,
+    # optimizer state, RNG streams, task sampler position, step) and write
+    # everything new to --out. The source run is READ-ONLY — a resumed run is
+    # a new directory, so the original record of what happened is never
+    # overwritten. Reassembling a full history is then a deliberate step:
+    # scripts/assemble_run.py.
+    resume_from: str = ""
+    # Optimizer snapshots retained per run (~2x adapter size). 1 = only the
+    # newest checkpoint is resumable; 0 disables resume saving entirely.
+    keep_resume: int = 1
     lr: float = 1e-5
     kl_coef: float = 0.01
     clip_eps: float = 0.2
@@ -130,9 +140,12 @@ class TrainConfig:
     # collapsed into a zero-variance state and further steps are free heat.
     # A collapsed observed run produced 27/1600 active groups (1.7%) with
     # stray actives every 10-130 steps, so a consecutive-zero test never
-    # fires; the windowed rate does. 0 = off; N should exceed any healthy
-    # cold-start (the same run's recovery took ~15 steps).
-    abort_inactive_window: int = 0
+    # fires; the windowed rate does. ON BY DEFAULT (review: degeneration
+    # should die loudly, not be medicated — the KL-only rescue update that
+    # briefly papered over this state was removed). 40 comfortably exceeds
+    # the longest healthy cold-start observed (~15 steps; the fenced-prompt
+    # cold-start cleared in 3). 0 = off.
+    abort_inactive_window: int = 40
     think_end: int | None = None  # end-of-thinking token id (profile)
     # Correctness-gated total-length efficiency (anti reasoning-relocation
     # hack): final = base * (1 - length_penalty * min(1, tokens/budget)).
@@ -169,7 +182,12 @@ class TrainConfig:
     # Swap watchdog: hard-abort if system swap grows this many GB above the
     # baseline captured at run start (a backward spilling to SSD makes a step
     # 10-100x slower — fail loud, not slow). 0 disables. See memory.SwapGuard.
-    swap_guard_margin_gb: float = 3.0
+    swap_guard_margin_gb: float = 8.0
+    # Primary thrash detector: sustained page-in/out rate. Swap VOLUME growth
+    # is normal on macOS (1 GB files allocated on demand) and a level-only
+    # guard kills healthy runs; sustained paging is what actually costs 10-100x.
+    swap_rate_mb_s: float = 200.0
+    swap_rate_samples: int = 3
     lora: LoraConfig = field(default_factory=LoraConfig)
 
     def save(self, path: str | Path) -> None:

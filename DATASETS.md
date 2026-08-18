@@ -172,3 +172,41 @@ Two rules the sweeps follow, both learned the hard way:
   pilot does. A full sweep over 18,983 train problems at a non-binding cap is
   the prerequisite for a real curriculum band, and at ~10k+ tokens per
   generation it is a multi-day job.
+
+## Status: the DeepCoder curriculum is PARKED (2026-08-16)
+
+Parked deliberately, not abandoned, and **the trigger to resume is an event,
+not a date**: *a SAGE-RL arm gets scheduled on a code task.*
+
+**Why it is parked.** Nothing currently queued needs it. The near-term work is
+tool-use / multi-turn / calibration on `qa_abstain`, which already has its own
+difficulty machinery (`scripts/qa_calibrate.py` → `calib_file` + `band_mix`,
+bands measured over 2,000 questions). The coding corpora are not on that path.
+
+**Why it is worth resuming when SAGE comes back.** This is the strongest case
+for the whole curriculum idea, and it is mechanical rather than aesthetic:
+GRPO drops zero-variance groups and skips signal-free steps, so a corpus the
+policy always passes contributes no gradient at all. MBPP is saturated for
+qwen36 (0.97 pass@5 here; 0.870 MBPP+ under the official harness — see
+`docs/mbpp-evalplus-results.md`), so it produces all-pass groups and cannot
+train a SAGE arm. SAGE-RL specifically needs problems that require multi-step
+reasoning *and* that the model sometimes gets right, because it learns when to
+stop thinking from group-relative advantage across chains. DeepCoder is the
+corpus with the headroom (qwen36 0.52 pass@3), and a difficulty band is what
+turns its rollouts into signal instead of waste. Since rollouts dominate RL
+cost, that is the efficiency argument for the task, not a refinement of it.
+
+**State when parked** — nothing here needs redoing:
+
+| artifact | state |
+|---|---|
+| MBPP pass@5 atlas | **done**, shipped: `data/labels/mbpp-pass@5-qwen36.jsonl` (3 temperatures — read the `labels_file` caveat above before using it) |
+| DeepCoder pilots | 3 × 200 problems in `runs/sweeps/` (qwen36, qwen36-16k, qwen3-4b) |
+| DeepCoder full atlas | **not started** |
+| curriculum plumbing | **done**: `labels_file=` + `min_pass=`/`max_pass=` in `tasks/deepcoder.py`, `scripts/difficulty_sweep.py` |
+
+**What resuming costs.** The sweep asks for ~60 GB and a ≥32k cap (the pilot
+log shows it aborting the memory guard at 60 GB with a lens backend resident),
+so it wants an exclusive memory lease and an otherwise idle box. Following the
+`qa_abstain` precedent, ~2,000 labelled problems is enough for usable bands —
+that is the sizing to plan against, not all 18,983.

@@ -4,8 +4,8 @@
 
 Serves one page (demo/page.html) plus a "duel" endpoint that runs the SAME
 prompt twice against the :8084 lens host — arm A the pristine base weights,
-arm B the calibrated-honesty LoRA adapter with the system prompt it was trained with
-— and streams both completions back over one SSE response. The lens host
+arm B the calibrated-honesty LoRA with the system prompt it is trained to
+respond to — and streams both back over one SSE response. The lens host
 swaps LoRA per request, so both arms share one resident model.
 
 Two optional modes, both visitor-toggled (defaults OFF, so the public
@@ -13,7 +13,7 @@ resting behaviour is exactly the single-turn no-tools duel it always was):
 
   multi-turn   the browser replays prior turns, so each arm keeps its OWN
                transcript (they diverge from turn one). Answers whether the
-               adapter's hedging survives a conversation.
+               trained hedging survives a conversation.
   tools        offers the model a web_search function in its NATIVE tool
                format and CLOSES the loop: the call is parsed, executed
                against the arXiv API, and fed back as a tool message. Shows
@@ -33,9 +33,10 @@ so the guardrails live here:
     value, short timeout, capped rounds and result size. This is the only
     outbound network the demo makes, and only when the box is ticked.
 
-If the resting backend ever injects the system prompt at the serving proxy
+If the resting backend ever injects the honesty prompt at the serving proxy
 (lens+c200 default), point --upstream at the INNER server port instead of
-:8084 so arm A stays prompt-free — the proxy would otherwise prompt both arms.
+:8084 — otherwise the proxy adds the prompt to BOTH arms and the base arm
+stops being a baseline.
 
 Run:  python3 demo/app.py [--port 8092] [--upstream http://127.0.0.1:8084]
 """
@@ -57,7 +58,9 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parent
 PAGE = ROOT / "page.html"
 FLAGS = ROOT / "flags.jsonl"
-SYSTEM_PROMPT_PATH = Path.home() / "models/adapters/qa-gloveC-200-20260731/GLOVE.txt"
+# The prompt the adapter is trained to respond to; ships in the adapter dir.
+SYSTEM_PROMPT_PATH = (
+    Path.home() / "models/adapters/qa-gloveC-200-20260731/GLOVE.txt")
 ADAPTER = "c200"
 
 MAX_PROMPT_CHARS = 400
@@ -76,20 +79,20 @@ ARXIV_TIMEOUT = 12
 ARXIV_MAX_RESULTS = 4
 TOOL_RESULT_CHARS = 1500
 
-# Appended to the system prompt ONLY when tools are offered, so the no-tools
-# duel stays byte-identical to the shipped adapter + system prompt pair.
+# Appended to the honesty prompt ONLY when tools are offered, so the no-tools
+# duel stays byte-identical to the shipped adapter + prompt pair.
 #
-# Why it exists: the trained system prompt says nothing about tools, because the
-# training register had none (single-turn, 192 tokens, no tools). Measured
-# on 6 real post-cutoff arXiv papers x 3 phrasings x 3 samples, tool-calling
-# by arm (1.00 = always reached for the search tool):
+# Why it exists: the trained prompt says nothing about tools, because training
+# offered none (single-turn, 192 tokens, no tools). Measured on 6 real
+# post-cutoff arXiv papers x 3 phrasings x 3 samples, how often each arm
+# reached for search_arxiv (1.00 = always):
 #
-#     phrasing                  base   adapter  adapter+this clause
+#     phrasing                  base  prompt  prompt+this clause
 #     "the arXiv paper 'X'"     1.00    1.00        1.00
 #     "the 2026 paper 'X'"      0.83    0.06        0.78
 #     same, invented title      0.67    0.08        0.42
 #
-# The adapter does NOT suppress tools in general — it collapses only when the
+# The prompt does NOT suppress tools in general — it collapses only when the
 # question asserts a year the model reads as future, which hands it grounds
 # to conclude non-existence and stop. This clause restores the search and
 # takes asserted-nonexistence to 0.00 in both year conditions.
@@ -246,7 +249,7 @@ def make_handler(upstream: str):
 
         def _status(self) -> dict:
             """ready iff the lens host answers AND serves the c200 adapter
-            AND the system-prompt file is readable. Anything else -> the page shows
+            AND the system prompt is readable. Anything else -> the page shows
             its offline banner (the model slot is busy with research)."""
             if not SYSTEM_PROMPT_PATH.exists():
                 return {"ready": False, "reason": "system prompt file missing"}
@@ -328,13 +331,13 @@ def make_handler(upstream: str):
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "close")
             self.end_headers()
-            system = SYSTEM_PROMPT_PATH.read_text().strip()
+            system_prompt = SYSTEM_PROMPT_PATH.read_text().strip()
             if use_tools:
-                system = system + " " + TOOL_FIRST
+                system_prompt = system_prompt + " " + TOOL_FIRST
             # The date is rendered at request time, never hardcoded: a stale
             # date fails exactly like the bug the date is there to fix.
-            system = system + " " + DATE_LINE.format(today=time.strftime("%Y-%m-%d"))
-            arms = [("base", None, None), ("rl", system, ADAPTER)]
+            system_prompt = system_prompt + " " + DATE_LINE.format(today=time.strftime("%Y-%m-%d"))
+            arms = [("base", None, None), ("rl", system_prompt, ADAPTER)]
             try:
                 for arm, system, adapter in arms:
                     self._emit({"arm": arm, "start": True})

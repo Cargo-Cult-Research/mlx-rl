@@ -454,6 +454,13 @@ def rollout_groups(
     uid_to: dict[int, tuple[int, int]] = {}
     tap_st: dict[int, dict] = {}   # uid -> {rid, emitted (chars), flushed (toks)}
     stats = BatchStats()
+    # mlx-lm's stats() computes prompt_tokens/prompt_time in a finally block.
+    # When share_prompt prefills outside the generator (or the body raises
+    # before any prefill), prompt_time is 0 and that division raises
+    # ZeroDivisionError *from the finally*, replacing the real exception and
+    # making genuine failures unreadable. A nonzero epsilon keeps the
+    # division harmless (tps error ~1e-9 relative) so errors propagate intact.
+    stats.prompt_time = 1e-9
     try:
         with gen.stats(stats):
             for pi, prompt in enumerate(prompts):

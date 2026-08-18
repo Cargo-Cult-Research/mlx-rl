@@ -98,7 +98,19 @@ uv run mlx-rl-train --steps 50 --batch-prompts 4 --group-size 8 \
 
 For long unattended runs launch `.venv/bin/mlx-rl-train` directly instead of
 `uv run` (a stale uv environment lock has been observed to stall start-up; the
-venv entry point has no such dependency).
+venv entry point has no such dependency), and detach it properly:
+
+```sh
+uv run python scripts/launch_detached.py --log runs/myrun.log -- \
+  .venv/bin/mlx-rl-train --steps 200 --out runs/myrun
+```
+
+That puts the run in its own session and process group, so it survives the
+terminal, the ssh connection, and any teardown aimed at whatever launched it —
+a 200-step run was once killed at step 17 by exactly that. `nohup cmd &` is not
+enough: it detaches from the terminal but leaves the child in the launcher's
+process group. And **macOS has no `setsid` binary**, so the usual shell answer
+does not exist here; the launcher calls `setsid(2)` from Python instead.
 
 Each run directory gets `config.json`, `metrics.jsonl` (per-step reward /
 KL / lengths / throughput / peak memory, plus periodic held-out greedy
@@ -216,6 +228,13 @@ uv run python -m mlx_rl.promote runs/myrun --name sage-arith
 
 (The library location can be overridden with `MLX_RL_ADAPTERS_DIR`.)
 
+**Promotion is not publication.** The adapter library is a directory on one
+machine, gitignored and unbacked. An outside reproduction of one of our results
+reported the promoted deliverable as lost, because from where they stood it
+was. An artifact that earns a name also gets shipped somewhere downloadable the
+same day — see [docs/artifacts.md](docs/artifacts.md) for the two destinations
+and which one applies.
+
 This writes the adapter in **mlx-lm's native adapter format** — directly
 consumable by `mlx_lm.server --adapter-path` and `mlx_lm.load(adapter_path=...)`
 — plus a `MANIFEST.md` with full provenance (base model, run config, eval
@@ -242,7 +261,7 @@ ticking the manifest checklist with numbers and run-dir pointers.
 
 ## Tasks
 
-Eight tasks ship, all with programmatic rewards (`--task <name>`). For the
+Nine tasks ship, all with programmatic rewards (`--task <name>`). For the
 corpora behind them — provenance, licensing, and the measured per-problem
 difficulty atlases that drive curriculum bands — see
 [DATASETS.md](DATASETS.md).
@@ -257,10 +276,26 @@ difficulty atlases that drive curriculum bands — see
   matches the reference exactly.
 - **`code`** — sanitized MBPP (427 problems, shipped in `data/` — see
   [data/README.md](data/README.md) for provenance/license). Reward: the
-  model's function passes the hidden asserts. ⚠️ **This executes
-  model-generated code in a plain subprocess — NOT a sandbox.** It runs with
-  your user's filesystem and network access; use a container/VM if that
-  matters to you.
+  model's function passes the hidden asserts. Candidate code runs under
+  macOS `sandbox-exec` by default (network denied, writes confined to its
+  temp dir) with rlimits on CPU/file-size/fds/procs and a scrubbed env.
+  `--task_kwargs '{"sandbox": false}'` disables the Seatbelt layer — ⚠️
+  candidate code then runs with your user's filesystem and network access.
+  Memory is not capped either way (Darwin rejects `RLIMIT_DATA`); the 8s
+  timeout bounds blowups. For untrusted prompts or third-party models, use
+  a container/VM.
+- **`kodcode`** — the leaderboard-comparable coding task. Trains on
+  KodCode-Light-RL-10K (execution-verified, decontaminated against
+  MBPP/HumanEval by its authors) and evaluates on `evalplus/mbppplus` — the
+  exact 378 tasks behind the EvalPlus leaderboard, never trained on.
+  `eval_sample` cycles in dataset order rather than drawing with replacement,
+  so `--eval-n 378` is exactly one full pass over the benchmark, and the eval
+  prompt byte-matches EvalPlus's own chat backend (a test asserts it — an
+  unfenced variant once collapsed the policy to prompt-echoing at ~0.06 under
+  the official harness). Same Seatbelt sandbox as `code`. ⚠️ KodCode is
+  **CC BY-NC 4.0** (non-commercial); it is fetched from the HF cache, never
+  redistributed here. Results and method:
+  [docs/mbpp-evalplus-results.md](docs/mbpp-evalplus-results.md).
 - **`deepcoder`** — competition programming (TACO / SYNTHETIC-1 / pre-cutoff
   LiveCodeBench, via
   [agentica-org/DeepCoder-Preview-Dataset](https://huggingface.co/datasets/agentica-org/DeepCoder-Preview-Dataset)),
@@ -270,8 +305,10 @@ difficulty atlases that drive curriculum bands — see
   `labels_file=` + `min_pass=`/`max_pass=` from a `difficulty_sweep.py` run.
   This is the corpus with headroom — qwen36 scores 0.52 pass@3 where MBPP is
   saturated at 0.97 — but it needs a ≥32k token cap to measure honestly
-  ([DATASETS.md](DATASETS.md)). ⚠️ Same unsandboxed-subprocess warning as
-  `code`.
+  ([DATASETS.md](DATASETS.md)). ⚠️ **Unlike `code`, this still executes
+  model-generated code in a plain subprocess — NOT sandboxed.** It predates
+  the Seatbelt path and has not been wired to it, so it runs with your
+  user's filesystem and network access; use a container/VM.
 - **`qa_abstain`** — calibrated factuality: answer a short factual question
   in `<answer>` tags or reply `<abstain/>`. Reward: correct +1, abstain 0,
   wrong/malformed −penalty — the penalty sets the implied confidence
@@ -351,6 +388,15 @@ Technical notes in [docs/](docs/):
 - [qa-abstain-related-work.md](docs/qa-abstain-related-work.md) — prior work
   on abstention/calibration training and what the `qa_abstain` task does and
   does not add.
+- [qa-glove-results.md](docs/qa-glove-results.md) — results for the
+  `qa_abstain` program: teaching a 35B model to decline questions it cannot
+  answer, in ordinary conversation, and what that costs on the ones it can.
+- [mbpp-evalplus-results.md](docs/mbpp-evalplus-results.md) — the code line's
+  training and EvalPlus-comparable evaluation.
+- [artifacts.md](docs/artifacts.md) — where the trained adapters and the
+  reproduction inputs are published, and why the split is what it is.
+- [glossary.md](docs/glossary.md) — this repo's private vocabulary, translated.
+  Read it before writing docs; prefer the plain-English column.
 
 Standalone instruments in [scripts/](scripts/): `probe_backward.py`
 (memory-vs-length probe), `anatomy_gdn.py` / `anatomy_sched.py` (per-layer
@@ -358,11 +404,16 @@ GDN measurements behind the serial-scan fix), `bench_rollout.py` (batched vs
 sequential rollout), `oracle_sage.py` / `think_length.py` /
 `math_calibrate.py` (decode-quality and dataset-difficulty probes),
 `dashboard.py` (stdlib live run dashboard over `runs/`), `sage_server.py`
-(OpenAI-compatible server that decodes with SAGE). Each has a docstring with
-usage.
+(OpenAI-compatible server that decodes with SAGE), `launch_detached.py`
+(start a multi-hour run in its own session so nothing but the run can kill
+it), `bundle_artifacts.sh` (package adapters + reproduction inputs for
+release). Each has a docstring with usage.
 
 ## License
 
 MIT — see [LICENSE](LICENSE). The MBPP dataset in `data/` is CC BY 4.0 from
 Google Research and is **not** covered by the MIT license — see
-[data/README.md](data/README.md).
+[data/README.md](data/README.md). Datasets the tasks fetch at runtime carry
+their own terms and are never redistributed here; note KodCode
+(`kodcode` task) is **CC BY-NC 4.0**, so results from it are fine for
+research but not for commercial use.

@@ -59,6 +59,9 @@ def _task(wrong_penalty=3.0, **kw) -> QAAbstainTask:
     t._rates = kw.get("rates", {})
     t._train = kw.get("train", [])
     t._eval = kw.get("eval", [])
+    t._eval_i = 0
+    t.chat_frac = kw.get("chat_frac", 0.0)
+    t.system = kw.get("system", None)
     return t
 
 
@@ -161,3 +164,16 @@ def test_chat_probe_scoring():
     assert m.paper_verdict("Interesting title!") == "other"
 
     assert m._TAG_BLEED.search("<abstain/>") and m._TAG_BLEED.search("<ANSWER>x")
+
+
+def test_eval_sample_cycles_exact_coverage():
+    """--eval-n == len(eval set) must cover every question once. Drawing with
+    replacement reached ~63% of the 500 held-out questions per evaluation and
+    resampled the rest, adding noise to the metric used to pick checkpoints."""
+    rows = [{"qid": f"q{i}", "question": f"Q{i}?", "aliases": ["a"], "gold": "a"}
+            for i in range(4)]
+    t = _task(eval=rows)
+    rng = random.Random(0)
+    seen = [t.eval_sample(rng).meta["qid"] for _ in range(4)]
+    assert seen == ["q0", "q1", "q2", "q3"]
+    assert [t.eval_sample(rng).meta["qid"] for _ in range(2)] == ["q0", "q1"]

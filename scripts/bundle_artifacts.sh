@@ -22,9 +22,9 @@ ADAPTER_STORE="${ADAPTER_STORE:-$HOME/models/adapters}"
 OUT="${1:-$REPO_ROOT/dist}"
 STAGE="$OUT/stage"
 
-# The glove program's trained arms, in the order the results doc presents them.
+# The trained arms, in the order the results doc presents them.
 ADAPTERS=(
-  qa-abstain-20260726        # tag-frame flagship (pre-glove)
+  qa-abstain-20260726        # the original tagged-format run, no prompt yet
   qa-chatmix-20260730        # naive frame mixture, no prompt — the flat control
   qa-gloveB-20260730         # arm B: prompt + tag-tuned bands
   qa-gloveA-20260731         # arm A ckpt 200 — the transfer claim's checkpoint

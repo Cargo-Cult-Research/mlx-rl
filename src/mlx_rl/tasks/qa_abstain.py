@@ -126,13 +126,20 @@ def load_popqa() -> list[dict]:
     return rows
 
 
-# The system prompt: a general honesty-about-uncertainty prompt that ships
-# WITH the LoRA adapter (train with it, deploy with it). It moves the abstain
-# affordance out of per-question instructions into a register that carries to
-# any task — the 07-30 chatmix run showed the policy gradient cannot lift a
-# ~1% decline propensity from rare negative-reward groups alone; the prompt
-# raises the baseline propensity so RL's job is calibration, not invention.
-# Single source of truth — probes import it (--system honesty).
+# The honesty prompt (called "the glove" in older docs and in GLOVE.txt, which
+# is the same text). It ships WITH the LoRA adapter: train with it, deploy with
+# it. Its job is to state, once and for the whole conversation, that declining
+# is allowed — rather than repeating that permission in every question's
+# instructions, which is what made the behaviour vanish the moment questions
+# stopped arriving in our tagged format.
+#
+# Why it is necessary: the 07-30 run mixed conversation into training WITHOUT
+# this prompt and went nowhere — the model declined about 1% of the time, and a
+# tendency that rare gives the policy gradient nothing to reinforce. The prompt
+# raises that baseline, which leaves RL the job it can actually do: calibrating
+# when to decline, rather than inventing the behaviour from scratch.
+#
+# Single source of truth — the probe scripts import it (--system honesty).
 HONESTY_SYSTEM = (
     "Honesty about uncertainty beats guessing. If you do not reliably know "
     "the answer, plainly say you don't know — declining is always "
@@ -147,11 +154,17 @@ PROMPT = (
     "Question: {q}"
 )
 
-# Chat frames: the same questions with NO abstain affordance and no format.
-# The 2026-07-29 papers probe showed the tag-trained policy is gated on the
-# affordance (in-format abstain 0.96 on unknowable entities, ~0.01 in free
-# chat) — these frames make the reward land in the deployment distribution.
-# Deliberately DISJOINT from scripts/qa_chat_probe.py's eval-only frames.
+# Conversational phrasings: the same questions asked the way a person would
+# ask them — no tags, and no mention that declining is an option.
+#
+# These exist because of the 2026-07-29 papers probe: a model trained only in
+# the tagged format declines 0.96 of the time on unknowable entities when asked
+# in that format, and ~0.01 of the time when asked the same thing in
+# conversation. The behaviour was gated on the format, not learned. Training on
+# these phrasings puts the reward where the model is actually used.
+#
+# Deliberately DISJOINT from the phrasings in scripts/qa_chat_probe.py, which
+# are eval-only — never train on those.
 CHAT_FRAMES = [
     "{q}",
     "Quick trivia question for you: {q}",
@@ -184,10 +197,12 @@ class QAAbstainTask:
         # rest keep the verifiable tag format. The judge cache is shared
         # across runs on purpose — identical short replies are common.
         self.chat_frac = chat_frac
-        # Per-frame curriculum: chat frames may draw bands with their own mix
-        # (unknown-heavy so decline-signal groups fire every step — with the
-        # tag-tuned 0.65-known mix only ~1 in 4 chat groups contained a wrong
-        # answer and the 07-30 run learned nothing in chat).
+        # The conversational half can draw from the confidence groups with
+        # its own mix, weighted toward questions the model does NOT know, so
+        # that some group every step contains a decline worth reinforcing.
+        # With the tag-tuned 0.65-known mix only ~1 in 4 conversational
+        # groups held a wrong answer, and the 07-30 run learned nothing in
+        # conversation.
         self._chat_band_mix = chat_band_mix
         # system="honesty" selects HONESTY_SYSTEM; any other string is used
         # verbatim as the system message; None = no system message.
@@ -200,6 +215,7 @@ class QAAbstainTask:
         rng = random.Random(seed)
         rng.shuffle(rows)
         self._eval = rows[:_N_EVAL]
+        self._eval_i = 0  # cursor for exact-coverage eval cycling
         self._train = rows[_N_EVAL:]
         # Optional curriculum: bucket the train pool by probed pass rate and
         # draw bands by weight. Questions absent from the calib file stay in
@@ -254,7 +270,24 @@ class QAAbstainTask:
         return self._example(self._draw(rng, mix), rng, chat)
 
     def eval_sample(self, rng: random.Random) -> Example:
-        return self._example(rng.choice(self._eval), rng)
+        # Cycles the held-out set in order rather than drawing with
+        # replacement, so --eval-n 500 covers all 500 questions exactly once
+        # and a smaller --eval-n is the same stable prefix every time. Drawing
+        # with replacement reached only ~63% of the set per evaluation and
+        # resampled the rest, which put sampling noise on top of a metric whose
+        # whole job is to be comparable across steps. Same pattern as kodcode.
+        #
+        # The frame (tagged vs conversational) still comes from rng, so an eval
+        # is not deterministic overall — it is the QUESTION coverage that is
+        # now exact.
+        #
+        # CUTOVER 2026-08-17: eval_correct / frac_answered from runs before
+        # this commit are not strictly comparable with runs after it. The
+        # difference is small (same distribution, less noise) but it is a
+        # difference; see docs/qa-glove-results.md for which runs are which.
+        row = self._eval[self._eval_i % len(self._eval)]
+        self._eval_i += 1
+        return self._example(row, rng)
 
     def injected_completion(self, example: Example) -> str:
         """Off-policy demonstration for --inject-r: the calibration-oracle
