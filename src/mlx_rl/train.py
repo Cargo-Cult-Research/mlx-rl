@@ -610,6 +610,11 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
         vlm=cfg.vlm_policy,
     )
     print(f"loaded {cfg.model}: {info}")
+    # Let a judge_backend=local judge generate on THIS model with adapters
+    # disabled (== the frozen base) instead of loading a second ~19 GB copy.
+    from .judge_local import register_resident_model
+    from .models import resolve_model_path
+    register_resident_model(model, tokenizer, resolve_model_path(cfg.model))
     if cfg.init_adapter:
         apath = Path(cfg.init_adapter).expanduser()
         wfile = apath / "adapters.safetensors" if apath.is_dir() else apath

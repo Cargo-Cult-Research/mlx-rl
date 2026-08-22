@@ -14,11 +14,32 @@ from __future__ import annotations
 
 import json
 import time
+from contextlib import nullcontext
 from functools import lru_cache
 
 from .judge import PREAMBLE as _BASE_PREAMBLE
 from .judge import ClaimJudge as _CJ
 from .judge import ClaimJudge, Judge, JudgeError, _extract_array
+
+# The resident policy model, registered by the trainer (and any eval script
+# that has one loaded). When its base weights ARE the judge model — the
+# default: both are the qwen36 base — the judge generates on the resident
+# model under adapters_disabled(), which is bit-identical to the base and
+# costs ZERO extra memory. Loading a second ~19 GB copy is the fallback,
+# taken only when the resident base differs from the judge path (or nothing
+# is registered, e.g. standalone judge_agreement runs).
+_RESIDENT: dict | None = None
+
+
+def register_resident_model(model, tokenizer, model_path: str) -> None:
+    global _RESIDENT
+    _RESIDENT = {"model": model, "tokenizer": tokenizer,
+                 "model_path": str(model_path)}
+
+
+def clear_resident_model() -> None:
+    global _RESIDENT
+    _RESIDENT = None
 
 # Opus splits abstain from denial reliably from a one-line definition; smaller
 # models do not. Their failure is specific and repeatable: on replies that BOTH
@@ -58,7 +79,11 @@ def _load(model_path: str):
 class _LocalMixin:
     """Overrides only the transport; everything else is inherited."""
 
-    def __init__(self, *a, model_path: str = "~/models/mlx/Qwen3.6-27B-4bit",
+    # Default = the qwen36 35B base — the same weights the policy trains
+    # from, so in-training judging shares the resident model (free). The
+    # judge_agreement/judge_reward_impact scripts pass other paths when
+    # measuring judge models against each other.
+    def __init__(self, *a, model_path: str = "~/models/mlx/Qwen3.6-35B-A3B-4bit",
                  max_items: int = 16, gen_tokens: int = 4096, **kw):
         kw.setdefault("max_items", max_items)
         super().__init__(*a, **kw)
@@ -92,12 +117,19 @@ class _LocalMixin:
         from mlx_lm import generate
         from mlx_lm.sample_utils import make_sampler
         t0 = time.time()
-        model, tokenizer = _load(self.model_path)
+        if _RESIDENT is not None and _RESIDENT["model_path"] == self.model_path:
+            model, tokenizer = _RESIDENT["model"], _RESIDENT["tokenizer"]
+            from .models import adapters_disabled
+            ctx = adapters_disabled(model)  # base weights, no second copy
+        else:
+            model, tokenizer = _load(self.model_path)
+            ctx = nullcontext()
         text = tokenizer.apply_chat_template(
             [{"role": "user", "content": prompt}],
             add_generation_prompt=True, tokenize=False, enable_thinking=False)
-        out = generate(model, tokenizer, prompt=text, max_tokens=self.gen_tokens,
-                       sampler=make_sampler(temp=temp), verbose=False)
+        with ctx:
+            out = generate(model, tokenizer, prompt=text, max_tokens=self.gen_tokens,
+                           sampler=make_sampler(temp=temp), verbose=False)
         self.calls += 1
         arr = _extract_array(out)          # same tolerant extractor as the CLI judge
         if len(arr) != n:

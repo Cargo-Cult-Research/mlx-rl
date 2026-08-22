@@ -51,13 +51,20 @@ def preflight(cfg) -> None:
     est_gb = estimate_run_gb(weights_gb, cfg.activation_headroom_gb) if weights_gb else 0.0
     tkw = dict(getattr(cfg, "task_kwargs", None) or {})
     if tkw.get("judge_backend") == "local":
-        # The local judge holds a SECOND full model for the whole run —
-        # invisible to estimate_run_gb, which sizes only the policy.
+        # A local judge whose model IS the policy's base rides the resident
+        # weights under adapters_disabled() — zero extra memory (the trainer
+        # registers the model via judge_local.register_resident_model). Only
+        # a judge on DIFFERENT weights loads a second copy, invisible to
+        # estimate_run_gb, and must be counted here.
         jpath = tkw.get("judge_model_path") \
             or "~/models/mlx/Qwen3.6-35B-A3B-4bit"
         try:
-            judge_gb = model_disk_gb(resolve_model_path(jpath))
-            est_gb += judge_gb
+            if str(resolve_model_path(jpath)) != str(resolve_model_path(cfg.model)):
+                judge_gb = model_disk_gb(resolve_model_path(jpath))
+                est_gb += judge_gb
+                warns.append(
+                    f"local judge on different weights ({jpath}) — a second "
+                    f"{judge_gb:.0f} GB residency; same-base judges are free")
         except Exception as e:
             warns.append(f"could not size local judge weights ({e})")
     # Hard-fail on the IRREDUCIBLE floor only (resident weights + headroom):

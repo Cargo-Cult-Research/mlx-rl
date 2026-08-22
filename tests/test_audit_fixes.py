@@ -152,6 +152,57 @@ def test_honesty_true_no_reply_still_penalized():
     assert res.parts["len_capped"] == 0.0
 
 
+# -- local judge rides the resident model ----------------------------------
+
+def test_local_judge_uses_resident_model_when_base_matches(monkeypatch):
+    from mlx_rl import judge_local
+
+    used = {}
+
+    class FakeModel:
+        pass
+
+    def fake_generate(model, tokenizer, prompt, **kw):
+        used["model"] = model
+        return '[{"i": 1, "kind": "abstain", "value": null}]'
+
+    class FakeCtx:
+        def __enter__(self):
+            used["adapters_disabled"] = True
+
+        def __exit__(self, *a):
+            pass
+
+    class FakeTok:
+        def apply_chat_template(self, *a, **kw):
+            return "rendered"
+
+    import mlx_lm
+    monkeypatch.setattr(mlx_lm, "generate", fake_generate)
+    from mlx_rl import models as _models
+    monkeypatch.setattr(_models, "adapters_disabled", lambda m: FakeCtx())
+
+    fm = FakeModel()
+    judge_local.register_resident_model(fm, FakeTok(), "/models/base")
+    try:
+        j = judge_local.LocalJudge.__new__(judge_local.LocalJudge)
+        j.model_path = "/models/base"
+        j.gen_tokens = 64
+        j.model_name = "base"
+        j.calls = 0
+        j.KINDS = judge_local.LocalJudge.KINDS
+        j.VALUE_KIND = judge_local.LocalJudge.VALUE_KIND
+        import pathlib
+        import tempfile
+        j.log_path = pathlib.Path(tempfile.mkstemp()[1])
+        out = j._call_once("prompt", 1)
+        assert used["model"] is fm, "must generate on the resident model"
+        assert used.get("adapters_disabled"), "must zero adapter scales"
+        assert out[0]["kind"] == "abstain"
+    finally:
+        judge_local.clear_resident_model()
+
+
 # -- preflight --------------------------------------------------------------
 
 def _cfg(**kw):
