@@ -1096,9 +1096,6 @@ def main() -> None:
         os._exit(code)
 
 
-if __name__ == "__main__":
-    main()
-
 
 # ---------------------------------------------------------------------------
 # Tool-using tasks: segmented episodes
@@ -1436,3 +1433,7 @@ def evaluate_multiturn(model, tokenizer, task, cfg: TrainConfig):
         out[f"eval_{regime}_reward"] = float(np.mean([r.reward for r in sel]))
         out[f"eval_{regime}_n"] = len(sel)
     return out
+
+
+if __name__ == "__main__":
+    main()
