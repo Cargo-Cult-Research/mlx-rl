@@ -15,12 +15,12 @@ Sent task_ids are journalled to <state>, so a restart never re-sends. Delivery
 failures are NOT journalled and are retried on the next poll.
 
 Run (live, alongside the second leg):
-    .venv/bin/python scripts/duel_report.py \
+    .venv/bin/python experimental/duel_report.py \
         --a runs/sweeps/deepcoder-32k-qwen36.jsonl --a-name qwen36 \
         --b runs/sweeps/deepcoder-32k-qwen38.jsonl --b-name qwen38
 
 Rehearse against the existing pilot legs without sending anything:
-    .venv/bin/python scripts/duel_report.py --dry-run --once \
+    .venv/bin/python experimental/duel_report.py --dry-run --once \
         --a runs/sweeps/deepcoder-pilot-qwen36.jsonl \
         --b runs/sweeps/deepcoder-pilot-qwen3-4b.jsonl
 """

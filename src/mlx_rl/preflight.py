@@ -60,13 +60,25 @@ def preflight(cfg) -> None:
             est_gb += judge_gb
         except Exception as e:
             warns.append(f"could not size local judge weights ({e})")
-    if est_gb and est_gb > total_gb * _RAM_PLAN_FRACTION:
+    # Hard-fail on the IRREDUCIBLE floor only (resident weights + headroom):
+    # that part cannot be tuned away, so exceeding RAM there is certain
+    # death (the two-60GB-models kernel-panic class). The 2.9x training-peak
+    # multiplier is too coarse to hard-fail on — grad_checkpoint and small
+    # LoRA ranks land far below it (measured 49.7 GB where it predicts 68) —
+    # and refusing runs that fit is the failure mode available_gb() already
+    # got bitten by twice. Estimate overruns warn instead.
+    floor_gb = weights_gb + judge_gb + cfg.activation_headroom_gb
+    if weights_gb and floor_gb > total_gb * _RAM_PLAN_FRACTION:
         problems.append(
-            f"planned peak ~{est_gb:.0f} GB (weights {weights_gb:.0f}"
+            f"resident floor ~{floor_gb:.0f} GB (weights {weights_gb:.0f}"
             + (f" + local judge {judge_gb:.0f}" if judge_gb else "")
-            + f" GB, training x2.9 + headroom) exceeds "
-            f"{_RAM_PLAN_FRACTION:.0%} of physical RAM ({total_gb:.0f} GB) — "
-            "this run would page and be killed by the swap guard")
+            + f" + headroom) exceeds {_RAM_PLAN_FRACTION:.0%} of physical "
+            f"RAM ({total_gb:.0f} GB) — certain OOM, nothing to tune")
+    elif est_gb and est_gb > total_gb:
+        warns.append(
+            f"worst-case training peak ~{est_gb:.0f} GB (x2.9 rule) exceeds "
+            f"RAM ({total_gb:.0f} GB); fits only if grad_checkpoint/LoRA keep "
+            "the real peak low — the swap guard is the backstop")
     if est_gb and cfg.required_gb and est_gb > cfg.required_gb:
         warns.append(
             f"--required-gb {cfg.required_gb:.0f} understates the planned peak "

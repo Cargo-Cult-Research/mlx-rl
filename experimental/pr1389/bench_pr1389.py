@@ -1,3 +1,4 @@
+# lifecycle: one-off (archive when mlx-lm PR #1389 lands upstream)
 """Benchmark upstream ml-explore/mlx-lm PR #1389 (chunk-parallel UT/WY gated
 delta) against mlx-rl's gdn_serial on the anatomy harness: one training-mode
 GDN DecoderLayer, real qwen36 dims, peak GiB + wall time + grad numerics.

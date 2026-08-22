@@ -9,7 +9,7 @@ otherwise masquerade as model difficulty in the sweep labels.
 Samples N problems per source config, takes the first parseable Python
 solution per problem. Reports pass rate per source + failure examples.
 
-Run:  .venv/bin/python scripts/deepcoder_judge_check.py [N-per-source]
+Run:  .venv/bin/python experimental/deepcoder_judge_check.py [N-per-source]
 """
 from __future__ import annotations
 

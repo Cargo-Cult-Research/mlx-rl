@@ -1,4 +1,5 @@
 #!/bin/bash
+# lifecycle: one-off (archive when its experiment arc is written up)
 # Finish what the 08-18 night started:
 #   1. the fourth training leg (papers:toolfail), killed at step 6 by the swap guard
 #   2. the stacked adapter, which needs all four legs

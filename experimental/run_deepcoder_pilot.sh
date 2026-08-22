@@ -13,12 +13,12 @@ NOTE="bash $HOME/code/housekeeping/note.sh"
 
 $NOTE "deepcoder pilot: 200-problem seeded sample x pass@5 T=1.0 cap 4096, qwen36 then Qwen3-4B; log runs/sweeps/deepcoder-pilot.log"
 
-.venv/bin/python scripts/difficulty_sweep.py --task deepcoder --k 5 \
+.venv/bin/python experimental/difficulty_sweep.py --task deepcoder --k 5 \
     --temperature 1.0 --max-new-tokens 4096 --batch-prompts 10 \
     --sample 200 --required-gb 38 \
     --out runs/sweeps/deepcoder-pilot-qwen36.jsonl || exit $?
 
-.venv/bin/python scripts/difficulty_sweep.py --task deepcoder --k 5 \
+.venv/bin/python experimental/difficulty_sweep.py --task deepcoder --k 5 \
     --temperature 1.0 --max-new-tokens 4096 --batch-prompts 10 \
     --sample 200 --required-gb 12 \
     --model "$HOME/models/mlx/Qwen3-4B-4bit" \

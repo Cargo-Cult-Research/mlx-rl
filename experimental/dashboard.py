@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Live run dashboard for mlx-rl — stdlib only.
 
-Serves an interactive page (scripts/dashboard_page.html) plus a small JSON
+Serves an interactive page (experimental/dashboard_page.html) plus a small JSON
 API over the run dirs in runs/: metric curves, per-rollout trace browser,
 and a server-side anomaly scan tuned to the failure classes real runs have
 actually been bitten by:
@@ -15,7 +15,7 @@ The high-frequency warn classes (whole group at the cap, active_groups == 0,
 per-task split (anomaly_rollup) + a per-step event timeline, instead of one
 row per occurrence — a 120-step run used to bury the panel in ~100 warns.
 
-Run:      .venv/bin/python scripts/dashboard.py [--port 8377] [--runs runs]
+Run:      .venv/bin/python experimental/dashboard.py [--port 8377] [--runs runs]
 Expose:   binds loopback only. If you need remote access, front it with an
           authenticated proxy or VPN — NEVER expose it publicly; traces
           contain raw model text.

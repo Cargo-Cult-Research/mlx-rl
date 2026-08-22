@@ -19,7 +19,7 @@ $MEMLEASE acquire mbpp-sweep-driver --block exclusive --ensure-gb 42 \
 
 rc=0
 for T in 1.0 0.8 0.6; do
-    .venv/bin/python scripts/difficulty_sweep.py --task code --k 5 \
+    .venv/bin/python experimental/difficulty_sweep.py --task code --k 5 \
         --temperature "$T" --max-new-tokens 4096 --batch-prompts 10 \
         --save-texts --required-gb 38 --no-manage-machine || { rc=$?; break; }
 done

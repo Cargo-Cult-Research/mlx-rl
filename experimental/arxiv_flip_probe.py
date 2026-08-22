@@ -9,7 +9,7 @@ Also runs the same pairs on the fictional slice (never findable) and on the
 known slice (should answer without needing the tool). Reports, per arm and
 condition: called / found / answered / correct / abstain / denial / reward.
 
-    uv run python scripts/arxiv_flip_probe.py --adapter runs/qa-arxiv-arm1-<date>/adapters \
+    uv run python experimental/arxiv_flip_probe.py --adapter runs/qa-arxiv-arm1-<date>/adapters \
         --calib runs/arxiv-calib-<date>/calib.jsonl --n 40 --k 3
 """
 from __future__ import annotations

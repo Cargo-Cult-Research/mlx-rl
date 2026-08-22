@@ -1,7 +1,7 @@
 """Rollout throughput benchmark: batched engine vs sequential generate_step.
 
 Usage:
-    uv run python scripts/bench_rollout.py --profile qwen36 [--seq] \
+    uv run python experimental/bench_rollout.py --profile qwen36 [--seq] \
         [--prompts 4] [--group-size 8] [--max-new 128]
 """
 

@@ -50,7 +50,7 @@ stdin/stdout problems, which buys one unambiguous judge (function-call
 problems, which need per-problem harness glue, are dropped; see
 `data/deepcoder/FETCH-REPORT.txt` for the full accounting of what was filtered
 and why). Output comparison is calibrated against upstream reference solutions
-by `scripts/deepcoder_judge_check.py`: per-line rstrip, trailing blanks
+by `experimental/deepcoder_judge_check.py`: per-line rstrip, trailing blanks
 dropped, then token-level comparison with 1e-6 float tolerance, because
 reference answers print floats at differing precisions. Problems that accept
 multiple valid orderings stay under-credited by construction — they label as
@@ -59,7 +59,7 @@ without corrupting training signal.
 
 ## Why difficulty labels exist
 
-`scripts/difficulty_sweep.py` runs a base policy over every problem in a
+`experimental/difficulty_sweep.py` runs a base policy over every problem in a
 corpus, k samples each, and writes one JSONL row per problem with `n_pass`,
 per-sample `rewards`, `lens`, and `finishes`. This is measured once and reused
 forever. The `deepcoder` task consumes such a file via `labels_file=` plus
@@ -75,7 +75,7 @@ batch that mostly disagrees with itself.
 ## Measured: MBPP difficulty atlas
 
 Qwen3.6-35B-A3B 4-bit, k=5, cap 4096, three temperature legs under one
-exclusive memory lease (`scripts/run_mbpp_sweep.sh`), 2026-08-13 → 08-14,
+exclusive memory lease (`experimental/run_mbpp_sweep.sh`), 2026-08-13 → 08-14,
 ~166 min for the final leg. 427 problems × 3 legs = 1281 rows in
 `runs/sweeps/code-pass@5.jsonl`; the same rows are the label file at
 `data/labels/mbpp-pass@5-qwen36.jsonl`.
@@ -203,7 +203,7 @@ cost, that is the efficiency argument for the task, not a refinement of it.
 | MBPP pass@5 atlas | **done**, shipped: `data/labels/mbpp-pass@5-qwen36.jsonl` (3 temperatures — read the `labels_file` caveat above before using it) |
 | DeepCoder pilots | 3 × 200 problems in `runs/sweeps/` (qwen36, qwen36-16k, qwen3-4b) |
 | DeepCoder full atlas | **not started** |
-| curriculum plumbing | **done**: `labels_file=` + `min_pass=`/`max_pass=` in `tasks/deepcoder.py`, `scripts/difficulty_sweep.py` |
+| curriculum plumbing | **done**: `labels_file=` + `min_pass=`/`max_pass=` in `tasks/deepcoder.py`, `experimental/difficulty_sweep.py` |
 
 **What resuming costs.** The sweep asks for ~60 GB and a ≥32k cap (the pilot
 log shows it aborting the memory guard at 60 GB with a lens backend resident),

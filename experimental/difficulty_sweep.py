@@ -16,7 +16,7 @@ skips (task_id, temperature) pairs already present in --out.
 Grading runs the task's reward, which for code tasks EXECUTES model output in
 a subprocess — same non-sandboxed caveat as training (see tasks/code.py).
 
-Run:  .venv/bin/python scripts/difficulty_sweep.py --task code --k 5 \
+Run:  .venv/bin/python experimental/difficulty_sweep.py --task code --k 5 \
           --temperature 1.0 --max-new-tokens 4096
 """
 from __future__ import annotations

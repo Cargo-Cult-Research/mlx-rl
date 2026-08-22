@@ -23,8 +23,8 @@ Measures, per sequence length:
      retained; verified numerically against A (same loss, same input grad).
 
 Usage:
-    .venv/bin/python scripts/anatomy_gdn.py --lengths 1024,2048,3584
-    .venv/bin/python scripts/anatomy_gdn.py --moe   # 4-bit MoE mlp variant
+    .venv/bin/python experimental/anatomy_gdn.py --lengths 1024,2048,3584
+    .venv/bin/python experimental/anatomy_gdn.py --moe   # 4-bit MoE mlp variant
 """
 
 from __future__ import annotations

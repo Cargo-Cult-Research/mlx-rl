@@ -6,7 +6,7 @@ saw (question, visible reply), the tool trace, the judge's verdict as the
 reward parts encode it, the gold, and the reward — so a human can say
 whether the judge (and the grade) got it right.
 
-    uv run python scripts/build_review_queue.py --n 100 --out runs/human-review/queue.jsonl \
+    uv run python experimental/build_review_queue.py --n 100 --out runs/human-review/queue.jsonl \
         runs/arxiv-transfer-20260817b/episodes.jsonl runs/arxiv-transfer-mt3-arm2-20260817/episodes.jsonl ...
 """
 from __future__ import annotations

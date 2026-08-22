@@ -11,7 +11,7 @@ same reward. Cost is reported next to reward — generated tokens and tool
 rounds per episode — because "makes sense of the noise" and "burns 2k
 tokens doing it" are different results.
 
-    uv run python scripts/arxiv_transfer_eval.py --n 64 --k 2 \
+    uv run python experimental/arxiv_transfer_eval.py --n 64 --k 2 \
         --arm base= \
         --arm sandbox-v3-60=~/models/adapters/qa-arxiv-sandbox-v3-60 \
         --arm web-v4-60=~/models/adapters/qa-arxiv-web-v4-60

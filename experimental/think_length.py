@@ -29,7 +29,7 @@ Output: runs/<out>/config.json + samples.jsonl (dashboard-browsable) +
 summary.json + a distribution table on stdout.
 
 Usage:
-    .venv/bin/python scripts/think_length.py \
+    .venv/bin/python experimental/think_length.py \
         --out runs/think-length-YYYYMMDD
 """
 

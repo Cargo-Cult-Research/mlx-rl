@@ -13,8 +13,8 @@ Measures, with no training:
    not, k=1 may be a dead channel and the game needs k=2.
 
 Usage:
-  .venv/bin/python scripts/telephone_probe.py --profile tiny --vocab-sample 512
-  .venv/bin/python scripts/telephone_probe.py --profile qwen36 --vocab-sample 256
+  .venv/bin/python experimental/telephone_probe.py --profile tiny --vocab-sample 512
+  .venv/bin/python experimental/telephone_probe.py --profile qwen36 --vocab-sample 256
 """
 
 from __future__ import annotations

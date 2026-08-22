@@ -10,8 +10,8 @@ Run it on a quiet machine: other memory-hungry resident processes make the
 numbers pessimistic.
 
 Usage:
-    .venv/bin/python scripts/probe_backward.py            # 1536,1792,2048,2304
-    .venv/bin/python scripts/probe_backward.py --lengths 2560,3072
+    .venv/bin/python experimental/probe_backward.py            # 1536,1792,2048,2304
+    .venv/bin/python experimental/probe_backward.py --lengths 2560,3072
 """
 
 from __future__ import annotations

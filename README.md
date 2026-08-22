@@ -398,16 +398,17 @@ Technical notes in [docs/](docs/):
 - [glossary.md](docs/glossary.md) — this repo's private vocabulary, translated.
   Read it before writing docs; prefer the plain-English column.
 
-Standalone instruments in [scripts/](scripts/): `probe_backward.py`
-(memory-vs-length probe), `anatomy_gdn.py` / `anatomy_sched.py` (per-layer
-GDN measurements behind the serial-scan fix), `bench_rollout.py` (batched vs
-sequential rollout), `oracle_sage.py` / `think_length.py` /
-`math_calibrate.py` (decode-quality and dataset-difficulty probes),
-`dashboard.py` (stdlib live run dashboard over `runs/`), `sage_server.py`
-(OpenAI-compatible server that decodes with SAGE), `launch_detached.py`
-(start a multi-hour run in its own session so nothing but the run can kill
-it), `bundle_artifacts.sh` (package adapters + reproduction inputs for
-release). Each has a docstring with usage.
+Code is split by stability (2026-08-22): [scripts/](scripts/) holds only the
+load-bearing, expected-to-work surface — `rl_dash.py` (labbook server),
+`matrix_eval.py`, `promote_adapter.py`, `launch_detached.py` (start a
+multi-hour run in its own session so nothing but the run can kill it), the
+`*_calibrate.py` / `fetch_*.py` data instruments, `apply_patches.sh`, and
+`bundle_artifacts.sh` (package adapters + reproduction inputs for release).
+Everything built for one experiment — probes (`probe_backward.py`,
+`anatomy_*.py`, `bench_rollout.py`, `oracle_sage.py`, `think_length.py`),
+per-arc drivers, `dashboard.py`, `sage_server.py` — lives in
+[experimental/](experimental/), which nothing in the core depends on. Each
+file has a docstring with usage; see `experimental/README.md` for the rule.
 
 ## License
 

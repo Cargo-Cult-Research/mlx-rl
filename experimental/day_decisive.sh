@@ -1,4 +1,5 @@
 #!/bin/bash
+# lifecycle: one-off (archive when its experiment arc is written up)
 # Does the web-tools adapter really cut invented package names, or was that noise?
 # Yesterday: base 0.20 -> web-tools 0.05. Last night: base 0.11 -> per-square 0.12-0.14.
 # Both were internally paired, so put every arm in ONE comparison on the same items.

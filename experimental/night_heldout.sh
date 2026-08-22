@@ -1,4 +1,5 @@
 #!/bin/bash
+# lifecycle: one-off (archive when its experiment arc is written up)
 # Held-out transfer experiment.
 #
 #   trained squares : trivia:single, trivia:toolfail, papers:single, papers:toolfail

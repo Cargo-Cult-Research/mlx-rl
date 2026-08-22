@@ -21,7 +21,7 @@ post → "post": correct +1 / decline 0 / wrong or denial −3; famous → "know
 invented → "fictional": decline-or-deny AFTER checking +1, before 0/−3,
 any answer −3).
 
-    uv run python scripts/ood_eval.py --arm base= --arm arm2=... --n-popqa 48
+    uv run python experimental/ood_eval.py --arm base= --arm arm2=... --n-popqa 48
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ from mlx_rl.tasks.qa_arxiv import DATE_LINE, QAArxivTask, _surname  # noqa: E402
 from mlx_rl.train import _episode_record, _sample_episodes  # noqa: E402
 
 DATA = Path(__file__).parent.parent / "data"
-FAMOUS_GOLD = {  # from scripts/papers_recall_probe.py
+FAMOUS_GOLD = {  # from experimental/papers_recall_probe.py
     "paper_famous_1706.03762": (["Vaswani"], ["2017"]), "paper_famous_1810.04805": (["Devlin"], ["2018", "2019"]),
     "paper_famous_2005.14165": (["Brown"], ["2020"]), "paper_famous_1512.03385": (["He", "Kaiming He"], ["2015", "2016"]),
     "paper_famous_1412.6980": (["Kingma"], ["2014", "2015"]), "paper_famous_2106.09685": (["Hu", "Edward Hu"], ["2021"]),

@@ -59,7 +59,7 @@ MEMLEASE="python3 $HOME/code/housekeeping/memlease.py"
 PY=.venv/bin/python
 
 sweep () {  # sweep <model> <out> <n> <batch>
-    $PY scripts/difficulty_sweep.py --task deepcoder --k "$K" \
+    $PY experimental/difficulty_sweep.py --task deepcoder --k "$K" \
         --temperature 1.0 --max-new-tokens "$CAP" --batch-prompts "$4" \
         --sample "$SAMPLE" --sample-seed 7 --max-problems "$3" \
         --model "$1" --out "$2" --required-gb "$REQ_GB" --no-manage-machine
@@ -96,7 +96,7 @@ fi
 echo "=== smoke passed ==="
 
 # Reporter joins the two files and sends one message per completed pair.
-$PY scripts/duel_report.py --a "$A_OUT" --a-name qwen36 \
+$PY experimental/duel_report.py --a "$A_OUT" --a-name qwen36 \
     --b "$B_OUT" --b-name qwen38 --expect "$SAMPLE" \
     ${ONLY_DISAGREEMENTS:+--only-disagreements} &
 REPORTER=$!

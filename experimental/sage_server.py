@@ -22,7 +22,7 @@ Single-flight: one generation at a time (beam owns the GPU); requests queue
 on the lock. All mx work runs on ONE worker thread (MLX streams are
 per-thread state — the 0.31.x lesson).
 
-Run:  .venv/bin/python scripts/sage_server.py [--port 8080]
+Run:  .venv/bin/python experimental/sage_server.py [--port 8080]
 """
 from __future__ import annotations
 

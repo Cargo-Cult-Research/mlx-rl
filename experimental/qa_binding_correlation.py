@@ -22,7 +22,7 @@ Two phases in one process (one model load each):
 Judge = the same cached commitment parser used in training.
 
 Usage:
-    .venv/bin/python scripts/qa_binding_correlation.py \
+    .venv/bin/python experimental/qa_binding_correlation.py \
         --adapter ~/models/adapters/qa-gloveA-20260731 \
         --n 200 --k 8 --out runs/qa-binding-YYYYMMDD
 """

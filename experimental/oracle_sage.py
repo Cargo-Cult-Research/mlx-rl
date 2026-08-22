@@ -22,7 +22,7 @@ Output: runs/<out>/config.json + samples.jsonl (dashboard-browsable: one
 on stdout.
 
 Usage:
-    .venv/bin/python scripts/oracle_sage.py --out runs/oracle-sage-YYYYMMDD
+    .venv/bin/python experimental/oracle_sage.py --out runs/oracle-sage-YYYYMMDD
 """
 
 from __future__ import annotations
