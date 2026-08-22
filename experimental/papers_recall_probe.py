@@ -33,7 +33,7 @@ from pathlib import Path
 
 from mlx_lm import load as mlx_load
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 from qa_chat_probe import _TAG_BLEED, classify, contains_alias  # noqa: E402
 
 from mlx_rl import machine  # noqa: E402
