@@ -183,6 +183,13 @@ def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
                 if not _stage1_dead([graded[id(c)].total for c in group],
                                     cfg.stage1_skip)]
         skipped = len(examples) - len(live)
+        # Keep the abandoned groups' stage-1 rewards: reward_mean over
+        # survivors only degrades as the policy improves (saturated = GOOD
+        # groups get skipped), which read as "training collapse" in the
+        # 08-21 curve run. The trainer folds these into reward_mean_all.
+        live_set = set(live)
+        skipped_rewards = [graded[id(c)].total for i, group in enumerate(groups)
+                           if i not in live_set for c in group]
         examples = [examples[i] for i in live]
         groups = [groups[i] for i in live]
         prompts = [prompts[i] for i in live]
@@ -195,6 +202,7 @@ def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
             for group, extra in zip(groups, groups2):
                 group.extend(extra)
             stats = stats2  # tok/s of the larger phase; a metric, not a ledger
+        stats.stage1_skipped_rewards = skipped_rewards
     else:
         groups, prompts, stats = _sample_batched(
             model, tokenizer, examples, cfg, n_sampled, cfg.temperature, task
@@ -270,7 +278,11 @@ def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
                 r = rfcs(text.split(marker, 1)[0], str(ex.meta["answer"]))
                 if r is not None:
                     parts["rfcs"] = round(r, 4)
-            gated = res.total * (1.0 - cfg.length_penalty * len_norm)
+            # max(total, 0): scale down positive rewards only. Multiplying a
+            # NEGATIVE total by (1 - lam*len_norm) shrank the penalty for
+            # longer failures — a length BONUS on exactly the rambling the
+            # knob exists to discourage.
+            gated = res.total - cfg.length_penalty * len_norm * max(res.total, 0.0)
             # Tripwires for two previously-observed bug classes — cheap, loud.
             if comp.think_len is not None and comp.think_len > cfg.max_new_tokens:
                 print(f"[BUG] think_len {comp.think_len} > max_new_tokens "
@@ -294,6 +306,47 @@ def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
                 )
             )
     return rollouts, stats, skipped
+
+
+def neutralize_capped_rewards(rewards: np.ndarray, capped: np.ndarray) -> int:
+    """Replace each length-capped member's reward with the mean of its
+    group's UNcapped members, in place. Its group-relative advantage becomes
+    exactly 0 — no gradient toward or away from running out of budget — and
+    the group baseline stays unbiased. (Scoring truncation as no_reply/-P fed
+    a shortness gradient: 1 in 8 rewards of the 08-22 run measured the token
+    budget, not the policy.) All-capped groups are left alone: zero-variance,
+    dropped by active_groups anyway. Returns the number neutralized."""
+    n = 0
+    for g in np.flatnonzero(capped.any(axis=1)):
+        alive = ~capped[g]
+        if alive.any():
+            rewards[g, capped[g]] = rewards[g, alive].mean()
+            n += int(capped[g].sum())
+    return n
+
+
+def prune_advantages(upd_adv: np.ndarray, group_size: int, frac: float):
+    """Advantage pruning, per SIGN, then re-centered.
+
+    A single |adv| threshold is sign-biased on asymmetric reward scales
+    ({+1,0,-3}): a 7-good/1-bad group normalizes to [+0.38 x7, -2.65] and
+    kept only the -2.65 — every majority-good group became pure suppression
+    and good completions were never reinforced (the 08-22 run updated on
+    17/96 sequences this way). Thresholding within each sign keeps both
+    sides; the re-center removes the residual so kept advantages still sum
+    to ~0 per group. Returns (kept_advantages, keep_mask, n_pruned)."""
+    adv2d = upd_adv.reshape(-1, group_size)
+    a2 = np.abs(adv2d)
+    pos, neg = adv2d > 0, adv2d < 0
+    pos_max = np.where(pos, a2, 0.0).max(axis=1, keepdims=True)
+    neg_max = np.where(neg, a2, 0.0).max(axis=1, keepdims=True)
+    keep2d = ((pos & (a2 >= frac * pos_max))
+              | (neg & (a2 >= frac * neg_max)))
+    kept_n = np.maximum(keep2d.sum(axis=1, keepdims=True), 1)
+    kept_mean = (adv2d * keep2d).sum(axis=1, keepdims=True) / kept_n
+    adv2d = adv2d - kept_mean
+    keep = keep2d.reshape(-1)
+    return adv2d.reshape(-1)[keep], keep, int((~keep).sum())
 
 
 def update_policy(model, optimizer, loss_and_grad, rollouts, advantages, cfg,
@@ -431,6 +484,8 @@ def evaluate(model, tokenizer, task, cfg: TrainConfig):
 
 
 def train(cfg: TrainConfig, out_dir: str | Path) -> Path:
+    from .preflight import preflight
+    preflight(cfg)  # dies loudly BEFORE weights load or the lease is taken
     holder = None
     if cfg.manage_machine:
         from .memory import estimate_run_gb, model_disk_gb
@@ -624,6 +679,24 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
             raise SystemExit(
                 "--resume-from must differ from --out: a resumed run writes a "
                 "NEW directory so the source run's record stays intact")
+        # A resumed run silently continuing under different hyperparameters
+        # poisons every comparison made with it. Diff the configs; ignore the
+        # fields a legitimate resume changes. Deliberate drift (e.g. an lr
+        # sweep continuing a warmup) opts in via MLX_RL_ALLOW_RESUME_DRIFT=1.
+        src_cfg_f = src / "config.json"
+        if src_cfg_f.exists() and not os.environ.get("MLX_RL_ALLOW_RESUME_DRIFT"):
+            a = json.loads(src_cfg_f.read_text())
+            b = json.loads((out / "config.json").read_text())
+            ignore = {"resume_from", "steps", "keep_resume", "lease_wait_s",
+                      "manage_machine", "lease_block", "required_gb"}
+            drift = {k: (a.get(k), b.get(k)) for k in (set(a) | set(b))
+                     if k not in ignore and a.get(k) != b.get(k)}
+            if drift:
+                raise SystemExit(
+                    "RESUME REFUSED: config drift vs the source run\n"
+                    + "\n".join(f"  {k}: {v0!r} -> {v1!r}"
+                                for k, (v0, v1) in sorted(drift.items()))
+                    + "\nSet MLX_RL_ALLOW_RESUME_DRIFT=1 if this is deliberate.")
         done, st = load_resume(src, model, optimizer, rng, subset_rng, task)
         start_step = done + 1
         activity_window.extend(st["activity_window"])
@@ -682,6 +755,11 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
         rewards = np.array(
             [r.reward for r in rollouts], dtype=np.float32
         ).reshape(-1, cfg.group_size)
+        n_capped_neutral = 0
+        if getattr(task, "neutralize_len_capped", False):
+            capped = np.array([r.finish == "length" for r in rollouts]
+                              ).reshape(-1, cfg.group_size)
+            n_capped_neutral = neutralize_capped_rewards(rewards, capped)
         advantages = np.array(
             group_advantages(mx.array(rewards), cfg.normalize_std)
         ).reshape(-1, cfg.group_size)
@@ -689,6 +767,7 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
 
         t1 = time.time()
         n_pruned = 0
+        no_update = False
         if active.any():
             idx = np.flatnonzero(np.repeat(active, cfg.group_size))
             upd_rollouts = [rollouts[i] for i in idx]
@@ -699,12 +778,9 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
                 (sum(r.gen_mask) if r.gen_mask is not None
                  else len(r.completion_tokens)) for r in upd_rollouts))
             if cfg.update_adv_frac > 0:
-                a2 = np.abs(upd_adv).reshape(-1, cfg.group_size)
-                keep = (a2 >= cfg.update_adv_frac
-                        * a2.max(axis=1, keepdims=True)).reshape(-1)
-                n_pruned = int((~keep).sum())
+                upd_adv, keep, n_pruned = prune_advantages(
+                    upd_adv, cfg.group_size, cfg.update_adv_frac)
                 upd_rollouts = [r for r, k in zip(upd_rollouts, keep) if k]
-                upd_adv = upd_adv[keep]
             pg, kl, gnorm = update_policy(
                 model,
                 optimizer,
@@ -723,6 +799,7 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
             # dead-run watchdog (abort_inactive_window, on by default), not
             # be silently pulled back toward base.
             pg, kl, gnorm = 0.0, 0.0, float("nan")
+            no_update = True
         t_upd = time.time() - t1
         # Tell the swap guard how long that took. Paging traffic alone is not
         # evidence of trouble — it killed a healthy 200-step run on transients
@@ -735,10 +812,20 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
         # paging (slow swap creep).
         mx.clear_cache()
 
+        # The batch mean INCLUDING groups abandoned at stage 1. reward_mean
+        # (survivors only) lies downward as the policy improves, because
+        # stage1_skip=saturated removes exactly the all-good groups: the
+        # 08-21 overnight run printed -3.000 on a step where 11/12 groups
+        # were skipped as saturated (true mean ~ +0.4).
+        skip_rw = list(getattr(gen_stats, "stage1_skipped_rewards", []) or [])
         rec = {
             "step": step,
             "reward_mean": float(rewards.mean()),
             "reward_std": float(rewards.std()),
+            "reward_mean_all": float(np.mean(
+                np.concatenate([rewards.reshape(-1),
+                                np.asarray(skip_rw, dtype=np.float32)])
+                if skip_rw else rewards.reshape(-1))),
             **{
                 f"frac_{key}": float(
                     np.mean([r.reward_parts.get(key, 0.0) for r in rollouts])
@@ -775,8 +862,13 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
             "frac_len_capped": float(
                 np.mean([r.finish == "length" for r in rollouts])
             ),
+            # pg/kl are 0.0 on a skipped step, indistinguishable from a
+            # measured zero without this flag.
+            "no_update": no_update,
             "ts": round(time.time(), 1),
         }
+        if n_capped_neutral:
+            rec["len_capped_neutralized"] = n_capped_neutral
         rfcs_vals = [r.reward_parts["rfcs"] for r in rollouts
                      if "rfcs" in r.reward_parts]
         if rfcs_vals:
@@ -793,8 +885,18 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
         # QeRL observable (2510.11696): mean NLL of the sampled tokens under
         # the (4-bit) policy — the exploration/entropy proxy. Quantization
         # noise raises it; watch it fall as the policy sharpens.
-        nll = [-float(np.mean(r.sampling_logprobs)) for r in rollouts
-               if not r.sage and not r.injected and r.sampling_logprobs]
+        # Averaged over GENERATED tokens only: injected tool-response tokens
+        # carry logprob 0.0 (engine fills them as context), and their share
+        # grows over training — unmasked, they diluted the 08-21 curve's NLL
+        # ~2x, overstating the sharpening.
+        nll = []
+        for r in rollouts:
+            if r.sage or r.injected or not r.sampling_logprobs:
+                continue
+            lps = (r.sampling_logprobs if r.gen_mask is None else
+                   [lp for lp, m in zip(r.sampling_logprobs, r.gen_mask) if m])
+            if lps:
+                nll.append(-float(np.mean(lps)))
         if nll:
             rec["gen_nll"] = round(float(np.mean(nll)), 4)
         if cfg.inject_r:
@@ -815,6 +917,16 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
             )
             rec["reward_sage"] = float(np.mean([r.reward for r in sage_rs]))
             rec["reward_sampled"] = float(np.mean([r.reward for r in samp_rs]))
+        # Checkpoint BEFORE eval at the same step: eval is the likeliest
+        # crash site (biggest single batch of the loop), and with both on the
+        # same cadence the old order left a first-eval crash with zero
+        # checkpoints — the night-heldout papers-toolfail leg died at step 6
+        # eval and lost every step of compute it had done.
+        if cfg.checkpoint_every and step % cfg.checkpoint_every == 0:
+            save_adapter(model, out / "adapters", cfg.lora, cfg.model, step)
+            if cfg.keep_resume:
+                save_resume(out, step, optimizer, rng, subset_rng, task,
+                            activity_window, cfg.keep_resume)
         if cfg.eval_every and step % cfg.eval_every == 0:
             rec.update(evaluate(model, tokenizer, task, cfg))
             mx.clear_cache()  # phase boundary: eval KV vs next step's gen
@@ -874,12 +986,6 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
         )
         samples_f.flush()
         watch_activity(int(active.sum()))
-
-        if cfg.checkpoint_every and step % cfg.checkpoint_every == 0:
-            save_adapter(model, out / "adapters", cfg.lora, cfg.model, step)
-            if cfg.keep_resume:
-                save_resume(out, step, optimizer, rng, subset_rng, task,
-                            activity_window, cfg.keep_resume)
 
     swap_guard.stop()
     final = evaluate(model, tokenizer, task, cfg)
@@ -1246,6 +1352,13 @@ def collect_episodes(model, tokenizer, examples, cfg: TrainConfig, task):
                 if not _stage1_dead([graded[id(ep)][1].total for ep in group],
                                     cfg.stage1_skip)]
         skipped = len(examples) - len(live)
+        # Abandoned groups' stage-1 rewards, for reward_mean_all (see
+        # collect_rollouts): survivors-only means lie downward as saturated
+        # (all-good) groups vanish from the metric.
+        live_set = set(live)
+        skipped_rewards = [graded[id(ep)][1].total
+                           for i, group in enumerate(groups)
+                           if i not in live_set for ep in group]
         examples = [examples[i] for i in live]
         groups = [groups[i] for i in live]
         prompts = [prompts[i] for i in live]
@@ -1256,6 +1369,7 @@ def collect_episodes(model, tokenizer, examples, cfg: TrainConfig, task):
             for group, extra in zip(groups, groups2):
                 group.extend(extra)
             stats = stats2
+        stats.stage1_skipped_rewards = skipped_rewards
     else:
         groups, prompts, stats = _sample_episodes(
             model, tokenizer, examples, cfg, task, n_sampled, cfg.temperature)
@@ -1330,18 +1444,35 @@ def evaluate_episodes(model, tokenizer, task, cfg: TrainConfig):
     think_close = _think_close_marker(tokenizer, cfg, task)
     records = [_episode_record(tokenizer, g[0], think_close) for g in groups]
     results = task.episode_reward(examples, records)
+    # Length-capped episodes measure max_new_tokens, not the policy: they are
+    # excluded from every reward/rate mean and reported as their own rate.
+    # Loud by machine rule — a truncated completion must never be silently
+    # graded (the -1.67-vs-+0.02 same-cell swing in the 08-21 matrix was
+    # entirely this).
+    is_capped = [bool(r.parts.get("len_capped")) for r in results]
+    n_capped = sum(is_capped)
+    if n_capped:
+        print(f"   [eval] {n_capped}/{len(results)} episodes len-capped at "
+              f"max_new_tokens={cfg.max_new_tokens} — excluded from eval means",
+              flush=True)
+    alive = [(ex, r) for ex, r, c in zip(examples, results, is_capped) if not c]
+    a_results = [r for _, r in alive] or results  # all-capped: report raw
+    a_examples = [ex for ex, _ in alive] or examples
     out = {
-        "eval_reward": float(np.mean([r.total for r in results])),
+        "eval_reward": float(np.mean([r.total for r in a_results])),
         "eval_mean_len": float(np.mean([g[0].gen_count for g in groups])),
         "eval_rounds": float(np.mean([g[0].rounds for g in groups])),
+        "eval_len_capped": float(np.mean(is_capped)),
+        "eval_n_graded": len(alive),
     }
-    for key in sorted({k for r in results for k in r.parts}):
-        out[f"eval_{key}"] = float(np.mean([r.parts.get(key, 0.0) for r in results]))
+    for key in sorted({k for r in a_results for k in r.parts}):
+        out[f"eval_{key}"] = float(np.mean([r.parts.get(key, 0.0) for r in a_results]))
+    out["eval_len_capped"] = float(np.mean(is_capped))  # over ALL episodes
     # Per-regime slices: the falsification test lives here (post vs future
     # on the same papers must differ).
     for key in ("regime", "band"):
-        for val in sorted({ex.meta.get(key) for ex in examples} - {None}):
-            sel = [r for ex, r in zip(examples, results) if ex.meta.get(key) == val]
+        for val in sorted({ex.meta.get(key) for ex in a_examples} - {None}):
+            sel = [r for ex, r in zip(a_examples, a_results) if ex.meta.get(key) == val]
             tag = val if key == "regime" else f"band_{val}"
             out[f"eval_{tag}_reward"] = float(np.mean([r.total for r in sel]))
             out[f"eval_{tag}_called"] = float(np.mean([r.parts.get("called", 0.0) for r in sel]))
@@ -1374,6 +1505,35 @@ def _episode_messages(ep, tokenizer, think_close) -> list[dict]:
     return msgs
 
 
+def _chunked_backoff(sample_fn, items, chunk):
+    """Feed `items` to sample_fn in chunks, halving a chunk on Metal OOM
+    instead of dying. Whole-batch submission with no backoff killed four
+    runs the week of 08-18; every generation entry point goes through a
+    chunked path now. Returns (groups, prompts, last_stats)."""
+    out_groups, out_prompts, stats = [], [], None
+    lo = 0
+    while lo < len(items):
+        n_try = min(chunk, len(items) - lo)
+        while True:
+            try:
+                g, p, stats = sample_fn(items[lo:lo + n_try])
+                break
+            except RuntimeError as e:
+                if ("Insufficient Memory" not in str(e)
+                        and "out of memory" not in str(e).lower()):
+                    raise
+                mx.clear_cache()
+                if n_try == 1:
+                    raise
+                n_try = max(1, n_try // 2)
+                print(f"   [gen oom] retrying at {n_try} rows", flush=True)
+        out_groups.extend(g)
+        out_prompts.extend(p)
+        lo += n_try
+        mx.clear_cache()
+    return out_groups, out_prompts, stats
+
+
 def collect_multiturn(model, tokenizer, examples, cfg: TrainConfig, task):
     """Multi-turn rollouts for tasks that define `turns > 1` and
     `followup(example, turn, history) -> Example`.
@@ -1401,15 +1561,18 @@ def collect_multiturn(model, tokenizer, examples, cfg: TrainConfig, task):
     rollouts: list[Rollout] = []
     stats = None
     for t in range(turns):
+        chunk = max(1, cfg.rollout_batch_size or len(rows))
         if tools:
-            groups, prompts, stats = _sample_episodes(
-                model, tokenizer, rows, cfg, task, 1, cfg.temperature)
+            groups, prompts, stats = _chunked_backoff(
+                lambda rs: _sample_episodes(model, tokenizer, rs, cfg, task,
+                                            1, cfg.temperature), rows, chunk)
             eps = [g[0] for g in groups]
             recs = [_episode_record(tokenizer, ep, think_close) for ep in eps]
             results = task.episode_reward(rows, recs)
         else:
-            groups, prompts, stats = _sample_batched(
-                model, tokenizer, rows, cfg, 1, cfg.temperature, task)
+            groups, prompts, stats = _chunked_backoff(
+                lambda rs: _sample_batched(model, tokenizer, rs, cfg, 1,
+                                           cfg.temperature, task), rows, chunk)
             eps = []
             for g in groups:
                 comp = g[0]

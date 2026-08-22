@@ -98,11 +98,14 @@ def _extract_array(text: str) -> list:
     return json.loads(text[start:end + 1])
 
 
-def _key(question: str, reply: str) -> str:
+def _key(question: str, reply: str, fingerprint: str = "") -> str:
     h = hashlib.sha256()
     h.update(question.encode())
     h.update(b"\x00")
     h.update(reply.encode())
+    if fingerprint:
+        h.update(b"\x00")
+        h.update(fingerprint.encode())
     return h.hexdigest()
 
 
@@ -137,8 +140,21 @@ class Judge:
                 self._cache[r["key"]] = {"kind": r["kind"], "value": r["value"]}
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
 
+    @property
+    def fingerprint(self) -> str:
+        """Identity of the verdict-producing configuration: rubric + model.
+        Folded into every cache key so a rubric edit or a judge swap can
+        never silently serve stale verdicts — the old entries just stop
+        matching (they stay in the file as dead weight, which is the cheap
+        direction of the mistake). Computed lazily so subclass PREAMBLEs and
+        the local judges' model_name are already in place."""
+        ident = ((self.PREAMBLE or PREAMBLE) + "\x00"
+                 + getattr(self, "model_name", self.model))
+        return hashlib.sha256(ident.encode()).hexdigest()[:16]
+
     def verdicts(self, items: list[dict]) -> list[dict]:
-        keys = [_key(it["question"], it["reply"]) for it in items]
+        fp = self.fingerprint
+        keys = [_key(it["question"], it["reply"], fp) for it in items]
         out: list[dict | None] = [self._cache.get(k) for k in keys]
         self.cache_hits += sum(1 for v in out if v is not None)
         todo = [i for i, v in enumerate(out) if v is None]
@@ -155,6 +171,9 @@ class Judge:
                 for i, v in zip(chunk, verdicts):
                     self._cache[keys[i]] = v
                     f.write(json.dumps({"key": keys[i], **v,
+                                        "model": getattr(self, "model_name",
+                                                         self.model),
+                                        "fp": fp,
                                         "question": items[i]["question"],
                                         "reply": items[i]["reply"]}) + "\n")
         for i in todo:

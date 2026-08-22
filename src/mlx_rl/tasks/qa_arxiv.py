@@ -252,6 +252,8 @@ class QAArxivTask:
         self.turns = int(turns)
         self.wrong_penalty = wrong_penalty
         self.needless_call_cost = needless_call_cost
+        # Length-capped episodes carry no policy signal (see honesty._score).
+        self.neutralize_len_capped = True
         if backend not in ("web", "snapshot"):
             raise ValueError(f"backend must be 'web' or 'snapshot', got {backend!r}")
         self.backend = backend
@@ -514,10 +516,14 @@ class QAArxivTask:
         parts = {"called": called, "hits": hits, "found_target": found,
                  "checked_absent": checked, "fallback": fallback, "answered": 0.0, "correct": 0.0,
                  "wrong": 0.0, "denial": 0.0, "abstain": 0.0, "grounded": 0.0,
-                 "no_reply": 0.0, f"regime_{m['regime']}": 1.0,
+                 "no_reply": 0.0, "len_capped": 0.0, f"regime_{m['regime']}": 1.0,
                  f"band_{m.get('band', m['regime'])}": 1.0,
                  "rounds": float(len(calls))}
         P = self.wrong_penalty
+        if ep.get("finish") == "length":
+            # Budget artifact, not a policy outcome — see honesty._score.
+            parts["len_capped"] = 1.0
+            return RewardResult(0.0, parts)
         if verdict is None:
             parts["no_reply"] = 1.0
             return RewardResult(-P, parts)

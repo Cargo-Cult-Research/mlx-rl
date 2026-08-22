@@ -34,6 +34,23 @@ PARTS = ("called", "success", "found_target", "correct", "abstain", "denial", "n
          "claims_result", "reports_failure", "fabricated_provenance", "tool_failed",
          "named", "missing", "named_install", "missing_install",
          "items", "answered_items", "verified_items", "unbacked_items")
+
+
+def _item_se(rows) -> float:
+    """Standard error of the cell's reward, clustered by item (k episodes of
+    one item are correlated draws, not independent ones). Without this every
+    cell mean printed as if it were exact; at n=32 the SE is ~0.3 reward —
+    larger than most arm-vs-base deltas that got interpreted."""
+    by_item: dict = {}
+    for i, row in enumerate(rows):
+        by_item.setdefault(row[0].get("question", i), []).append(row[1])
+    means = [sum(v) / len(v) for v in by_item.values()]
+    n = len(means)
+    if n < 2:
+        return 0.0
+    m = sum(means) / n
+    var = sum((x - m) ** 2 for x in means) / (n - 1)
+    return (var / n) ** 0.5
 CALIB = {"papers": "runs/arxiv-calib-20260816/calib-strict.jsonl",
          "trivia": "runs/qa-calib-20260724/calib.jsonl"}
 
@@ -58,7 +75,11 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=32)
     ap.add_argument("--k", type=int, default=2)
     ap.add_argument("--seed", type=int, default=2026)
-    ap.add_argument("--max-new-tokens", type=int, default=768)
+    # Generous by machine rule: 768 was a three-figure cap on a 262k-context
+    # model, and it manufactured results — the same base cell measured -1.67
+    # at 768 and +0.02 at 2048 (round2 vs day-decisive, same items, same day).
+    # A truncated completion is a void measurement, not a wrong answer.
+    ap.add_argument("--max-new-tokens", type=int, default=4096)
     ap.add_argument("--batch", type=int, default=64)
     ap.add_argument("--out", default=f"runs/matrix/{time.strftime('%Y%m%d-%H%M')}")
     ap.add_argument("--no-manage-machine", action="store_true")
@@ -79,6 +100,12 @@ def main() -> None:
     arms = [(n, str(Path(p).expanduser()) if p else None) for n, _, p in (s.partition("=") for s in a.arm)]
     results: dict = {"n": a.n, "k": a.k, "cells": list(tasks), "arms": {}}
     holder = None if a.no_manage_machine else machine.acquire(38.0, note="matrix eval")
+    if a.no_manage_machine:
+        # Opting out of the lease must not mean opting out of the memory
+        # guard: an unmanaged 30-40 GB eval beside whatever else is resident
+        # is exactly the OOM class that killed the 08-21 grid runs.
+        from mlx_rl.memory import assert_fits
+        assert_fits(38.0)
     try:
         with (out / "episodes.jsonl").open("w") as f:
             for name, adapter in arms:
@@ -86,6 +113,13 @@ def main() -> None:
                 results["arms"][name] = {"adapter": adapter, "cells": {}}
                 for key, task in tasks.items():
                     t0 = time.time()
+                    # Web/tool traffic snapshot, so the cell's numbers carry
+                    # their own weather report (live-web fallback mix differs
+                    # across arms evaluated hours apart — an invisible
+                    # confound until it is written down per cell).
+                    ws0 = dict(task.web.stats) if getattr(task, "web", None) else {}
+                    ts0 = {k: v for k, v in (getattr(task, "tool_stats", {}) or {}).items()
+                           if isinstance(v, (int, float))}
                     cfg = TrainConfig(model=prof.model, task="honesty", profile=a.profile,
                                       chat_kwargs=dict(prof.chat_kwargs), max_new_tokens=a.max_new_tokens,
                                       max_tool_rounds=getattr(task, "tool_rounds", 4), think_end=prof.think_end,
@@ -109,11 +143,26 @@ def main() -> None:
                             # many tool rounds, six-item swamped replies -- so back the
                             # chunk off until it fits instead of failing the whole arm.
                             n_try = per
+                            batch_retried = False
                             while True:
                                 try:
                                     g, _, _ = _sample_episodes(model, tokenizer, exs[lo:lo + n_try],
                                                                cfg, task, a.k, 1.0)
                                     break
+                                except ValueError as e:
+                                    # mlx_lm 0.31.3 BatchKVCache bookkeeping can
+                                    # corrupt under episode park/re-insert (a
+                                    # per-layer cache index goes negative ->
+                                    # "[broadcast_shapes] ... cannot be broadcast").
+                                    # Sampling-dependent: the same cell passed on
+                                    # retry twice on 08-21. One retry with a fresh
+                                    # generator, then fail the arm loudly.
+                                    if "broadcast_shapes" not in str(e) or batch_retried:
+                                        raise
+                                    batch_retried = True
+                                    mx.clear_cache()
+                                    print(f"   [batch-cache] broadcast crash at chunk {lo}; "
+                                          "retrying once with a fresh generator", flush=True)
                                 except RuntimeError as e:
                                     if "Insufficient Memory" not in str(e) and "out of memory" not in str(e).lower():
                                         raise
@@ -132,26 +181,49 @@ def main() -> None:
                                 frec.append(_episode_record(tokenizer, ep, None))
                         for ex, rec, res in zip(fx, frec, task.episode_reward(fx, frec)):
                             rows.append((ex.meta, res.total, res.parts, rec["visible"], rec["tool_calls"]))  # full text: re-gradable offline
-                    agg = {"n": len(rows), "reward": sum(r[1] for r in rows) / max(1, len(rows))}
+                    # Length-capped episodes measure the token budget, not the
+                    # policy: excluded from every mean, reported as a rate.
+                    capped = [r for r in rows if r[2].get("len_capped")]
+                    alive = [r for r in rows if not r[2].get("len_capped")] or rows
+                    if capped:
+                        print(f"   [len-capped] {len(capped)}/{len(rows)} episodes hit "
+                              f"max_new_tokens={a.max_new_tokens} — excluded from means",
+                              flush=True)
+                    agg = {"n": len(rows), "n_graded": len(alive),
+                           "len_capped": len(capped) / max(1, len(rows)),
+                           "reward": sum(r[1] for r in alive) / max(1, len(alive)),
+                           "reward_se": round(_item_se(alive), 4)}
                     for p in PARTS:
-                        agg[p] = sum(r[2].get(p, 0.0) for r in rows) / max(1, len(rows))
+                        agg[p] = sum(r[2].get(p, 0.0) for r in alive) / max(1, len(alive))
                     by_turn = {}
-                    for meta, rew, parts, _, _ in rows:
+                    for meta, rew, parts, _, _ in alive:
                         by_turn.setdefault(meta.get("turn", 0), []).append(rew)
                     agg["by_turn"] = {str(t): sum(v) / len(v) for t, v in by_turn.items()}
                     agg["wall_s"] = round(time.time() - t0)
+                    if getattr(task, "web", None):
+                        agg["web_stats"] = {k: v - ws0.get(k, 0)
+                                            for k, v in task.web.stats.items()
+                                            if isinstance(v, (int, float))}
+                    ts1 = {k: v for k, v in (getattr(task, "tool_stats", {}) or {}).items()
+                           if isinstance(v, (int, float))}
+                    if ts1:
+                        agg["tool_stats"] = {k: v - ts0.get(k, 0) for k, v in ts1.items()}
                     results["arms"][name]["cells"][key] = agg
                     for meta, rew, parts, vis, calls in rows:
                         f.write(json.dumps({"arm": name, "cell": key, "meta": meta, "reward": rew,
                                             "parts": parts, "visible": vis, "tool_calls": calls},
                                            ensure_ascii=False) + "\n")
                     f.flush()
-                    print(f"== {name:12s} {key:32s} reward {agg['reward']:+.2f}  called {agg['called']:.2f} "
+                    print(f"== {name:12s} {key:32s} reward {agg['reward']:+.2f}±{agg['reward_se']:.2f}  called {agg['called']:.2f} "
                           f"correct {agg['correct']:.2f} abstain {agg['abstain']:.2f} denial {agg['denial']:.2f} "
                           f"fab_prov {agg['fabricated_provenance']:.2f} reports_fail {agg['reports_failure']:.2f} "
                           f"noreply {agg['no_reply']:.2f}  named {agg['named']:.2f} "
                           f"nonexistent {agg['missing']:.2f} (install-only {agg['missing_install']:.2f})  ({agg['wall_s']}s)", flush=True)
-                    (out / "results.json").write_text(json.dumps(results, indent=1))
+                    # Per-cell progress goes to .partial; the real results.json
+                    # appears only when the run COMPLETES. Drivers use its
+                    # existence as "arm done" — a partial file made killed
+                    # arms unrerunnable (skipped forever as complete).
+                    (out / "results.json.partial").write_text(json.dumps(results, indent=1))
                 del model, tokenizer
                 gc.collect()
                 mx.clear_cache()
@@ -165,6 +237,7 @@ def main() -> None:
             if key in base:
                 agg["base_delta"] = round(agg["reward"] - base[key]["reward"], 3)
     (out / "results.json").write_text(json.dumps(results, indent=1))
+    (out / "results.json.partial").unlink(missing_ok=True)
     print("wrote", out)
 
 

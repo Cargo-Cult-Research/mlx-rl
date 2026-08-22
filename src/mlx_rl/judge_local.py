@@ -79,7 +79,12 @@ class _LocalMixin:
                 mid = len(items) // 2
                 return self._judge_chunk(items[:mid]) + self._judge_chunk(items[mid:])
             try:                      # one item, one shot off-greedy
-                return self._call_once(self._prompt(items), 1, temp=0.7)
+                vs = self._call_once(self._prompt(items), 1, temp=0.7)
+                # A sampled verdict is a nondeterministic draw that the cache
+                # will freeze forever — mark it so audits can find them.
+                for v in vs:
+                    v["sampled"] = True
+                return vs
             except (JudgeError, ValueError):
                 raise JudgeError(f"local judge could not parse a single item: {e}") from e
 
@@ -99,6 +104,12 @@ class _LocalMixin:
             raise ValueError(f"judge returned {len(arr)} verdicts for {n} items")
         verdicts = []
         for j, rec in enumerate(arr, 1):
+            # The CLI judge validates the "i" ordering field; without this a
+            # locally reordered array would be zipped positionally onto the
+            # wrong items with no error.
+            i = rec.get("i")
+            if i is not None and int(i) != j:
+                raise ValueError(f"item {j}: out-of-order verdict (i={i})")
             kind = rec.get("kind")
             if kind not in self.KINDS:
                 raise ValueError(f"item {j}: bad kind {kind!r}")

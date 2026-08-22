@@ -1,0 +1,29 @@
+--- a/mlx_lm/generate.py
++++ b/mlx_lm/generate.py
+@@ -1063,12 +1063,15 @@
+         if not any(self.samplers):
+             self.samplers = [None] * len(self.uids)
+         if not any(self.logits_processors):
+-            self.logits_processors = [None] * len(self.uids)
++            # [] not None: _step iterates logits_processors[e] per slot when ANY
++            # slot has processors; a None from a processor-less request merged
++            # with a processor-bearing one crashes ('NoneType' not iterable).
++            self.logits_processors = [[]] * len(self.uids)
+         samplers = batch.samplers if any(batch.samplers) else [None] * len(batch.uids)
+         logits_processors = (
+             batch.logits_processors
+             if any(batch.logits_processors)
+-            else [None] * len(batch.uids)
++            else [[]] * len(batch.uids)
+         )
+ 
+         self.uids.extend(batch.uids)
+@@ -1343,7 +1346,7 @@
+             processed_logits = []
+             for e in range(len(self.uids)):
+                 sample_logits = logits[e : e + 1]
+-                for processor in self.logits_processors[e]:
++                for processor in self.logits_processors[e] or []:
+                     sample_logits = processor(token_context[e], sample_logits)
+                 processed_logits.append(sample_logits)
+             logits = mx.concatenate(processed_logits, axis=0)

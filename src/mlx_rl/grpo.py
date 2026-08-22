@@ -106,5 +106,13 @@ def grpo_objective(
     kl = mx.exp(d) - d - 1.0  # k3 estimator, non-negative
     kl_sum = (kl * mask).sum()
 
-    loss = (-pg_sum + kl_coef * kl_sum) / denom
+    # The PENALTY uses a clamped exponent: k3's gradient is 1-exp(d), so a
+    # handful of tokens where the policy crushed mass the base liked (d ~ 10+)
+    # otherwise dominates the whole step's direction — the observed KL-spike
+    # steps needed only ~5 such tokens over a 6k-token denominator. The
+    # REPORTED kl_sum stays unclamped so the metric still shows the spike.
+    d_pen = mx.clip(d, -10.0, 10.0)
+    kl_pen = ((mx.exp(d_pen) - d_pen - 1.0) * mask).sum()
+
+    loss = (-pg_sum + kl_coef * kl_pen) / denom
     return loss, pg_sum, kl_sum

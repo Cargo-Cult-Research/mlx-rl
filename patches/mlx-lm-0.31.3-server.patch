@@ -1,15 +1,16 @@
 --- a/mlx_lm/server.py
 +++ b/mlx_lm/server.py
-@@ -385,8 +385,11 @@
+@@ -385,8 +385,12 @@
              self.load("default_model", None, "default_model")
  
      def load(self, model_path, adapter_path=None, draft_model_path=None):
--        model_path = self._model_map.get(model_path, model_path)
-+        # Look up the adapter under the ORIGINAL name (e.g. "default_model")
-+        # before remapping the model path, or the CLI --adapter-path is
-+        # silently dropped on every request.
-         adapter_path = self._adapter_map.get(model_path, adapter_path)
-+        model_path = self._model_map.get(model_path, model_path)
++        # Resolve the adapter BEFORE rewriting model_path: _adapter_map is
++        # keyed by the alias ("default_model"), not the resolved path — the
++        # upstream order made --adapter-path dead code (base model served
++        # silently).
++        adapter_path = self._adapter_map.get(model_path, adapter_path)
+         model_path = self._model_map.get(model_path, model_path)
+-        adapter_path = self._adapter_map.get(model_path, adapter_path)
          draft_model_path = self._draft_model_map.get(draft_model_path, draft_model_path)
  
          model_key = (model_path, adapter_path, draft_model_path)
