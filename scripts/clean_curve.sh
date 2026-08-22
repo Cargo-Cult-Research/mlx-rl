@@ -1,4 +1,5 @@
 #!/bin/bash
+# lifecycle: one-off (archive when a readable curve is settled — superseded by curve_v2.sh)
 # One clean curve. The old legs computed gradients from ~3 sequences per step,
 # giving the plotted reward a standard error of 0.4-0.7 against an effect of
 # maybe 0.5 -- noise by construction. Calibrated at these settings: 17-30

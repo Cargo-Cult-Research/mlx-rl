@@ -1,4 +1,5 @@
 #!/bin/bash
+# lifecycle: one-off (archive when the three-subject row is complete)
 # ONE measurement, done properly: three subjects, one situation.
 #
 #   train:  trivia:single, papers:single, packages:single   (one adapter each)

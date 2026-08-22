@@ -1,4 +1,5 @@
 #!/bin/bash
+# lifecycle: one-off (archive when every cell has two seeds)
 # Second seed for every cell in the single-situation row.
 #
 # papers:single already has one, and it is why this is worth doing: the two

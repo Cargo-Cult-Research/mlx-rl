@@ -1,4 +1,5 @@
 #!/bin/bash
+# lifecycle: one-off (archive now — lambda arms were ruled out; kept only for the record)
 # Does task-arithmetic scaling rescue the stack?
 #   lambda=1.00  plain sum -- what we ran, far below base
 #   lambda=0.50 / 0.25     -- 1/k for k=4 is the literature's first guess

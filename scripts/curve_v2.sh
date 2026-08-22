@@ -1,4 +1,5 @@
 #!/bin/bash
+# lifecycle: one-off (archive when the curve question is answered)
 # Attempt 2 at one readable curve.
 #
 # What the lr 1e-5 run settled: gradient norm averaged 4.73 (max 71) against a

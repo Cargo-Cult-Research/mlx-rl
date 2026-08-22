@@ -1,4 +1,5 @@
 #!/bin/bash
+# lifecycle: one-off (archive when the seed replication and papers:toolfail column land)
 # The two things worth running that have nothing to do with merging:
 #   1. the seed replication, failed three times now
 #   2. the papers:toolfail column the heavy-cell OOM emptied
