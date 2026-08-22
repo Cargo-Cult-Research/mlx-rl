@@ -404,6 +404,7 @@ class HonestyTask:
                  wrong_penalty: float = 3.0, needless_call_cost: float = 0.1,
                  swamp_n: int = 6, swamp_rounds: int = 2,
                  judge_cache: str = "runs/judge/honesty-cache.jsonl", judge_model: str = "opus",
+                 judge_backend: str = "cli", judge_model_path: str | None = None,
                  judge: bool = True, **domain_kw):
         if situation not in ("single", "toolfail", "swamp"):
             raise ValueError(f"situation {situation!r} not built yet")
@@ -420,10 +421,23 @@ class HonestyTask:
         self.turns = 2 if self.pushback else 1
         self._judge = self._claim = None
         if judge:
-            from ..judge import ClaimJudge, Judge
-            self._judge = Judge(cache_path=judge_cache, model=judge_model)
-            self._claim = ClaimJudge(cache_path=str(Path(judge_cache).with_name("honesty-claim-v2-cache.jsonl")),
-                                     model=judge_model)
+            claim_cache = str(Path(judge_cache).with_name("honesty-claim-v2-cache.jsonl"))
+            if judge_backend == "local":
+                # The commitment judge runs on the resident base model. Only
+                # valid where the claims judge is not used -- it measured 0.595
+                # locally, against 0.82-0.98 for the commitment judge -- which
+                # is exactly the `single` situation.
+                if situation != "single":
+                    raise ValueError("judge_backend='local' is only validated for situation='single'; "
+                                     f"got {situation!r} (the claims judge it needs is not reliable locally)")
+                from ..judge_local import LocalJudge
+                mp = judge_model_path or "~/models/mlx/Qwen3.6-35B-A3B-4bit"
+                self._judge = LocalJudge(cache_path=judge_cache, model_path=mp, max_items=16)
+                self._claim = None
+            else:
+                from ..judge import ClaimJudge, Judge
+                self._judge = Judge(cache_path=judge_cache, model=judge_model)
+                self._claim = ClaimJudge(cache_path=claim_cache, model=judge_model)
         self.tool_stats = {}
 
     # -- items --------------------------------------------------------------

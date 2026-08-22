@@ -374,11 +374,17 @@ def update_policy(model, optimizer, loss_and_grad, rollouts, advantages, cfg,
             mx.eval(acc)
             pg_total += float(pg_sum)
             kl_total += float(kl_sum)
+        gnorm = float("nan")
         if cfg.max_grad_norm > 0:
-            acc, _ = optim.clip_grad_norm(acc, cfg.max_grad_norm)
+            # clip_grad_norm hands back the PRE-clip norm and this used to
+            # discard it. Without it there is no way to tell a healthy step
+            # from one that is clipped flat every time -- and if every step
+            # clips, the learning rate sets only direction, not size.
+            acc, gn = optim.clip_grad_norm(acc, cfg.max_grad_norm)
+            gnorm = float(gn)
         optimizer.update(model, acc)
         mx.eval(model.parameters(), optimizer.state)
-    return pg_total / denom, kl_total / denom
+    return pg_total / denom, kl_total / denom, gnorm
 
 
 def evaluate(model, tokenizer, task, cfg: TrainConfig):
@@ -699,7 +705,7 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
                 n_pruned = int((~keep).sum())
                 upd_rollouts = [r for r, k in zip(upd_rollouts, keep) if k]
                 upd_adv = upd_adv[keep]
-            pg, kl = update_policy(
+            pg, kl, gnorm = update_policy(
                 model,
                 optimizer,
                 loss_and_grad,
@@ -716,7 +722,7 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
             # review) — a degenerating run should die loudly via the
             # dead-run watchdog (abort_inactive_window, on by default), not
             # be silently pulled back toward base.
-            pg, kl = 0.0, 0.0
+            pg, kl, gnorm = 0.0, 0.0, float("nan")
         t_upd = time.time() - t1
         # Tell the swap guard how long that took. Paging traffic alone is not
         # evidence of trouble — it killed a healthy 200-step run on transients
@@ -746,6 +752,17 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
             "mean_len": float(np.mean([len(r.completion_tokens) for r in rollouts])),
             "pg": pg,
             "kl": kl,
+            # Hyper-parameter sanity, all of it previously invisible:
+            #   grad_norm  pre-clip. Persistently above max_grad_norm means
+            #              every step is clipped and lr sets direction only.
+            #   n_seqs     sequences that actually reached the update. The
+            #              first legs ran on ~3 -- the plotted curve was noise
+            #              by construction, not by bad luck.
+            #   adv_std    spread of the advantages being learned from; ~0
+            #              means the group agreed and there is nothing to learn.
+            "grad_norm": None if gnorm != gnorm else round(gnorm, 4),
+            "n_seqs": int(len(upd_rollouts)) if active.sum() else 0,
+            "adv_std": (round(float(np.std(upd_adv)), 4) if active.sum() else 0.0),
             "gen_tok_s": round(gen_stats.generation_tps, 1),
             "prompt_tok_s": round(gen_stats.prompt_tps, 1),
             "gen_s": round(t_gen, 2),
@@ -1284,7 +1301,32 @@ def evaluate_episodes(model, tokenizer, task, cfg: TrainConfig):
     rng = random.Random(cfg.seed + 100_000)
     esample = getattr(task, "eval_sample", task.sample)
     examples = [esample(rng) for _ in range(cfg.eval_n)]
-    groups, _, _ = _sample_episodes(model, tokenizer, examples, cfg, task, 1, 0.0)
+    # Chunked, with backoff: this used to hand the whole eval set to the
+    # generator at once, so raising eval_n to get a readable curve (160 items,
+    # to cut the standard error below the effect size) killed the run on a
+    # Metal OOM at the first eval -- after 9 steps and before the first
+    # checkpoint. Same failure the matrix eval had; same fix.
+    chunk = max(1, cfg.rollout_batch_size or len(examples))
+    groups = []
+    lo = 0
+    while lo < len(examples):
+        n_try = min(chunk, len(examples) - lo)
+        while True:
+            try:
+                g, _, _ = _sample_episodes(model, tokenizer, examples[lo:lo + n_try],
+                                           cfg, task, 1, 0.0)
+                break
+            except RuntimeError as e:
+                if "Insufficient Memory" not in str(e) and "out of memory" not in str(e).lower():
+                    raise
+                mx.clear_cache()
+                if n_try == 1:
+                    raise
+                n_try = max(1, n_try // 2)
+                print(f"   [eval oom] retrying at {n_try} prompts", flush=True)
+        groups.extend(g)
+        lo += n_try
+        mx.clear_cache()
     think_close = _think_close_marker(tokenizer, cfg, task)
     records = [_episode_record(tokenizer, g[0], think_close) for g in groups]
     results = task.episode_reward(examples, records)

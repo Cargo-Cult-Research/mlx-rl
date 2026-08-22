@@ -101,9 +101,29 @@ def main() -> None:
                     else:
                         per = max(1, a.batch // a.k)
                         groups = []
-                        for lo in range(0, len(exs), per):
-                            g, _, _ = _sample_episodes(model, tokenizer, exs[lo:lo + per], cfg, task, a.k, 1.0)
+                        lo = 0
+                        while lo < len(exs):
+                            # Memory does not accumulate across cells (measured: active
+                            # returns to its post-load value every time). What kills a run
+                            # is the TRANSIENT peak on an expensive cell -- long episodes,
+                            # many tool rounds, six-item swamped replies -- so back the
+                            # chunk off until it fits instead of failing the whole arm.
+                            n_try = per
+                            while True:
+                                try:
+                                    g, _, _ = _sample_episodes(model, tokenizer, exs[lo:lo + n_try],
+                                                               cfg, task, a.k, 1.0)
+                                    break
+                                except RuntimeError as e:
+                                    if "Insufficient Memory" not in str(e) and "out of memory" not in str(e).lower():
+                                        raise
+                                    mx.clear_cache()
+                                    if n_try == 1:
+                                        raise
+                                    n_try = max(1, n_try // 2)
+                                    print(f"   [oom] retrying chunk at {n_try} prompts", flush=True)
                             groups.extend(g)
+                            lo += n_try
                             mx.clear_cache()
                         fx, frec = [], []
                         for ex, group in zip(exs, groups):

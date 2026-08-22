@@ -339,6 +339,163 @@ OFF_PAGE = (b"<!doctype html><html><head><meta charset='utf-8'>"
             b"text-align:center;padding-top:20vh'>the public mirror is currently off</body></html>")
 
 
+
+EXPERIMENTS_DIR = ROOT / "runs" / "experiments"
+# metrics.jsonl names, mapped to the short names the page draws. Checked
+# against a real file -- guessing these is how the first version drew nothing.
+CURVE_KEYS = {"reward_mean": "reward", "reward_std": "reward_std",
+              "frac_correct": "correct", "frac_called": "called",
+              "frac_abstain": "abstain", "mean_len": "mean_len",
+              "active_groups": "active_groups",
+              "groups_skipped_stage1": "skipped", "kl": "kl",
+              "gen_tok_s": "gen_tok_s", "peak_gb": "peak_gb"}
+
+
+def _leg_curve(run_dir: Path) -> dict:
+    """Training curve straight from the run's metrics.jsonl — read on every
+    request, so a page open during a run keeps growing with it."""
+    m = run_dir / "metrics.jsonl"
+    if not m.exists():
+        return {"steps": [], "evals": [], "status": "not started"}
+    steps, evals = [], []
+    for line in m.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            d = json.loads(line)
+        except json.JSONDecodeError:      # a half-written final line while training
+            continue
+        row = {"step": d.get("step")}
+        for src, dst in CURVE_KEYS.items():
+            if src in d:
+                row[dst] = d[src]
+        if "reward" in row:          # baseline row carries only eval_* keys
+            steps.append(row)
+        if any(k.startswith("eval_") for k in d):
+            evals.append({"step": d.get("step"),
+                          **{k: v for k, v in d.items() if k.startswith("eval_")}})
+    done = (run_dir / "promoted" / "adapters.safetensors").exists()
+    last = m.stat().st_mtime
+    status = "done" if done else ("running" if time.time() - last < 900 else "stalled")
+    return {"steps": steps, "evals": evals, "status": status, "updated": last}
+
+
+def _labbook_state(name: str | None):
+    files = sorted(EXPERIMENTS_DIR.glob("*.json")) if EXPERIMENTS_DIR.exists() else []
+    names = [f.stem for f in files]
+    if not names:
+        return {"experiment": None, "experiments": []}
+    pick = name if name in names else names[0]
+    spec = json.loads((EXPERIMENTS_DIR / f"{pick}.json").read_text())
+    legs = {k: _leg_curve(ROOT / v) for k, v in spec.get("legs", {}).items()}
+    table = {}
+    for d in spec.get("eval_dirs", []):
+        for res in sorted((ROOT / d).glob("*/results.json")):
+            try:
+                r = json.loads(res.read_text())
+            except json.JSONDecodeError:
+                continue
+            for arm, v in r.get("arms", {}).items():
+                for cell, agg in v.get("cells", {}).items():
+                    table.setdefault(arm, {})[cell] = {
+                        "reward": agg.get("reward"), "n": agg.get("n"),
+                        "correct": agg.get("correct"), "called": agg.get("called"),
+                        "missing": agg.get("missing"), "abstain": agg.get("abstain")}
+    return {"experiment": pick, "experiments": names, "spec": spec,
+            "legs": legs, "table": table, "now": time.time()}
+
+
+LABBOOK_PAGE = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>lab book — rl</title>
+<style>
+:root{--bg:#0d1117;--fg:#c9d1d9;--dim:#8b949e;--line:#21262d;--card:#161b22;
+      --good:#3fb950;--bad:#f85149;--accent:#58a6ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+.wrap{max-width:1180px;margin:0 auto;padding:22px 18px 60px}
+h1{font-size:19px;margin:0 0 4px} h2{font-size:15px;margin:30px 0 10px;color:var(--fg)}
+.q{color:var(--dim);margin:0 0 14px;max-width:74ch}
+.notes{background:var(--card);border:1px solid var(--line);border-radius:7px;padding:11px 14px;margin:0 0 8px}
+.notes li{color:var(--dim);margin:3px 0} .notes ul{margin:0;padding-left:18px}
+.legs{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:13px}
+.leg{background:var(--card);border:1px solid var(--line);border-radius:7px;padding:11px 13px}
+.leg h3{margin:0 0 2px;font-size:14px;font-weight:600}
+.meta{color:var(--dim);font-size:12px;margin-bottom:7px}
+.tag{display:inline-block;padding:0 6px;border-radius:9px;font-size:11px;border:1px solid var(--line)}
+.running{color:var(--accent);border-color:var(--accent)}.done{color:var(--good);border-color:var(--good)}
+.stalled{color:var(--bad);border-color:var(--bad)}
+table{border-collapse:collapse;width:100%;margin-top:6px}
+th,td{padding:6px 9px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--dim);font-weight:600;font-size:12px}
+td.diag{outline:1px dashed #6e7681;outline-offset:-3px}
+.pos{color:var(--good)}.neg{color:var(--bad)}
+.scroll{overflow-x:auto}
+.foot{color:var(--dim);font-size:12px;margin-top:26px;border-top:1px solid var(--line);padding-top:9px}
+svg{display:block;width:100%;height:82px}
+</style></head><body><div class="wrap">
+<h1 id="title">lab book</h1><p class="q" id="q"></p>
+<div class="notes"><ul id="notes"></ul></div>
+<h2>training curves <span class="meta" id="curveinfo"></span></h2>
+<div class="legs" id="legs"></div>
+<h2>results — adapter (row) evaluated on subject (column)</h2>
+<div class="scroll"><table id="tbl"></table></div>
+<p class="meta">Dashed outline = the subject that adapter was trained on. Every other cell is leave-one-out.</p>
+<div class="foot" id="foot"></div>
+</div><script>
+const F=(v,d=2)=>v==null?"—":(v>=0?"+":"")+v.toFixed(d);
+function path(pts,w,h,lo,hi){
+  if(!pts.length) return "";
+  const sx=pts.length>1?w/(pts.length-1):0, r=(hi-lo)||1;
+  return pts.map((v,i)=>(i?"L":"M")+(i*sx).toFixed(1)+","+(h-((v-lo)/r)*h).toFixed(1)).join("");
+}
+function curve(steps,evals){
+  // Training reward is per-step and noisy: draw it as points, because a
+  // connecting line invents a trend between samples that are independent
+  // draws. The held-out eval is smooth and sparse, so it keeps its line.
+  const w=320,h=82, r=steps.map(s=>s.reward).filter(v=>v!=null);
+  if(!r.length) return '<div class="meta">no steps yet</div>';
+  const ev=evals.map(e=>e.eval_reward).filter(v=>v!=null);
+  const all=r.concat(ev), lo=Math.min(...all), hi=Math.max(...all), rng=(hi-lo)||1;
+  const zero=h-((0-lo)/rng)*h;
+  const sx=r.length>1?w/(r.length-1):0;
+  let g=`<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`;
+  if(zero>=0&&zero<=h) g+=`<line x1="0" y1="${zero.toFixed(1)}" x2="${w}" y2="${zero.toFixed(1)}" stroke="#30363d" stroke-dasharray="3 3"/>`;
+  g+=r.map((v,i)=>`<circle cx="${(i*sx).toFixed(1)}" cy="${(h-((v-lo)/rng)*h).toFixed(1)}" r="1.9" fill="#58a6ff" fill-opacity="0.8"/>`).join("");
+  if(ev.length>1) g+=`<path d="${path(ev,w,h,lo,hi)}" fill="none" stroke="#3fb950" stroke-width="1.5"/>`;
+  else if(ev.length===1) g+=`<circle cx="0" cy="${(h-((ev[0]-lo)/rng)*h).toFixed(1)}" r="2.4" fill="#3fb950"/>`;
+  return g+"</svg>";
+}
+async function tick(){
+  const s=await (await fetch("/api/labbook")).json();
+  if(!s.experiment){document.getElementById("foot").textContent="no experiments defined";return;}
+  document.getElementById("title").textContent=s.spec.title||s.experiment;
+  document.getElementById("q").textContent=s.spec.question||"";
+  document.getElementById("notes").innerHTML=(s.spec.notes||[]).map(n=>`<li>${n}</li>`).join("");
+  let tot=0;
+  document.getElementById("legs").innerHTML=Object.entries(s.legs).map(([n,l])=>{
+    const last=l.steps.length?l.steps[l.steps.length-1]:null; tot+=l.steps.length;
+    const ev=l.evals.length?l.evals[l.evals.length-1]:null;
+    return `<div class="leg"><h3>${n} <span class="tag ${l.status}">${l.status}</span></h3>
+      <div class="meta">step ${last?last.step:0}${last&&last.reward!=null?" · reward "+F(last.reward):""}
+      ${ev&&ev.eval_reward!=null?" · eval "+F(ev.eval_reward):""}</div>${curve(l.steps,l.evals)}
+      <div class="meta">blue dots = train reward per step · green = held-out eval</div></div>`;}).join("");
+  document.getElementById("curveinfo").textContent=`${tot} steps logged across ${Object.keys(s.legs).length} runs`;
+  const cells=s.spec.cells||[], diag=s.spec.diagonal||{};
+  const arms=Object.keys(s.table).sort((a,b)=>a==="base"?-1:b==="base"?1:a.localeCompare(b));
+  let t=`<tr><th>adapter</th>${cells.map(c=>`<th>${c.split(":")[0]}</th>`).join("")}</tr>`;
+  for(const a of arms){
+    t+=`<tr><td>${a}</td>`+cells.map(c=>{
+      const v=s.table[a][c];
+      const cls=(diag[a]===c?"diag ":"")+(v?(v.reward>=0?"pos":"neg"):"");
+      return `<td class="${cls}">${v?F(v.reward):"—"}</td>`;}).join("")+"</tr>";
+  }
+  document.getElementById("tbl").innerHTML=t;
+  document.getElementById("foot").textContent="pulled live from metrics.jsonl and results.json · "+new Date().toLocaleTimeString();
+}
+tick(); setInterval(tick,10000);
+</script></body></html>"""
+
 def make_handler(runs_dir: Path, pinned: Path | None, public: bool):
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):  # quiet
@@ -401,6 +558,12 @@ def make_handler(runs_dir: Path, pinned: Path | None, public: bool):
             if p == "/api/matrix":
                 q = parse_qs(urlsplit(self.path).query)
                 return self._send(200, json.dumps(_matrix_state(q.get("run", [None])[0])).encode(),
+                                  "application/json")
+            if not public and p in ("/labbook", "/labbook/"):
+                return self._send(200, LABBOOK_PAGE.encode(), "text/html; charset=utf-8")
+            if not public and p == "/api/labbook":
+                q = parse_qs(urlsplit(self.path).query)
+                return self._send(200, json.dumps(_labbook_state(q.get("exp", [None])[0])).encode(),
                                   "application/json")
             if not public and p in ("/review", "/review/"):
                 return self._send(200, REVIEW_PAGE.encode(), "text/html; charset=utf-8")
