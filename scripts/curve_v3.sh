@@ -27,7 +27,9 @@ uv run python -m mlx_rl.train \
   --eval-every 10 --eval-n 160 --checkpoint-every 5 --seed 0 \
   --lease-wait 900 --required-gb 62 --out "$OUT" 2>&1 && rc=0
 if [ $rc -eq 0 ]; then
-  uv run python scripts/promote_adapter.py "$OUT" --out "$OUT/promoted" 2>&1 || say "nothing to promote"
+  uv run python scripts/promote_adapter.py "$OUT" --out "$OUT/promoted" 2>&1
+  prc=$?
+  [ $prc -eq 1 ] && say "PROMOTE FAILED (real error, not just missing checkpoints)"
   say "CURVE V3 DONE"
 else
   say "CURVE V3 FAILED (train exited non-zero — see above)"

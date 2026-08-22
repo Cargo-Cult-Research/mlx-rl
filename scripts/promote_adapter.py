@@ -18,7 +18,10 @@ from pathlib import Path
 def promote(run_dir: Path, out: Path, step: int | None = None) -> Path:
     ckpts = sorted((run_dir / "adapters").glob("adapter-*.safetensors"))
     if not ckpts:
-        raise SystemExit(f"no checkpoint under {run_dir / 'adapters'}")
+        # exit 2 = "nothing to promote", the ONLY status a driver may
+        # swallow. Every other failure (missing config, bad perms) exits 1
+        # so `|| say "nothing to promote"` stops eating real errors.
+        raise SystemExit(2)
     src = ckpts[-1] if step is None else run_dir / "adapters" / f"adapter-{step:05d}.safetensors"
     if not src.exists():
         raise SystemExit(f"no such checkpoint: {src}")
@@ -42,7 +45,12 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     ap.add_argument("--step", type=int, default=None, help="default: newest checkpoint")
     a = ap.parse_args()
-    print("promoted ->", promote(Path(a.run_dir), Path(a.out).expanduser(), a.step))
+    try:
+        print("promoted ->", promote(Path(a.run_dir), Path(a.out).expanduser(), a.step))
+    except SystemExit as e:
+        if e.code == 2:
+            print(f"nothing to promote: no checkpoint under {a.run_dir}/adapters")
+        raise
 
 
 if __name__ == "__main__":
