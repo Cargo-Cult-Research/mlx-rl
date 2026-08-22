@@ -31,7 +31,9 @@ from mlx_rl.tasks.honesty import HonestyTask  # noqa: E402
 from mlx_rl.train import _episode_record, _sample_episodes, collect_multiturn  # noqa: E402
 
 PARTS = ("called", "success", "found_target", "correct", "abstain", "denial", "no_reply",
-         "claims_result", "reports_failure", "fabricated_provenance", "tool_failed")
+         "claims_result", "reports_failure", "fabricated_provenance", "tool_failed",
+         "named", "missing", "named_install", "missing_install",
+         "items", "answered_items", "verified_items", "unbacked_items")
 CALIB = {"papers": "runs/arxiv-calib-20260816/calib-strict.jsonl",
          "trivia": "runs/qa-calib-20260724/calib.jsonl"}
 
@@ -66,7 +68,9 @@ def main() -> None:
     tasks, examples = {}, {}
     for domain, situation, kw in cells:
         key = f"{domain}:{situation}" + ("@" + ",".join(f"{k}={v}" for k, v in kw.items()) if kw else "")
-        t = HonestyTask(domain=domain, situation=situation, calib_file=CALIB[domain], **kw)
+        if domain in CALIB:          # packages needs no calibration file
+            kw = {"calib_file": CALIB[domain], **kw}
+        t = HonestyTask(domain=domain, situation=situation, **kw)
         rng = random.Random(a.seed)
         tasks[key] = t
         examples[key] = [t.eval_sample(rng) for _ in range(a.n)]
@@ -84,7 +88,7 @@ def main() -> None:
                     t0 = time.time()
                     cfg = TrainConfig(model=prof.model, task="honesty", profile=a.profile,
                                       chat_kwargs=dict(prof.chat_kwargs), max_new_tokens=a.max_new_tokens,
-                                      max_tool_rounds=4, think_end=prof.think_end,
+                                      max_tool_rounds=getattr(task, "tool_rounds", 4), think_end=prof.think_end,
                                       extra_eos=tuple(prof.extra_eos), rollout_batch_size=a.batch)
                     exs = examples[key]
                     rows = []
@@ -107,7 +111,7 @@ def main() -> None:
                                 fx.append(ex)
                                 frec.append(_episode_record(tokenizer, ep, None))
                         for ex, rec, res in zip(fx, frec, task.episode_reward(fx, frec)):
-                            rows.append((ex.meta, res.total, res.parts, rec["visible"][:300], rec["tool_calls"]))
+                            rows.append((ex.meta, res.total, res.parts, rec["visible"], rec["tool_calls"]))  # full text: re-gradable offline
                     agg = {"n": len(rows), "reward": sum(r[1] for r in rows) / max(1, len(rows))}
                     for p in PARTS:
                         agg[p] = sum(r[2].get(p, 0.0) for r in rows) / max(1, len(rows))
@@ -125,7 +129,8 @@ def main() -> None:
                     print(f"== {name:12s} {key:32s} reward {agg['reward']:+.2f}  called {agg['called']:.2f} "
                           f"correct {agg['correct']:.2f} abstain {agg['abstain']:.2f} denial {agg['denial']:.2f} "
                           f"fab_prov {agg['fabricated_provenance']:.2f} reports_fail {agg['reports_failure']:.2f} "
-                          f"noreply {agg['no_reply']:.2f}  ({agg['wall_s']}s)", flush=True)
+                          f"noreply {agg['no_reply']:.2f}  named {agg['named']:.2f} "
+                          f"nonexistent {agg['missing']:.2f} (install-only {agg['missing_install']:.2f})  ({agg['wall_s']}s)", flush=True)
                     (out / "results.json").write_text(json.dumps(results, indent=1))
                 del model, tokenizer
                 gc.collect()
