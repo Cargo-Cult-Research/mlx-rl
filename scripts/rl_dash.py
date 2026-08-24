@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import threading
+import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -206,6 +207,229 @@ tick();setInterval(tick,15000);
 
 
 
+LABBOOK_PAGE = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>lab book — rl</title>
+<style>
+:root{--bg:#0d1117;--fg:#c9d1d9;--dim:#8b949e;--line:#21262d;--card:#161b22;
+      --good:#3fb950;--bad:#f85149;--accent:#58a6ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+.wrap{max-width:1180px;margin:0 auto;padding:22px 18px 60px}
+h1{font-size:19px;margin:0 0 4px} h2{font-size:15px;margin:30px 0 10px;color:var(--fg)}
+.q{color:var(--dim);margin:0 0 14px;max-width:74ch}
+.notes{background:var(--card);border:1px solid var(--line);border-radius:7px;padding:11px 14px;margin:0 0 8px}
+.notes li{color:var(--dim);margin:3px 0} .notes ul{margin:0;padding-left:18px}
+.legs{display:grid;grid-template-columns:repeat(auto-fit,minmax(450px,1fr));gap:13px}
+.leg{background:var(--card);border:1px solid var(--line);border-radius:7px;padding:11px 13px}
+.leg h3{margin:0 0 2px;font-size:14px;font-weight:600}
+.meta{color:var(--dim);font-size:12px;margin-bottom:7px}
+.tag{display:inline-block;padding:0 6px;border-radius:9px;font-size:11px;border:1px solid var(--line)}
+.running{color:var(--accent);border-color:var(--accent)}.done{color:var(--good);border-color:var(--good)}
+.stalled{color:var(--bad);border-color:var(--bad)}
+.ended{color:var(--dim);border-color:var(--line)}
+table{border-collapse:collapse;width:100%;margin-top:6px}
+th,td{padding:6px 9px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--dim);font-weight:600;font-size:12px}
+td.diag{outline:1px dashed #6e7681;outline-offset:-3px}
+.pos{color:var(--good)}.neg{color:var(--bad)}
+.scroll{overflow-x:auto}
+.foot{color:var(--dim);font-size:12px;margin-top:26px;border-top:1px solid var(--line);padding-top:9px}
+svg.panel{display:block;width:100%;height:auto;margin-bottom:2px}
+.ptitle{fill:#c9d1d9;font-size:10.5px;font-weight:600}
+.ptick{fill:#8b949e;font-size:9px}.pleg{fill:#8b949e;font-size:9px}
+</style></head><body><div class="wrap">
+<h1 id="title">lab book</h1><p class="q" id="q"></p>
+<div class="notes"><ul id="notes"></ul></div>
+<h2>training curves <span class="meta" id="curveinfo"></span></h2>
+<div class="legs" id="legs"></div>
+<h2>judge tokens <span class="meta" id="judgeinfo"></span></h2>
+<div class="legs" id="judge"></div>
+<h2>results — adapter (row) evaluated on subject (column)</h2>
+<div class="scroll"><table id="tbl"></table></div>
+<p class="meta">Dashed outline = the subject that adapter was trained on. Every other cell is leave-one-out.</p>
+<div class="foot" id="foot"></div>
+</div><script>
+const F=(v,d=2)=>v==null?"—":(v>=0?"+":"")+v.toFixed(d);
+function fmt(v){const a=Math.abs(v);return a>=10?v.toFixed(0):a>=1?v.toFixed(1):v.toFixed(2);}
+// One panel with real axes: y ticks at min/mid/max, x ticks at first/last step.
+// series = [{pts:[[x,y]...], kind:"dots"|"line", color, label}]
+function panel(title,series,opts){
+  const W=520,H=138,L=44,R=10,T=38,B=20;       // T leaves a row for title + legend
+  const iw=W-L-R, ih=H-T-B;
+  const ys=series.flatMap(s=>s.pts.map(p=>p[1]));
+  if(!ys.length) return `<div class="meta">${title}: no data yet</div>`;
+  let lo=opts&&opts.ymin!=null?opts.ymin:Math.min(...ys);
+  let hi=opts&&opts.ymax!=null?opts.ymax:Math.max(...ys);
+  if(hi===lo){hi=lo+1;}
+  const xs=series.flatMap(s=>s.pts.map(p=>p[0]));
+  const x0=Math.min(...xs), x1=Math.max(...xs)||1;
+  const X=v=>L+((v-x0)/((x1-x0)||1))*iw, Y=v=>T+ih-((v-lo)/(hi-lo))*ih;
+  let g=`<svg viewBox="0 0 ${W} ${H}" class="panel">`;
+  g+=`<text x="${L}" y="13" class="ptitle">${title}</text>`;
+  // legend
+  let lx=L;                                    // legend sits under the title
+  for(const s of series){ if(!s.label) continue;
+    g+=`<rect x="${lx}" y="19" width="8" height="8" fill="${s.color}"/><text x="${lx+11}" y="26" class="pleg">${s.label}</text>`;
+    lx+=s.label.length*6.4+24; }
+  // y grid + labels
+  for(const t of [lo,(lo+hi)/2,hi]){
+    g+=`<line x1="${L}" y1="${Y(t).toFixed(1)}" x2="${W-R}" y2="${Y(t).toFixed(1)}" stroke="#21262d"/>`;
+    g+=`<text x="${L-5}" y="${(Y(t)+3.5).toFixed(1)}" class="ptick" text-anchor="end">${fmt(t)}</text>`;}
+  if(lo<0&&hi>0) g+=`<line x1="${L}" y1="${Y(0).toFixed(1)}" x2="${W-R}" y2="${Y(0).toFixed(1)}" stroke="#484f58" stroke-dasharray="3 3"/>`;
+  // x labels
+  const xl=(opts&&opts.xlabel)||"step";
+  g+=`<text x="${L}" y="${H-6}" class="ptick">${(opts&&opts.x0label)||x0}</text>`;
+  g+=`<text x="${W-R}" y="${H-6}" class="ptick" text-anchor="end">${(opts&&opts.x1label)||x1}</text>`;
+  g+=`<text x="${(L+W-R)/2}" y="${H-6}" class="ptick" text-anchor="middle">${xl}</text>`;
+  for(const s of series){
+    if(!s.pts.length) continue;
+    if(s.kind==="dots") g+=s.pts.map(p=>`<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="1.8" fill="${s.color}" fill-opacity="0.75"/>`).join("");
+    else{ g+=`<path d="${s.pts.map((p,i)=>(i?"L":"M")+X(p[0]).toFixed(1)+","+Y(p[1]).toFixed(1)).join("")}" fill="none" stroke="${s.color}" stroke-width="1.6"/>`;
+          g+=s.pts.map(p=>`<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="2.1" fill="${s.color}"/>`).join(""); }
+  }
+  return g+"</svg>";
+}
+function charts(steps,evals){
+  if(!steps.length&&!evals.length) return '<div class="meta">no steps yet</div>';
+  const S=(k)=>steps.filter(s=>s[k]!=null).map(s=>[s.step,s[k]]);
+  const E=(k)=>evals.filter(e=>e[k]!=null).map(e=>[e.step,e[k]]);
+  let out="";
+  out+=panel("reward",[
+    {pts:S("reward"),kind:"dots",color:"#58a6ff",label:"train"},
+    {pts:E("eval_reward"),kind:"line",color:"#3fb950",label:"held-out"}]);
+  out+=panel("behaviour (held-out, 0–1)",[
+    {pts:E("eval_called"),kind:"line",color:"#d29922",label:"calls tool"},
+    {pts:E("eval_abstain"),kind:"line",color:"#a371f7",label:"abstains"},
+    {pts:E("eval_correct"),kind:"line",color:"#79c0ff",label:"correct"}],{ymin:0,ymax:1});
+  // Any eval_<subject>_reward key is a subject this run did NOT train on --
+  // scored live via --eval-cells, or retrofitted from checkpoints afterwards.
+  const subs=[...new Set(evals.flatMap(e=>Object.keys(e))
+    .map(k=>/^eval_([a-z0-9]+_(?:single|toolfail|swamp))_reward$/.exec(k))
+    .filter(Boolean).map(m=>m[1]))].sort();
+  if(subs.length){
+    const C=["#3fb950","#d29922","#a371f7","#58a6ff"];
+    out+=panel("held-out subjects — reward",[
+      {pts:E("eval_reward"),kind:"line",color:"#8b949e",label:"trained subject"},
+      ...subs.map((s,i)=>({pts:E(`eval_${s}_reward`),kind:"line",color:C[i%C.length],
+                           label:s.replace(/_single$/,"")}))]);
+    out+=panel("held-out subjects — calls tool",
+      subs.map((s,i)=>({pts:E(`eval_${s}_called`),kind:"line",color:C[i%C.length],
+                        label:s.replace(/_single$/,"")})),{ymin:0,ymax:1});
+  }
+  out+=panel("KL from base",[{pts:S("kl"),kind:"line",color:"#f85149",label:"per step"}],{ymin:0});
+  out+=panel("gradient norm (clip at 1.0)",[
+    {pts:S("grad_norm"),kind:"dots",color:"#d29922",label:"before clipping"},
+    {pts:S("grad_norm").map(p=>[p[0],1.0]),kind:"line",color:"#484f58",label:"clip"}],{ymin:0});
+  out+=panel("gradient batch",[
+    {pts:S("n_seqs"),kind:"dots",color:"#8b949e",label:"sequences in update"}],{ymin:0});
+  return out;
+}
+const $=id=>document.getElementById(id);
+const EXP=new URLSearchParams(location.search).get("exp");
+const esc=t=>String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+function ago(t){const s=Math.round(Date.now()/1000-t);
+  if(s<90)return s+"s ago"; if(s<5400)return Math.round(s/60)+" min ago"; return (s/3600).toFixed(1)+" h ago";}
+function legCard(name,leg,spec){
+  const st=leg.status||"?";
+  const cls={running:"running",done:"done",ended:"ended"}[st]||"stalled";
+  const n=(leg.steps||[]).length, last=n?leg.steps[n-1].step:0;
+  const subj=(spec.diagonal||{})[name]||"";
+  const pace=leg.median_step_s?(leg.median_step_s/60).toFixed(1)+" min/step":"";
+  const bits=[subj,`${n} steps (to ${last})`,pace,leg.updated?"updated "+ago(leg.updated):""].filter(Boolean);
+  return `<div class="leg"><h3>${esc(name)} <span class="tag ${cls}">${st}</span></h3>
+    <div class="meta">${esc(bits.join(" · "))}</div>
+    ${charts(leg.steps||[],leg.evals||[])}</div>`;
+}
+function resultsTable(table,spec){
+  const arms=Object.keys(table||{});
+  if(!arms.length) return '<tr><td class="meta">no evaluations recorded yet</td></tr>';
+  const cells=spec.cells&&spec.cells.length?spec.cells
+    :[...new Set(arms.flatMap(a=>Object.keys(table[a])))];
+  const diag=spec.diagonal||{};
+  let h='<tr><th>adapter</th>'+cells.map(c=>`<th>${esc(c)}</th>`).join("")+'</tr>';
+  for(const a of arms){
+    h+=`<tr><td>${esc(a)}</td>`+cells.map(c=>{
+      const v=table[a][c];
+      if(!v||v.reward==null) return '<td>—</td>';
+      const on=diag[a]===c?' diag':'';
+      const k=v.reward>=0?'pos':'neg';
+      return `<td class="${k}${on}">${F(v.reward)}${v.n?` <span class="ptick">n=${v.n}</span>`:""}</td>`;
+    }).join("")+'</tr>';
+  }
+  return h;
+}
+async function load(){
+  try{
+    const r=await fetch("/api/labbook"+(EXP?"?exp="+encodeURIComponent(EXP):""),{cache:"no-store"});
+    const s=await r.json();
+    if(!s.experiment){$("q").textContent="no experiment manifests in runs/experiments/";return;}
+    const spec=s.spec||{};
+    document.title=(spec.title||"lab book")+" — rl";
+    $("title").textContent=spec.title||"lab book";
+    $("q").textContent=spec.question||"";
+    $("notes").innerHTML=(spec.notes||[]).map(n=>`<li>${esc(n)}</li>`).join("")
+      ||'<li>no notes</li>';
+    const names=Object.keys(s.legs||{});
+    const live=names.filter(n=>s.legs[n].status==="running").length;
+    $("curveinfo").textContent=`${names.length} run${names.length===1?"":"s"}`
+      +(live?` · ${live} running`:"");
+    $("legs").innerHTML=names.map(n=>legCard(n,s.legs[n],spec)).join("")
+      ||'<div class="meta">no runs in this manifest</div>';
+    $("tbl").innerHTML=resultsTable(s.table,spec);
+    judgePanels();
+    const links=(s.experiments||[]).map(e=>e===s.experiment?`<b>${esc(e)}</b>`
+      :`<a href="?exp=${encodeURIComponent(e)}" style="color:var(--accent)">${esc(e)}</a>`).join(" · ");
+    $("foot").innerHTML=`experiment: ${links} · refreshed ${new Date().toLocaleTimeString()}`;
+  }catch(e){ $("q").textContent="load failed: "+e; }
+}
+async function judgePanels(){
+  try{
+    const r=await fetch("/api/judge_usage",{cache:"no-store"});
+    const u=await r.json(), d=u.days||[];
+    if(!d.length){$("judge").innerHTML='<div class="meta">no judge calls logged</div>';return;}
+    const M=v=>v/1e6, ix=d.map((_,i)=>i);
+    const S=k=>d.map((r,i)=>[i,M(r[k])]);
+    const first=d[0].day.slice(5), last=d[d.length-1].day.slice(5);
+    const ax={xlabel:"day",x0label:first,x1label:last,ymin:0};
+    // Billed and local on separate panels: same units, but one is spend and
+    // the other is only heat, and a shared axis would hide the handover.
+    let h='<div class="leg"><h3>billed (Opus / Sonnet)</h3>'
+      +'<div class="meta">cumulative, millions of tokens · cache-weighted cost line is what actually bills</div>'
+      +panel("cumulative billed tokens",[
+        {pts:S("cum_billed_input"),kind:"line",color:"#58a6ff",label:"input (raw)"},
+        {pts:S("cum_billed_equiv"),kind:"line",color:"#d29922",label:"input (cache-weighted)"},
+        {pts:S("cum_billed_output"),kind:"line",color:"#f85149",label:"output"}],ax)
+      +panel("billed tokens per day",[
+        {pts:S("billed_input"),kind:"dots",color:"#58a6ff",label:"input"},
+        {pts:S("billed_output"),kind:"dots",color:"#f85149",label:"output"}],ax)
+      +'</div>';
+    const anyLocal=d.some(r=>r.cum_local_input>0);
+    const localCalls=Object.entries(u.per_model||{}).filter(([k])=>k.startsWith("local:"))
+      .reduce((a,[,v])=>a+(v.calls||0),0);
+    h+='<div class="leg"><h3>local judge (free)</h3>'
+      +'<div class="meta">same units, no spend — the work that moved off the API'
+      +(anyLocal?'':` · ${localCalls} calls made before token counting was added, so the`
+        +' curve starts flat rather than at zero work')+'</div>'
+      +panel("cumulative local tokens",[
+        {pts:S("cum_local_input"),kind:"line",color:"#3fb950",label:"input"},
+        {pts:S("cum_local_output"),kind:"line",color:"#a371f7",label:"output"}],ax)
+      +panel("local tokens per day",[
+        {pts:S("local_input"),kind:"dots",color:"#3fb950",label:"input"},
+        {pts:S("local_output"),kind:"dots",color:"#a371f7",label:"output"}],ax)
+      +'</div>';
+    $("judge").innerHTML=h;
+    const tot=u.totals||{};
+    $("judgeinfo").textContent=`billed ${M(tot.billed_equiv||0).toFixed(1)}M in `
+      +`(cache-weighted) · ${M(tot.billed_output||0).toFixed(2)}M out · `
+      +`${(tot.billed_calls||0)} calls`;
+  }catch(e){ $("judge").innerHTML='<div class="meta">usage unavailable: '+e+'</div>'; }
+}
+load();setInterval(load,20000);
+</script></body></html>"""
+
+
+
 REVIEW_PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>rl-dash · review</title>
@@ -348,7 +572,9 @@ CURVE_KEYS = {"reward_mean": "reward", "reward_std": "reward_std",
               "frac_abstain": "abstain", "mean_len": "mean_len",
               "active_groups": "active_groups",
               "groups_skipped_stage1": "skipped", "kl": "kl",
-              "gen_tok_s": "gen_tok_s", "peak_gb": "peak_gb"}
+              "gen_tok_s": "gen_tok_s", "peak_gb": "peak_gb",
+              "n_seqs": "n_seqs", "grad_norm": "grad_norm",
+              "adv_std": "adv_std"}
 
 
 def _leg_curve(run_dir: Path) -> dict:
@@ -357,7 +583,7 @@ def _leg_curve(run_dir: Path) -> dict:
     m = run_dir / "metrics.jsonl"
     if not m.exists():
         return {"steps": [], "evals": [], "status": "not started"}
-    steps, evals = [], []
+    steps, evals, raw_ts = [], [], []
     for line in m.read_text().splitlines():
         if not line.strip():
             continue
@@ -365,6 +591,7 @@ def _leg_curve(run_dir: Path) -> dict:
             d = json.loads(line)
         except json.JSONDecodeError:      # a half-written final line while training
             continue
+        raw_ts.append(d)
         row = {"step": d.get("step")}
         for src, dst in CURVE_KEYS.items():
             if src in d:
@@ -376,18 +603,210 @@ def _leg_curve(run_dir: Path) -> dict:
                           **{k: v for k, v in d.items() if k.startswith("eval_")}})
     done = (run_dir / "promoted" / "adapters.safetensors").exists()
     last = m.stat().st_mtime
-    status = "done" if done else ("running" if time.time() - last < 900 else "stalled")
-    return {"steps": steps, "evals": evals, "status": status, "updated": last}
+    # "Stalled" has to be judged against THIS run's pace, not a constant: a
+    # fixed 15-minute window called a healthy run stalled as soon as steps got
+    # slower (fixing the sign-biased pruning took steps from 9 to 17 minutes,
+    # because 3.7x more sequences reach the update). Allow three median step
+    # intervals, floored so a fast run is not marked stalled on one slow step.
+    ts = [r["ts"] for r in raw_ts if r.get("ts")]
+    gaps = sorted(b - a for a, b in zip(ts, ts[1:]) if b > a)
+    median_gap = gaps[len(gaps) // 2] if gaps else 0.0
+    window = max(900.0, 3.0 * median_gap)
+    age = time.time() - last
+    # "Stalled" is a call to action, so it has to expire. A run that stopped
+    # a week ago is history, not a problem; calling seven of those stalled
+    # buries the one that actually died an hour ago.
+    if done:
+        status = "done"
+    elif age < window:
+        status = "running"
+    elif age < 86400:
+        status = "stalled"
+    else:
+        status = "ended"
+    return {"steps": steps, "evals": evals, "status": status, "updated": last,
+            "median_step_s": round(median_gap), "stall_after_s": round(window)}
+
+
+def _merge_heldout(leg: dict, extra_dir: Path) -> int:
+    """Fold a retrofit's held-out scores into a leg's eval rows, by step.
+
+    A run that only scored its own subject can have the unseen subjects added
+    afterwards from its checkpoints. Those land in their own directory, so
+    they are merged here rather than plotted as a separate run -- they are the
+    same policy at the same steps, and belong on the same axes.
+    """
+    m = extra_dir / "metrics.jsonl"
+    if not m.exists():
+        return 0
+    by_step = {e.get("step"): e for e in leg.get("evals", [])}
+    n = 0
+    for line in m.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            d = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        extra = {k: v for k, v in d.items() if k.startswith("eval_")}
+        if not extra:
+            continue
+        step = d.get("step")
+        if step in by_step:
+            by_step[step].update(extra)
+        else:
+            row = {"step": step, **extra}
+            by_step[step] = row
+            leg.setdefault("evals", []).append(row)
+        n += 1
+    leg["evals"] = sorted(leg.get("evals", []), key=lambda e: e.get("step") or 0)
+    return n
+
+
+def _judge_usage() -> dict:
+    """Daily judge token usage. Reads scripts/judge_usage.py rather than
+    re-summing the call logs here: two aggregators over the same files drift,
+    and a spend number that disagrees with itself is worse than none."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from judge_usage import collect, series
+    except Exception as e:                              # noqa: BLE001
+        return {"days": [], "error": f"{type(e).__name__}: {e}"}
+    days = series()
+    per = collect()["per_model"]
+    tot = {"billed_equiv": 0.0, "billed_output": 0, "billed_calls": 0}
+    for name, v in per.items():
+        if name.startswith("local:"):
+            continue
+        tot["billed_equiv"] += v.get("billable_equiv", 0)
+        tot["billed_output"] += v.get("output", 0)
+        tot["billed_calls"] += v.get("calls", 0)
+    return {"days": days, "per_model": per, "totals": tot, "now": time.time()}
+
+
+AUTO_NAME = "all-runs"
+AUTO_WINDOW_DAYS = 21     # how far back the auto page looks
+AUTO_MAX_LEGS = 20        # and how many it will draw; the drop is reported
+
+
+def _discover_runs() -> list[dict]:
+    """Every training run on disk, newest first — no manifest required.
+
+    The lab book used to draw only runs named in runs/experiments/*.json, so
+    a run was invisible until someone remembered to file it, and "invisible"
+    looks exactly like "not running". A run dir is anything under runs/ with
+    both a config.json and a metrics.jsonl; resume/ subdirs are the trainer's
+    own bookkeeping, not runs.
+    """
+    seen, out = set(), []
+    for m in ROOT.joinpath("runs").glob("**/metrics.jsonl"):
+        d = m.parent
+        if "resume" in d.parts or not (d / "config.json").exists():
+            continue
+        rel = d.relative_to(ROOT).as_posix()
+        if rel in seen:
+            continue
+        seen.add(rel)
+        try:
+            cfg = json.loads((d / "config.json").read_text())
+        except (json.JSONDecodeError, OSError):
+            cfg = {}
+        kw = cfg.get("task_kwargs") or {}
+        cell = None
+        if kw.get("domain"):
+            cell = f"{kw['domain']}:{kw.get('situation', 'single')}"
+        out.append({"name": d.name, "rel": rel, "ts": m.stat().st_mtime,
+                    "cell": cell, "steps": cfg.get("steps")})
+    out.sort(key=lambda r: r["ts"], reverse=True)
+    return out
+
+
+def _auto_spec(manifests: list[Path]) -> dict:
+    """The manifest nobody has to write.
+
+    Curated manifests still own the narrative -- title, question, the notes
+    that say what a number means. This one owns completeness: anything not
+    filed anywhere still shows up here, so a run cannot be lost.
+    """
+    claimed = set()
+    for f in manifests:
+        try:
+            spec = json.loads(f.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        claimed.update((spec.get("legs") or {}).values())
+    runs = _discover_runs()
+    cutoff = time.time() - AUTO_WINDOW_DAYS * 86400
+    recent = [r for r in runs if r["ts"] >= cutoff]
+    shown, dropped_cap = recent[:AUTO_MAX_LEGS], max(0, len(recent) - AUTO_MAX_LEGS)
+    notes = [
+        "Found on disk, not filed by hand: any directory under runs/ with a "
+        "config.json and a metrics.jsonl appears here within seconds of its "
+        "first step. Nothing has to be registered for a run to be visible.",
+        "Smoke tests, retrofits and abandoned attempts are included on "
+        "purpose -- this page answers 'what has run', not 'what counts'. "
+        "A run worth reasoning about gets a manifest in runs/experiments/, "
+        "which is where the title, the question and the caveats live.",
+        f"Showing runs touched in the last {AUTO_WINDOW_DAYS} days: "
+        f"{len(shown)} of {len(runs)} on disk.",
+    ]
+    if dropped_cap:
+        notes.append(f"{dropped_cap} more are inside the window but past the "
+                     f"{AUTO_MAX_LEGS}-run drawing limit -- widen "
+                     f"AUTO_MAX_LEGS or file them in a manifest.")
+    unfiled = [r["name"] for r in shown if r["rel"] not in claimed]
+    notes.append("Not in any manifest: "
+                 + (", ".join(unfiled) if unfiled else "none — all filed."))
+    return {"title": "All runs",
+            "question": "Every run on disk, newest first, whether or not "
+                        "anyone has written it up. The switcher below leads "
+                        "to the curated experiments.",
+            "notes": notes,
+            "legs": {r["name"]: r["rel"] for r in shown},
+            "diagonal": {r["name"]: r["cell"] for r in shown if r["cell"]},
+            "cells": sorted({r["cell"] for r in shown if r["cell"]}),
+            "eval_dirs": []}
+
+
+def _newest_experiment(files: list[Path]) -> str | None:
+    """Which page to open when the URL names none.
+
+    Alphabetical order put whichever manifest sorted first in front of a run
+    that was live right now. Rank by the most recent write to any leg instead
+    -- and if the newest run on disk is in no manifest at all, land on the
+    auto page, which is the only place it appears.
+    """
+    best, best_ts = None, -1.0
+    for f in files:
+        try:
+            spec = json.loads(f.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        ts = -1.0
+        for rel in (spec.get("legs") or {}).values():
+            m = ROOT / rel / "metrics.jsonl"
+            if m.exists():
+                ts = max(ts, m.stat().st_mtime)
+        if ts > best_ts:
+            best, best_ts = f.stem, ts
+    runs = _discover_runs()
+    if runs and runs[0]["ts"] > best_ts:
+        return AUTO_NAME
+    return best
 
 
 def _labbook_state(name: str | None):
     files = sorted(EXPERIMENTS_DIR.glob("*.json")) if EXPERIMENTS_DIR.exists() else []
-    names = [f.stem for f in files]
-    if not names:
-        return {"experiment": None, "experiments": []}
-    pick = name if name in names else names[0]
-    spec = json.loads((EXPERIMENTS_DIR / f"{pick}.json").read_text())
+    # The auto page is always offered, so an empty runs/experiments/ is no
+    # longer an empty lab book.
+    names = [f.stem for f in files] + [AUTO_NAME]
+    pick = name if name in names else _newest_experiment(files) or AUTO_NAME
+    spec = (_auto_spec(files) if pick == AUTO_NAME
+            else json.loads((EXPERIMENTS_DIR / f"{pick}.json").read_text()))
     legs = {k: _leg_curve(ROOT / v) for k, v in spec.get("legs", {}).items()}
+    for leg_name, d in (spec.get("heldout") or {}).items():
+        if leg_name in legs:
+            _merge_heldout(legs[leg_name], ROOT / d)
     table = {}
     for d in spec.get("eval_dirs", []):
         for res in sorted((ROOT / d).glob("*/results.json")):
@@ -404,97 +823,6 @@ def _labbook_state(name: str | None):
     return {"experiment": pick, "experiments": names, "spec": spec,
             "legs": legs, "table": table, "now": time.time()}
 
-
-LABBOOK_PAGE = """<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>lab book — rl</title>
-<style>
-:root{--bg:#0d1117;--fg:#c9d1d9;--dim:#8b949e;--line:#21262d;--card:#161b22;
-      --good:#3fb950;--bad:#f85149;--accent:#58a6ff}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
-.wrap{max-width:1180px;margin:0 auto;padding:22px 18px 60px}
-h1{font-size:19px;margin:0 0 4px} h2{font-size:15px;margin:30px 0 10px;color:var(--fg)}
-.q{color:var(--dim);margin:0 0 14px;max-width:74ch}
-.notes{background:var(--card);border:1px solid var(--line);border-radius:7px;padding:11px 14px;margin:0 0 8px}
-.notes li{color:var(--dim);margin:3px 0} .notes ul{margin:0;padding-left:18px}
-.legs{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:13px}
-.leg{background:var(--card);border:1px solid var(--line);border-radius:7px;padding:11px 13px}
-.leg h3{margin:0 0 2px;font-size:14px;font-weight:600}
-.meta{color:var(--dim);font-size:12px;margin-bottom:7px}
-.tag{display:inline-block;padding:0 6px;border-radius:9px;font-size:11px;border:1px solid var(--line)}
-.running{color:var(--accent);border-color:var(--accent)}.done{color:var(--good);border-color:var(--good)}
-.stalled{color:var(--bad);border-color:var(--bad)}
-table{border-collapse:collapse;width:100%;margin-top:6px}
-th,td{padding:6px 9px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
-th:first-child,td:first-child{text-align:left}
-th{color:var(--dim);font-weight:600;font-size:12px}
-td.diag{outline:1px dashed #6e7681;outline-offset:-3px}
-.pos{color:var(--good)}.neg{color:var(--bad)}
-.scroll{overflow-x:auto}
-.foot{color:var(--dim);font-size:12px;margin-top:26px;border-top:1px solid var(--line);padding-top:9px}
-svg{display:block;width:100%;height:82px}
-</style></head><body><div class="wrap">
-<h1 id="title">lab book</h1><p class="q" id="q"></p>
-<div class="notes"><ul id="notes"></ul></div>
-<h2>training curves <span class="meta" id="curveinfo"></span></h2>
-<div class="legs" id="legs"></div>
-<h2>results — adapter (row) evaluated on subject (column)</h2>
-<div class="scroll"><table id="tbl"></table></div>
-<p class="meta">Dashed outline = the subject that adapter was trained on. Every other cell is leave-one-out.</p>
-<div class="foot" id="foot"></div>
-</div><script>
-const F=(v,d=2)=>v==null?"—":(v>=0?"+":"")+v.toFixed(d);
-function path(pts,w,h,lo,hi){
-  if(!pts.length) return "";
-  const sx=pts.length>1?w/(pts.length-1):0, r=(hi-lo)||1;
-  return pts.map((v,i)=>(i?"L":"M")+(i*sx).toFixed(1)+","+(h-((v-lo)/r)*h).toFixed(1)).join("");
-}
-function curve(steps,evals){
-  // Training reward is per-step and noisy: draw it as points, because a
-  // connecting line invents a trend between samples that are independent
-  // draws. The held-out eval is smooth and sparse, so it keeps its line.
-  const w=320,h=82, r=steps.map(s=>s.reward).filter(v=>v!=null);
-  if(!r.length) return '<div class="meta">no steps yet</div>';
-  const ev=evals.map(e=>e.eval_reward).filter(v=>v!=null);
-  const all=r.concat(ev), lo=Math.min(...all), hi=Math.max(...all), rng=(hi-lo)||1;
-  const zero=h-((0-lo)/rng)*h;
-  const sx=r.length>1?w/(r.length-1):0;
-  let g=`<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`;
-  if(zero>=0&&zero<=h) g+=`<line x1="0" y1="${zero.toFixed(1)}" x2="${w}" y2="${zero.toFixed(1)}" stroke="#30363d" stroke-dasharray="3 3"/>`;
-  g+=r.map((v,i)=>`<circle cx="${(i*sx).toFixed(1)}" cy="${(h-((v-lo)/rng)*h).toFixed(1)}" r="1.9" fill="#58a6ff" fill-opacity="0.8"/>`).join("");
-  if(ev.length>1) g+=`<path d="${path(ev,w,h,lo,hi)}" fill="none" stroke="#3fb950" stroke-width="1.5"/>`;
-  else if(ev.length===1) g+=`<circle cx="0" cy="${(h-((ev[0]-lo)/rng)*h).toFixed(1)}" r="2.4" fill="#3fb950"/>`;
-  return g+"</svg>";
-}
-async function tick(){
-  const s=await (await fetch("/api/labbook")).json();
-  if(!s.experiment){document.getElementById("foot").textContent="no experiments defined";return;}
-  document.getElementById("title").textContent=s.spec.title||s.experiment;
-  document.getElementById("q").textContent=s.spec.question||"";
-  document.getElementById("notes").innerHTML=(s.spec.notes||[]).map(n=>`<li>${n}</li>`).join("");
-  let tot=0;
-  document.getElementById("legs").innerHTML=Object.entries(s.legs).map(([n,l])=>{
-    const last=l.steps.length?l.steps[l.steps.length-1]:null; tot+=l.steps.length;
-    const ev=l.evals.length?l.evals[l.evals.length-1]:null;
-    return `<div class="leg"><h3>${n} <span class="tag ${l.status}">${l.status}</span></h3>
-      <div class="meta">step ${last?last.step:0}${last&&last.reward!=null?" · reward "+F(last.reward):""}
-      ${ev&&ev.eval_reward!=null?" · eval "+F(ev.eval_reward):""}</div>${curve(l.steps,l.evals)}
-      <div class="meta">blue dots = train reward per step · green = held-out eval</div></div>`;}).join("");
-  document.getElementById("curveinfo").textContent=`${tot} steps logged across ${Object.keys(s.legs).length} runs`;
-  const cells=s.spec.cells||[], diag=s.spec.diagonal||{};
-  const arms=Object.keys(s.table).sort((a,b)=>a==="base"?-1:b==="base"?1:a.localeCompare(b));
-  let t=`<tr><th>adapter</th>${cells.map(c=>`<th>${c.split(":")[0]}</th>`).join("")}</tr>`;
-  for(const a of arms){
-    t+=`<tr><td>${a}</td>`+cells.map(c=>{
-      const v=s.table[a][c];
-      const cls=(diag[a]===c?"diag ":"")+(v?(v.reward>=0?"pos":"neg"):"");
-      return `<td class="${cls}">${v?F(v.reward):"—"}</td>`;}).join("")+"</tr>";
-  }
-  document.getElementById("tbl").innerHTML=t;
-  document.getElementById("foot").textContent="pulled live from metrics.jsonl and results.json · "+new Date().toLocaleTimeString();
-}
-tick(); setInterval(tick,10000);
-</script></body></html>"""
 
 def make_handler(runs_dir: Path, pinned: Path | None, public: bool):
     class H(BaseHTTPRequestHandler):
@@ -561,6 +889,9 @@ def make_handler(runs_dir: Path, pinned: Path | None, public: bool):
                                   "application/json")
             if not public and p in ("/labbook", "/labbook/"):
                 return self._send(200, LABBOOK_PAGE.encode(), "text/html; charset=utf-8")
+            if not public and p == "/api/judge_usage":
+                return self._send(200, json.dumps(_judge_usage()).encode(),
+                                  "application/json")
             if not public and p == "/api/labbook":
                 q = parse_qs(urlsplit(self.path).query)
                 return self._send(200, json.dumps(_labbook_state(q.get("exp", [None])[0])).encode(),
