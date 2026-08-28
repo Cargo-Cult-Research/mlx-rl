@@ -176,6 +176,15 @@ class TrainConfig:
     # training cap; running it higher measures whether learned termination
     # generalizes past the training-time budget wall.
     eval_max_new_tokens: int = 0
+    # Extra held-out subjects to score at every eval, as "domain:situation"
+    # (comma-separated), alongside the subject being trained. The trained
+    # subject alone cannot distinguish learning from overfitting: a policy
+    # that memorises one domain's quirks and one that learns to check before
+    # answering look identical on the training subject and diverge here.
+    # Extra subjects are scored, never trained on; they cost one greedy pass
+    # each, so eval_cells_n defaults lower than eval_n.
+    eval_cells: str = ""
+    eval_cells_n: int = 0        # 0 = use eval_n
     checkpoint_every: int = 20
     seed: int = 0
     activation_headroom_gb: float = 4.0

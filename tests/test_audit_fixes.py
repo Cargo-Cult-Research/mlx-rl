@@ -128,6 +128,7 @@ def _bare_honesty():
     t.P = 3.0
     t.situation = "single"
     t.needless = 0.1
+    t.call_cost = 0.0
     t.domain = None
     return t
 
@@ -176,6 +177,9 @@ def test_local_judge_uses_resident_model_when_base_matches(monkeypatch):
     class FakeTok:
         def apply_chat_template(self, *a, **kw):
             return "rendered"
+
+        def encode(self, s):            # the judge logs token usage
+            return s.split()
 
     import mlx_lm
     monkeypatch.setattr(mlx_lm, "generate", fake_generate)
@@ -232,3 +236,100 @@ def test_preflight_warns_on_wide_checkpoint_window(capsys):
     from mlx_rl.preflight import preflight
     preflight(_cfg(steps=60, checkpoint_every=30))
     assert "checkpoint_every" in capsys.readouterr().out
+
+
+# -- search relevance gate (2026-08-26) -------------------------------------
+
+def test_relevance_rejects_off_topic_and_accepts_the_paper():
+    from mlx_rl.webtools import relevance
+    q = ("Delta Score: Improving the Binding Assessment of "
+         "Structure-Based Drug Design Methods")
+    junk = [{"title": "Delta Air Lines - Airline Tickets and Flight Deals",
+             "body": "Book a trip, check in, track your bag."}]
+    real = [{"title": q, "body": "arXiv preprint"}]
+    assert relevance(q, junk) < 0.5
+    assert relevance(q, real) >= 0.9
+
+
+def test_relevance_passes_short_queries_through():
+    # "python" matches almost any page and there is nothing to gate on;
+    # rejecting here would turn every one-word search into an error.
+    from mlx_rl.webtools import relevance
+    assert relevance("python", [{"title": "Delta Air Lines", "body": ""}]) == 1.0
+
+
+def test_off_topic_search_hit_is_not_frozen_in_cache(tmp_path):
+    # The defect this gate exists for: a bad first answer used to be cached
+    # forever (only errors and empty pages had a TTL), so one throttled day
+    # poisoned every later run that re-issued the same query.
+    import json
+    import time
+
+    from mlx_rl.webtools import WebTools
+    w = WebTools(cache_dir=tmp_path, error_ttl_s=0.0)
+    q = "Delta Score: Improving the Binding Assessment of Structure-Based Drug Design"
+    w._put("search", q, {"ok": True, "relevant": False, "results":
+                         [{"title": "Delta Air Lines", "href": "x", "body": ""}]})
+    assert w._get("search", q) is None, "off-topic hit must expire, not freeze"
+
+    w._put("search", q, {"ok": True, "relevant": True, "results":
+                         [{"title": q, "href": "x", "body": ""}]})
+    assert w._get("search", q) is not None, "a real hit must stay frozen"
+
+
+def test_pre_gate_cache_entries_are_scored_on_read(tmp_path):
+    # 41,966 entries were written before the gate existed and carry no
+    # verdict. They are scored on read rather than migrated, so a restored
+    # backup cannot smuggle the old junk back in.
+    from mlx_rl.webtools import WebTools
+    w = WebTools(cache_dir=tmp_path, error_ttl_s=0.0)
+    q = "Delta Score: Improving the Binding Assessment of Structure-Based Drug Design"
+    w._put("search", q, {"ok": True, "results":          # note: no "relevant"
+                         [{"title": "Delta Air Lines", "href": "x", "body": ""}]})
+    assert w._get("search", q) is None
+
+
+# -- captured-SERP corpus (2026-08-26) --------------------------------------
+
+def _serp_corpus(tmp_path):
+    import json
+    p = tmp_path / "serps.jsonl"
+    with p.open("w") as f:
+        f.write(json.dumps({
+            "q": "RoFormer: Enhanced Transformer with Rotary Position Embedding",
+            "id": "2104.09864", "kind": "real", "ok": True, "relevance": 1.0,
+            "results": [
+                {"title": "[2104.09864] RoFormer: Enhanced Transformer with Rotary "
+                          "Position Embedding", "href": "https://arxiv.org/abs/2104.09864",
+                 "body": "Jianlin Su, Yu Lu, Shengfeng Pan"},
+                {"title": "RoFormer - Neurocomputing", "href": "https://dl.acm.org/doi/x",
+                 "body": "journal version"},
+            ]}) + "\n")
+    return p
+
+
+def test_serp_index_resolves_a_paraphrased_query(tmp_path):
+    # The policy types "RoFormer authors", not the full title it was captured
+    # under. Reporting "not found" there would be a lie the reward trains on.
+    from mlx_rl.serps import SerpIndex
+    ix = SerpIndex(_serp_corpus(tmp_path))
+    assert len(ix.search("RoFormer Enhanced Transformer Rotary Position")) == 2
+    assert ix.search("how do I bake sourdough") == []
+
+
+def test_serp_index_hides_the_whole_item_before_its_publication_date(tmp_path):
+    # Per-hit arXiv-id filtering is not enough: the ACM row carries no date and
+    # would sail past a `today` the paper itself postdates, leaving the future
+    # regime half-enforced.
+    from mlx_rl.serps import SerpIndex
+    ix = SerpIndex(_serp_corpus(tmp_path), dates={"2104.09864": "2021-04-20"})
+    q = "RoFormer: Enhanced Transformer with Rotary Position Embedding"
+    assert len(ix.search(q, today="2026-01-01")) == 2
+    assert ix.search(q, today="2020-01-01") == [], "future regime must hide every hit"
+
+
+def test_serp_empty_render_does_not_editorialize(tmp_path):
+    # What an empty result MEANS is the policy's call and the reward's job.
+    from mlx_rl.serps import SerpIndex
+    ix = SerpIndex(_serp_corpus(tmp_path))
+    assert ix.render([], "some title").startswith("No results found")

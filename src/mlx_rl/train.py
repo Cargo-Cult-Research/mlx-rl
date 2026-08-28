@@ -594,6 +594,7 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
     rng = random.Random(cfg.seed)
     subset_rng = np.random.default_rng(cfg.seed)  # token-subset draws
     task = get_task(cfg.task, **cfg.task_kwargs)
+    eval_cells = build_eval_cells(cfg)
     if cfg.inject_r and not (hasattr(task, "injected_completion")
                              or hasattr(task, "injected_episode")):
         raise SystemExit(
@@ -718,7 +719,8 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
         print(f"resumed {src} at step {done}; continuing at {start_step} "
               f"in {out}")
     else:
-        baseline = evaluate(model, tokenizer, task, cfg)
+        baseline = {**evaluate(model, tokenizer, task, cfg),
+                    **evaluate_cells(model, tokenizer, eval_cells, cfg)}
         mx.clear_cache()  # phase boundary: don't stack eval KV under step-1 gen
         print(f"step 0 baseline: {baseline}")
         metrics_f.write(json.dumps({"step": 0, **baseline}) + "\n")
@@ -934,6 +936,7 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
                             activity_window, cfg.keep_resume)
         if cfg.eval_every and step % cfg.eval_every == 0:
             rec.update(evaluate(model, tokenizer, task, cfg))
+            rec.update(evaluate_cells(model, tokenizer, eval_cells, cfg))
             mx.clear_cache()  # phase boundary: eval KV vs next step's gen
         metrics_f.write(json.dumps(rec) + "\n")
         metrics_f.flush()
@@ -1073,6 +1076,11 @@ def main() -> None:
                    help="end-of-thinking token id (default: from profile)")
     p.add_argument("--eval-every", type=int, default=d.eval_every)
     p.add_argument("--eval-n", type=int, default=d.eval_n)
+    p.add_argument("--eval-cells", default=d.eval_cells,
+                   help="extra held-out subjects scored every eval, e.g. "
+                        "'papers:single,packages:single' (never trained on)")
+    p.add_argument("--eval-cells-n", type=int, default=d.eval_cells_n,
+                   help="items per extra subject (0 = --eval-n)")
     p.add_argument("--checkpoint-every", type=int, default=d.checkpoint_every)
     p.add_argument("--resume-from", default=d.resume_from, metavar="DIR",
                    help="continue a previous run dir's newest resumable "
@@ -1189,6 +1197,8 @@ def main() -> None:
         swap_rate_mb_s=a.swap_rate_mb_s,
         eval_every=a.eval_every,
         eval_n=a.eval_n,
+        eval_cells=a.eval_cells,
+        eval_cells_n=a.eval_cells_n,
         eval_max_new_tokens=a.eval_max_new_tokens,
         grad_checkpoint=a.grad_checkpoint,
         gdn_serial=a.gdn_serial,
@@ -1411,6 +1421,60 @@ def collect_episodes(model, tokenizer, examples, cfg: TrainConfig, task):
                             for c in ep.tool_calls],
             ))
     return rollouts, stats, skipped
+
+
+def build_eval_cells(cfg: TrainConfig) -> dict:
+    """Held-out subjects that are SCORED at every eval but never trained on.
+
+    The trained subject alone cannot tell learning from memorisation: a policy
+    that picks up one domain's surface quirks and one that learns to check
+    before it answers look the same there, and only come apart on a subject
+    the gradient never saw. Same task class and judge wiring as training --
+    only the domain and its calibration file change.
+    """
+    if not cfg.eval_cells:
+        return {}
+    from .tasks.honesty import CALIB, CELL_KWARGS, DOMAIN_SCOPED, HonestyTask
+    cells = {}
+    for spec in filter(None, (s.strip() for s in cfg.eval_cells.split(","))):
+        domain, _, situation = spec.partition(":")
+        situation = situation or "single"
+        kw = dict(cfg.task_kwargs)
+        for k in DOMAIN_SCOPED:             # per-domain, never carried over
+            kw.pop(k, None)
+        kw.update(CELL_KWARGS.get(domain, {}))
+        kw["domain"], kw["situation"] = domain, situation
+        if domain in CALIB:
+            kw["calib_file"] = CALIB[domain]
+        cells[f"{domain}_{situation}"] = HonestyTask(**kw)
+    return cells
+
+
+def evaluate_cells(model, tokenizer, cells, cfg: TrainConfig) -> dict:
+    """Score every held-out subject; keys become eval_<domain>_<situation>_*.
+
+    One subject failing (a dead tool endpoint, a judge timeout) must not lose
+    the step's real metrics, so each is guarded separately.
+    """
+    if not cells:
+        return {}
+    ecfg = replace(cfg, eval_n=cfg.eval_cells_n or cfg.eval_n)
+    rec = {}
+    for name, task in cells.items():
+        t0 = time.time()
+        try:
+            r = evaluate(model, tokenizer, task, ecfg)
+        except Exception as e:                      # noqa: BLE001 - see docstring
+            print(f"   [eval:{name}] skipped: {type(e).__name__}: {e}", flush=True)
+            continue
+        for k, v in r.items():
+            rec[f"eval_{name}_" + (k[5:] if k.startswith("eval_") else k)] = v
+        rec[f"eval_{name}_s"] = round(time.time() - t0, 1)
+        print(f"   [eval:{name}] reward {r.get('eval_reward', float('nan')):+.3f} "
+              f"correct {r.get('eval_correct', 0.0):.2f} "
+              f"called {r.get('eval_called', 0.0):.2f}  ({rec[f'eval_{name}_s']}s)", flush=True)
+        mx.clear_cache()
+    return rec
 
 
 def evaluate_episodes(model, tokenizer, task, cfg: TrainConfig):

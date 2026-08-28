@@ -106,6 +106,49 @@ _BR_RE = re.compile(r"</(p|div|br|li|tr|h[1-6]|section|article|blockquote|pre)>|
 _ANY_TAG = re.compile(r"<[^>]+>")
 
 
+_STOP = frozenset(
+    "a an the of for and or to in on with by using via is are was were we our "
+    "us this that these those from at as its it new how what when where which "
+    "who why do does can could would should".split())
+
+
+def _content_words(s: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", s.lower())) - _STOP
+
+
+def _render(results: list[dict], limit: int) -> str:
+    lines = [f"{i}. {r['title']}\n   {r['href']}\n   {r['body']}"
+             for i, r in enumerate(results, 1)]
+    return "\n".join(lines)[:limit]
+
+
+def relevance(query: str, results: list[dict]) -> float:
+    """How much of the QUERY the best result echoes back, in [0, 1].
+
+    Deliberately query-only. Scoring against the gold ANSWER would make the
+    tool an oracle -- "the search agreed with the grader" and "the policy
+    checked" would be the same event, which is the defect that sank
+    pypi_lookup. Relevance to the query is information the caller already
+    has, so using it leaks nothing: it is the same judgement a person makes
+    glancing at a result page before reading it.
+
+    Content words only, title + snippet. A search for "Delta Score:
+    Improving the Binding Assessment of Structure-Based Drug Design Methods"
+    that comes back with "Delta Air Lines" scores ~0.02; the real paper
+    scores ~1.0. Nothing in between needs to be adjudicated precisely -- the
+    gate is there to catch the wholesale misses, not to rank.
+    """
+    qw = _content_words(query)
+    if len(qw) < 3:          # "python", "IPv6" -- any page is arguably on topic
+        return 1.0
+    best = 0.0
+    for r in results:
+        hw = _content_words(f"{r.get('title', '')} {r.get('body', '')}")
+        if hw:
+            best = max(best, len(qw & hw) / len(qw))
+    return best
+
+
 def html_to_text(raw: str) -> str:
     t = _TAG_RE.sub(" ", raw)
     t = _BR_RE.sub("\n", t)
@@ -129,8 +172,10 @@ class WebTools:
     def __init__(self, cache_dir: str | Path = "runs/webcache", max_results: int = 5,
                  fetch_chars: int = 4000, search_chars: int = 2500,
                  min_interval_s: float = 1.0, timeout_s: float = 10.0,
-                 error_ttl_s: float = 600.0, engines: tuple[str, ...] | None = None):
+                 error_ttl_s: float = 600.0, engines: tuple[str, ...] | None = None,
+                 min_relevance: float = 0.5):
         self.engines = tuple(engines) if engines else self.ENGINES
+        self.min_relevance = min_relevance
         self.dir = Path(cache_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.max_results = max_results
@@ -144,7 +189,7 @@ class WebTools:
         # title at once should cost ONE live call, not eight cache misses.
         self._inflight: dict[str, threading.Event] = {}
         self.stats = {"search_live": 0, "search_hit": 0, "fetch_live": 0,
-                      "fetch_hit": 0, "errors": 0}
+                      "fetch_hit": 0, "errors": 0, "search_irrelevant": 0}
 
     def _claim(self, kind: str, key: str):
         """-> (cached_result_or_None, event_to_set_or_None). If another
@@ -181,9 +226,22 @@ class WebTools:
             d = json.loads(p.read_text())
         except Exception:
             return None
+        # Three things are provisional, not answers, and must not be frozen:
+        # a hard error, an empty page (usually throttling, not truth), and a
+        # result set no engine could make relevant to the query. All three
+        # expire on error_ttl so a later run re-asks. A genuine hit is frozen,
+        # which is what makes a run reproducible after first sight.
         empty = d.get("ok") and kind == "search" and not d.get("results")
-        if (not d.get("ok") or empty) and time.time() - d.get("t", 0) > self.error_ttl:
-            return None  # errors AND empty result pages expire (often throttling); hits are frozen
+        # Entries written before the gate existed (2026-08-26) carry no verdict,
+        # so score them on read. 88.6% of the 41,966 cached successes at that
+        # point were off-topic; migrating the files would work too, but scoring
+        # here also covers any cache restored from an older backup.
+        if kind == "search" and "relevant" not in d and d.get("results"):
+            d["relevant"] = relevance(d.get("key", ""), d["results"]) >= self.min_relevance
+        offtopic = kind == "search" and d.get("relevant") is False
+        stale = time.time() - d.get("t", 0) > self.error_ttl
+        if (not d.get("ok") or empty or offtopic) and stale:
+            return None
         return d
 
     def _put(self, kind: str, key: str, d: dict) -> None:
@@ -251,6 +309,7 @@ class WebTools:
     def _search_live(self, q: str) -> dict:
         from ddgs import DDGS
         errors = []
+        best: dict | None = None      # best off-topic set seen, if nothing passes
         t_start = time.time()
         for engine in self.engines:
             if time.time() - t_start > self.search_budget_s:
@@ -267,10 +326,31 @@ class WebTools:
             results = [{"title": h.get("title", ""), "href": h.get("href", ""),
                         "body": h.get("body", "")} for h in hits]
             if results:
-                lines = [f"{i}. {r['title']}\n   {r['href']}\n   {r['body']}"
-                         for i, r in enumerate(results, 1)]
-                return {"ok": True, "results": results, "engine": engine,
-                        "text": "\n".join(lines)[: self.search_chars]}
+                rel = relevance(q, results)
+                d = {"ok": True, "results": results, "engine": engine,
+                     "relevance": round(rel, 3),
+                     "text": _render(results, self.search_chars)}
+                if rel >= self.min_relevance:
+                    return d
+                # Off-topic. NOT a hit: the engine answered a different
+                # question (a query for a paper title coming back with an
+                # airline). Keep the best one seen so we still hand back
+                # something real, and let the next engine try -- the ones
+                # that rank titles correctly sit behind the ones that merely
+                # answer fastest.
+                errors.append(f"{engine}: off-topic (relevance {rel:.2f})")
+                if best is None or rel > best.get("relevance", 0.0):
+                    best = d
+        # Nothing passed the gate. Hand back the best off-topic set anyway --
+        # real search returns junk and reading past it is part of the job, so
+        # the policy should see what a real caller would. What changes is the
+        # CACHE: `relevant: False` gives it the short error TTL instead of
+        # being frozen forever, so the next run re-asks rather than inheriting
+        # today's weather as permanent truth.
+        if best is not None:
+            with self._lock:
+                self.stats["search_irrelevant"] += 1
+            return dict(best, relevant=False)
         # Every engine came back empty or failed. Only "no results" from
         # every engine is an honest empty; any hard failure is an error.
         if errors and all("No results" in e or "no results" in e.lower() for e in errors):

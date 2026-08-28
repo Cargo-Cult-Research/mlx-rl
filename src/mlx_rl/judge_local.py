@@ -150,9 +150,15 @@ class _LocalMixin:
                 raise ValueError(f"item {j}: kind={kind} without a value")
             verdicts.append({"kind": kind,
                              "value": value.strip() if kind == self.VALUE_KIND else None})
+        # Same usage shape the CLI judge logs, so one aggregator reads both.
+        # These tokens are local compute, not billed -- "local": True is what
+        # keeps them out of the spend total rather than the model name, which
+        # is only a string and would drift.
         with self.log_path.open("a") as f:
             f.write(json.dumps({"ts": t0, "wall_s": round(time.time() - t0, 1),
-                                "n_items": n, "model": self.model_name}) + "\n")
+                                "n_items": n, "model": self.model_name, "local": True,
+                                "usage": {"input_tokens": len(tokenizer.encode(text)),
+                                          "output_tokens": len(tokenizer.encode(out))}}) + "\n")
         return verdicts
 
 

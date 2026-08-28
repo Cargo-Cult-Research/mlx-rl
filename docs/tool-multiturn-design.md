@@ -518,7 +518,7 @@ claimed.
 | # | arm | new variable | gate to proceed |
 |---|---|---|---|
 | 0 | date-in-prompt plumbing + frozen arXiv snapshot + prompt-only baseline | — | **done 2026-08-16**: `data/arxiv_snapshot.jsonl` (97 famous + 1,760 sweep 2023-01..2026-08 + 300 fictional); `runs/arxiv-calib-20260816/calib.jsonl` (47 known of 1,857, all famous; 50 famous only partly known); demo renders the date at request time. Prompt-only baseline (= arm 1 step-0 eval, n=64): with `search_arxiv` + clause (v1) reward 0.65, called 1.00 everywhere; **with the served shape — generic `web_search`, no clause (v2/v3) — reward −1.19, called 0.06**: post −1.03, future −2.0, fictional −1.93, known 0.56. The base does not check before answering with a generic tool; that is the RL problem |
-| 1 | segmented rollouts, tools, **thinking off** | tool rounds + date | **v4 running, real web** (`runs/qa-arxiv-arm1-20260816v4`; v3 sandbox result: eval −1.25 → 0.92 by step 30, called 0.06 → 1.00, kept for the mechanics); §7 criteria 1–3, then `scripts/arxiv_flip_probe.py` |
+| 1 | segmented rollouts, tools, **thinking off** | tool rounds + date | **v4 running, real web** (`runs/archive-advantage-bug-20260822/qa-arxiv-arm1-20260816v4`; v3 sandbox result: eval −1.25 → 0.92 by step 30, called 0.06 → 1.00, kept for the mechanics); §7 criteria 1–3, then `scripts/arxiv_flip_probe.py` |
 | 2 | multi-turn | prior turns | hedging survives to turn 3+ |
 | 3 | thinking on | thinking | §7 criteria 1–3 hold again |
 
@@ -636,7 +636,7 @@ Readings, stated plainly:
 
 ### 9.1b Arm 2 — multi-turn (done 2026-08-17 13:02)
 
-`runs/qa-arxiv-arm2-20260817`: 60 steps, 4 prompts × 8 members × 3 turns,
+`runs/archive-advantage-bug-20260822/qa-arxiv-arm2-20260817`: 60 steps, 4 prompts × 8 members × 3 turns,
 init sandbox-v3-60, real tools (fallback share 0.3–0.45 — the engines were
 tired), ~8 min/step. Held-out 3-turn eval (`runs/arxiv-transfer-mt3-arm2-20260817`,
 n=32×3, greedy, real tools):
