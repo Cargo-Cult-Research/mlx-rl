@@ -26,6 +26,9 @@ wandb/
 !data/*.jsonl
 # difficulty labels are measured once and reused forever — source, not scratch
 !data/labels/*.jsonl
+# captured search results cost real money to fetch and are frozen on purpose;
+# regenerating them is a metered API call, not a re-run — source, not scratch
+!data/serps/*.jsonl
 
 # OS
 .DS_Store

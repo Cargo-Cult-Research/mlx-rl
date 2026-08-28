@@ -10,7 +10,7 @@ Opus verdicts come from its cache (free, already paid for); local verdicts are
 generated now.
 
     uv run python scripts/judge_reward_impact.py \
-        --episodes runs/night/20260818-night/eval-heldout/episodes.jsonl
+        --episodes runs/archive-advantage-bug-20260822/night-20260818/eval-heldout/episodes.jsonl
 """
 from __future__ import annotations
 

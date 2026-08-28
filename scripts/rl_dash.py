@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import threading
 import sys
 import time
@@ -241,6 +242,8 @@ svg.panel{display:block;width:100%;height:auto;margin-bottom:2px}
 </style></head><body><div class="wrap">
 <h1 id="title">lab book</h1><p class="q" id="q"></p>
 <div class="notes"><ul id="notes"></ul></div>
+<div id="idxwrap"><h2>runs on disk <span class="meta" id="idxinfo"></span></h2>
+<div class="scroll"><table id="index"></table></div></div>
 <h2>training curves <span class="meta" id="curveinfo"></span></h2>
 <div class="legs" id="legs"></div>
 <h2>judge tokens <span class="meta" id="judgeinfo"></span></h2>
@@ -341,6 +344,24 @@ function legCard(name,leg,spec){
     <div class="meta">${esc(bits.join(" · "))}</div>
     ${charts(leg.steps||[],leg.evals||[])}</div>`;
 }
+// One line per run, newest first. No grouping, no cap: this is the answer to
+// "what has run", and a run missing from it is a bug.
+function indexTable(index){
+  const when=t=>{const d=new Date(t*1000);
+    return d.toLocaleDateString(undefined,{month:"short",day:"numeric"})+" "
+      +d.toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit"});};
+  let h='<tr><th>updated</th><th>run</th><th>subject</th><th>steps</th>'
+       +'<th>state</th><th>written up</th></tr>';
+  for(const r of index){
+    const cls={running:"running",done:"done",ended:"ended"}[r.status]||"stalled";
+    const steps=(r.last_step==null?"—":r.last_step)+(r.steps?" / "+r.steps:"");
+    h+=`<tr><td>${esc(when(r.ts))}</td><td>${esc(r.name)}</td>`
+      +`<td>${esc(r.cell||"—")}</td><td>${esc(steps)}</td>`
+      +`<td><span class="tag ${cls}">${esc(r.status)}</span></td>`
+      +`<td>${r.filed?"yes":'<span class="meta">no</span>'}</td></tr>`;
+  }
+  return h;
+}
 function resultsTable(table,spec){
   const arms=Object.keys(table||{});
   if(!arms.length) return '<tr><td class="meta">no evaluations recorded yet</td></tr>';
@@ -370,6 +391,13 @@ async function load(){
     $("q").textContent=spec.question||"";
     $("notes").innerHTML=(spec.notes||[]).map(n=>`<li>${esc(n)}</li>`).join("")
       ||'<li>no notes</li>';
+    const idx=spec.index||[];
+    $("idxwrap").style.display=idx.length?"":"none";
+    if(idx.length){
+      $("index").innerHTML=indexTable(idx);
+      const nlive=idx.filter(r=>r.status==="running").length;
+      $("idxinfo").textContent=`${idx.length} on disk`+(nlive?` · ${nlive} running`:"");
+    }
     const names=Object.keys(s.legs||{});
     const live=names.filter(n=>s.legs[n].status==="running").length;
     $("curveinfo").textContent=`${names.length} run${names.length===1?"":"s"}`
@@ -715,8 +743,22 @@ def _discover_runs() -> list[dict]:
         cell = None
         if kw.get("domain"):
             cell = f"{kw['domain']}:{kw.get('situation', 'single')}"
-        out.append({"name": d.name, "rel": rel, "ts": m.stat().st_mtime,
-                    "cell": cell, "steps": cfg.get("steps")})
+        last_step = None
+        try:                       # the tail line is enough: how far it got
+            for line in reversed(m.read_text().splitlines()):
+                if line.strip():
+                    last_step = json.loads(line).get("step")
+                    break
+        except (json.JSONDecodeError, OSError):
+            pass
+        ts = m.stat().st_mtime
+        age = time.time() - ts
+        status = ("done" if (d / "promoted" / "adapters.safetensors").exists()
+                  else "running" if age < 1800 else
+                  "stalled" if age < 86400 else "ended")
+        out.append({"name": d.name, "rel": rel, "ts": ts, "cell": cell,
+                    "steps": cfg.get("steps"), "last_step": last_step,
+                    "status": status})
     out.sort(key=lambda r: r["ts"], reverse=True)
     return out
 
@@ -757,10 +799,16 @@ def _auto_spec(manifests: list[Path]) -> dict:
     unfiled = [r["name"] for r in shown if r["rel"] not in claimed]
     notes.append("Not in any manifest: "
                  + (", ".join(unfiled) if unfiled else "none — all filed."))
+    # The index is every run, flat and chronological. The chart section below
+    # it is capped because 70 sets of axes is not a page anyone reads -- but
+    # the cap must never again decide whether a run is *visible*, only whether
+    # it is *drawn*.
+    index = [{**r, "filed": r["rel"] in claimed} for r in runs]
     return {"title": "All runs",
             "question": "Every run on disk, newest first, whether or not "
                         "anyone has written it up. The switcher below leads "
                         "to the curated experiments.",
+            "index": index,
             "notes": notes,
             "legs": {r["name"]: r["rel"] for r in shown},
             "diagonal": {r["name"]: r["cell"] for r in shown if r["cell"]},
@@ -768,39 +816,15 @@ def _auto_spec(manifests: list[Path]) -> dict:
             "eval_dirs": []}
 
 
-def _newest_experiment(files: list[Path]) -> str | None:
-    """Which page to open when the URL names none.
-
-    Alphabetical order put whichever manifest sorted first in front of a run
-    that was live right now. Rank by the most recent write to any leg instead
-    -- and if the newest run on disk is in no manifest at all, land on the
-    auto page, which is the only place it appears.
-    """
-    best, best_ts = None, -1.0
-    for f in files:
-        try:
-            spec = json.loads(f.read_text())
-        except (json.JSONDecodeError, OSError):
-            continue
-        ts = -1.0
-        for rel in (spec.get("legs") or {}).values():
-            m = ROOT / rel / "metrics.jsonl"
-            if m.exists():
-                ts = max(ts, m.stat().st_mtime)
-        if ts > best_ts:
-            best, best_ts = f.stem, ts
-    runs = _discover_runs()
-    if runs and runs[0]["ts"] > best_ts:
-        return AUTO_NAME
-    return best
-
-
 def _labbook_state(name: str | None):
     files = sorted(EXPERIMENTS_DIR.glob("*.json")) if EXPERIMENTS_DIR.exists() else []
     # The auto page is always offered, so an empty runs/experiments/ is no
     # longer an empty lab book.
     names = [f.stem for f in files] + [AUTO_NAME]
-    pick = name if name in names else _newest_experiment(files) or AUTO_NAME
+    # No ?exp= means "show me what has run", so the flat chronological list
+    # wins by default. Guessing which curated manifest was most interesting
+    # meant the page you landed on depended on file mtimes.
+    pick = name if name in names else AUTO_NAME
     spec = (_auto_spec(files) if pick == AUTO_NAME
             else json.loads((EXPERIMENTS_DIR / f"{pick}.json").read_text()))
     legs = {k: _leg_curve(ROOT / v) for k, v in spec.get("legs", {}).items()}
@@ -822,6 +846,28 @@ def _labbook_state(name: str | None):
                         "missing": agg.get("missing"), "abstain": agg.get("abstain")}
     return {"experiment": pick, "experiments": names, "spec": spec,
             "legs": legs, "table": table, "now": time.time()}
+
+
+def _finite(o):
+    """Strip NaN/Infinity before serialising.
+
+    JSON has no NaN. Python writes a bare `NaN` token anyway, and the
+    browser's JSON.parse rejects the whole document -- so one run with an
+    empty evaluation (mean of no samples) blanked every page with
+    "load failed: SyntaxError: The string did not match the expected
+    pattern." Non-finite becomes null, which the charts already skip.
+    """
+    if isinstance(o, float):
+        return o if math.isfinite(o) else None
+    if isinstance(o, dict):
+        return {k: _finite(v) for k, v in o.items()}
+    if isinstance(o, list):
+        return [_finite(v) for v in o]
+    return o
+
+
+def _body(obj, **kw) -> bytes:
+    return json.dumps(_finite(obj), **kw).encode()
 
 
 def make_handler(runs_dir: Path, pinned: Path | None, public: bool):
@@ -871,7 +917,7 @@ def make_handler(runs_dir: Path, pinned: Path | None, public: bool):
                 except ValueError:
                     hours = 8.0
                 until = set_mirror(min(max(hours, 0.1), MAX_HOURS))
-            self._send(200, json.dumps({"until": until}).encode(), "application/json")
+            self._send(200, _body({"until": until}), "application/json")
 
         def do_GET(self):
             p = self._path()
@@ -885,21 +931,21 @@ def make_handler(runs_dir: Path, pinned: Path | None, public: bool):
                 return self._send(200, MATRIX_PAGE.encode(), "text/html; charset=utf-8")
             if p == "/api/matrix":
                 q = parse_qs(urlsplit(self.path).query)
-                return self._send(200, json.dumps(_matrix_state(q.get("run", [None])[0])).encode(),
+                return self._send(200, _body(_matrix_state(q.get("run", [None])[0])),
                                   "application/json")
             if not public and p in ("/labbook", "/labbook/"):
                 return self._send(200, LABBOOK_PAGE.encode(), "text/html; charset=utf-8")
             if not public and p == "/api/judge_usage":
-                return self._send(200, json.dumps(_judge_usage()).encode(),
+                return self._send(200, _body(_judge_usage()),
                                   "application/json")
             if not public and p == "/api/labbook":
                 q = parse_qs(urlsplit(self.path).query)
-                return self._send(200, json.dumps(_labbook_state(q.get("exp", [None])[0])).encode(),
+                return self._send(200, _body(_labbook_state(q.get("exp", [None])[0])),
                                   "application/json")
             if not public and p in ("/review", "/review/"):
                 return self._send(200, REVIEW_PAGE.encode(), "text/html; charset=utf-8")
             if not public and p == "/api/review/next":
-                return self._send(200, json.dumps(_review_state(), ensure_ascii=False).encode(),
+                return self._send(200, _body(_review_state(), ensure_ascii=False),
                                   "application/json")
             if p == "/api/state":
                 run = pinned or _newest_run(runs_dir)
@@ -908,7 +954,7 @@ def make_handler(runs_dir: Path, pinned: Path | None, public: bool):
                 st["mirror_until"] = mirror_until()
                 if not public:
                     st["private"] = True
-                return self._send(200, json.dumps(st).encode(), "application/json")
+                return self._send(200, _body(st), "application/json")
             if p == "/health":
                 return self._send(200, b"ok", "text/plain")
             self._send(404, b"not found", "text/plain")

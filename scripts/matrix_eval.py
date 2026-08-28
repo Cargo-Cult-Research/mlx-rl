@@ -27,7 +27,7 @@ from mlx_lm import load as mlx_load  # noqa: E402
 from mlx_rl import machine  # noqa: E402
 from mlx_rl.config import TrainConfig  # noqa: E402
 from mlx_rl.profiles import get_profile  # noqa: E402
-from mlx_rl.tasks.honesty import HonestyTask  # noqa: E402
+from mlx_rl.tasks.honesty import CALIB, HonestyTask  # noqa: E402
 from mlx_rl.train import _episode_record, _sample_episodes, collect_multiturn  # noqa: E402
 
 PARTS = ("called", "success", "found_target", "correct", "abstain", "denial", "no_reply",
@@ -51,8 +51,7 @@ def _item_se(rows) -> float:
     m = sum(means) / n
     var = sum((x - m) ** 2 for x in means) / (n - 1)
     return (var / n) ** 0.5
-CALIB = {"papers": "runs/arxiv-calib-20260816/calib-strict.jsonl",
-         "trivia": "runs/qa-calib-20260724/calib.jsonl"}
+
 
 
 def parse_cell(spec: str):
