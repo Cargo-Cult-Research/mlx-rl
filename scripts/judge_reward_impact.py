@@ -23,10 +23,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from mlx_rl.judge import _key  # noqa: E402
 from mlx_rl.judge_local import LocalClaimJudge, LocalJudge  # noqa: E402
-from mlx_rl.tasks.honesty import HonestyTask  # noqa: E402
+from mlx_rl.tasks.honesty import CALIB, HonestyTask  # noqa: E402
 
-CALIB = {"papers": "runs/arxiv-calib-20260816/calib-strict.jsonl",
-         "trivia": "runs/qa-calib-20260724/calib.jsonl"}
 PARTS = ("correct", "wrong", "abstain", "denial", "fabricated_provenance", "missing")
 
 

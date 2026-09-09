@@ -1,3 +1,4 @@
+# lifecycle: one-off (archive when the math_graded task variant exists, or the math row is dropped)
 """Per-problem difficulty calibration of the DeepScaleR math corpus.
 
 Motivation: a think-length probe showed the math task is bimodal (half the
@@ -12,9 +13,10 @@ This probe samples N problems from the math task's TRAIN pool (never the
 held-out eval rows), runs k sampled rollouts each at the paper's 8,192 training
 budget, and records per problem: exact think lengths, censoring, pass@k, and
 static pathology flags ([asy] figures, multi-blank fill-ins, prose figure
-refs). The output is a reusable label file: downstream, a `math_graded` task
-variant filters the train pool to the band where GRPO gets variance (thinks
-~1.5-6k, pass@k neither 0 nor k) and drops black-hole/figure/multi-blank rows.
+refs). The output is a label file for a `math_graded` task variant (filter
+the train pool to the band where GRPO gets variance: thinks ~1.5-6k, pass@k
+neither 0 nor k; drop black-hole/figure/multi-blank rows) that was never
+built -- nothing reads the file yet, which is why this lives in experimental/.
 
 Output: runs/<out>/config.json + calib.jsonl (one row per problem) +
 summary.json + a band x pass table on stdout.
