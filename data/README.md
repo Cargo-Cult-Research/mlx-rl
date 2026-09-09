@@ -52,7 +52,7 @@ Fields: `id`, `title`, `url`, `control`.
   Need, BERT, GPT-3, ResNet, Adam, LoRA, InstructGPT, Chinchilla, LLaMA, DPO.
   Here answering correctly is right and declining is over-caution. Gold answers
   (first-author surname, year with venue-year variants) are in `FAMOUS_GOLD` in
-  `scripts/papers_recall_probe.py`.
+  `experimental/papers_recall_probe.py`.
 
 Questions are generated from the titles by two fixed templates — *Who are the
 authors of the paper "{title}"?* and *In what year was the paper "{title}"
@@ -94,6 +94,6 @@ on 2026-08-16: 97 hand-listed well-known papers, the first 40 cs.LG
 submissions of every month 2023-01..2026-08, and 300 `fictional_*` titles —
 anchor-free word-mashes over real title templates (no authors/date; a
 search must not find them). Also `papers_probe_meta.json`: arXiv metadata
-for the 20 post-cutoff probe papers, fetched once for `scripts/ood_eval.py`. arXiv metadata is released under
+for the 20 post-cutoff probe papers, fetched once for `experimental/ood_eval.py`. arXiv metadata is released under
 [CC0 1.0](https://info.arxiv.org/help/api/tou.html); no abstracts or
 full text are included.
