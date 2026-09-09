@@ -39,7 +39,6 @@ def test_build_training_arrays_padding_and_mask():
 def test_gen_mask_keeps_injected_tokens_out_of_the_loss():
     """Segmented episode: prompt | gen | injected | gen. Injected tokens are
     in the sequence (context) but carry mask 0 (never actions)."""
-    import numpy as np
     from mlx_rl.rollout import Rollout, build_training_arrays
 
     r = Rollout(prompt_tokens=[1, 2, 3], completion_tokens=[4, 5, 6, 7, 8, 9],

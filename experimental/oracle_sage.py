@@ -33,7 +33,6 @@ import random
 import time
 from pathlib import Path
 
-import mlx.core as mx
 from mlx_lm import load as mlx_load
 
 from mlx_rl import machine

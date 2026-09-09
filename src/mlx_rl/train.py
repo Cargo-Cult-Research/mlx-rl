@@ -26,7 +26,8 @@ from mlx.utils import tree_flatten, tree_map, tree_unflatten
 
 from . import machine
 from .config import LoraConfig, TrainConfig
-from .engine import Completion, rollout_episodes, rollout_groups, sage_completion
+from .engine import (Completion, Episode, Segment, _tap, rollout_episodes,
+                     rollout_groups, sage_completion)
 from .grpo import (
     active_groups,
     group_advantages,
@@ -47,6 +48,7 @@ from .rollout import (
     tool_response_ids,
 )
 from .tasks import get_task
+from .tasks.base import Example
 from .tasks.qa_arxiv import parse_tool_call
 
 
@@ -144,6 +146,45 @@ def _grade_batch(task, pairs):
     return [task.reward(ex, v) for ex, v in pairs]
 
 
+def _two_stage(examples, cfg: TrainConfig, n_sampled: int, sample, grade, total_of):
+    """Two-stage rollouts (cfg.group_stage1 > 0), shared by the completion and
+    episode collectors: sample group_stage1 members, grade them, abandon the
+    groups that are already decided (_stage1_dead), then sample the rest for
+    the survivors only. Abandoned groups' rewards are kept on the stats so
+    reward_mean_all stays honest -- survivors-only means lie downward as the
+    policy improves, because stage1_skip=saturated removes exactly the
+    all-good groups (the 08-21 curve printed -3.000 on a step where 11/12
+    groups were skipped as saturated; true mean ~ +0.4).
+
+    sample(examples, n) -> (groups, prompts, stats); grade(pairs) grades
+    [(example, member), ...] into the caller's cache; total_of(member) reads
+    the base reward back. Returns (examples, groups, prompts, stats, skipped).
+    """
+    if not (0 < cfg.group_stage1 < n_sampled):
+        groups, prompts, stats = sample(examples, n_sampled)
+        return examples, groups, prompts, stats, 0
+    g1 = cfg.group_stage1
+    groups, prompts, stats = sample(examples, g1)
+    grade([(ex, m) for ex, group in zip(examples, groups) for m in group])
+    live = [i for i, group in enumerate(groups)
+            if not _stage1_dead([total_of(m) for m in group], cfg.stage1_skip)]
+    live_set = set(live)
+    skipped_rewards = [total_of(m) for i, group in enumerate(groups)
+                       if i not in live_set for m in group]
+    skipped = len(examples) - len(live)
+    examples = [examples[i] for i in live]
+    groups = [groups[i] for i in live]
+    prompts = [prompts[i] for i in live]
+    if examples:
+        mx.clear_cache()  # stage-1 KV is dead weight under stage 2
+        groups2, _, stats2 = sample(examples, n_sampled - g1)
+        for group, extra in zip(groups, groups2):
+            group.extend(extra)
+        stats = stats2  # tok/s of the larger phase; a metric, not a ledger
+    stats.stage1_skipped_rewards = skipped_rewards
+    return examples, groups, prompts, stats, skipped
+
+
 def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
     """Sample group_size completions per example and score them.
     Returns (rollouts, stats, groups_skipped).
@@ -166,47 +207,18 @@ def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
     n_sampled = cfg.group_size - sage_r - inject_r
     think_close = _think_close_marker(tokenizer, cfg, task)
     graded: dict[int, object] = {}  # id(Completion) -> RewardResult (no double-grade)
-    skipped = 0
-    if 0 < cfg.group_stage1 < n_sampled:
-        g1 = cfg.group_stage1
-        groups, prompts, stats = _sample_batched(
-            model, tokenizer, examples, cfg, g1, cfg.temperature, task
-        )
-        flat = [(ex, comp) for ex, group in zip(examples, groups)
-                for comp in group]
+
+    def _grade(pairs):  # judge/code grading is costly; cache it
         results = _grade_batch(task, [
             (ex, _visible_reply(_completion_text(tokenizer, comp),
-                                think_close)[0]) for ex, comp in flat])
-        for (_, comp), res in zip(flat, results):
-            graded[id(comp)] = res  # judge/code grading is costly; cache it
-        live = [i for i, (_, group) in enumerate(zip(examples, groups))
-                if not _stage1_dead([graded[id(c)].total for c in group],
-                                    cfg.stage1_skip)]
-        skipped = len(examples) - len(live)
-        # Keep the abandoned groups' stage-1 rewards: reward_mean over
-        # survivors only degrades as the policy improves (saturated = GOOD
-        # groups get skipped), which read as "training collapse" in the
-        # 08-21 curve run. The trainer folds these into reward_mean_all.
-        live_set = set(live)
-        skipped_rewards = [graded[id(c)].total for i, group in enumerate(groups)
-                           if i not in live_set for c in group]
-        examples = [examples[i] for i in live]
-        groups = [groups[i] for i in live]
-        prompts = [prompts[i] for i in live]
-        if examples and n_sampled > g1:
-            mx.clear_cache()  # stage-1 KV is dead weight under stage 2
-            groups2, _, stats2 = _sample_batched(
-                model, tokenizer, examples, cfg, n_sampled - g1,
-                cfg.temperature, task
-            )
-            for group, extra in zip(groups, groups2):
-                group.extend(extra)
-            stats = stats2  # tok/s of the larger phase; a metric, not a ledger
-        stats.stage1_skipped_rewards = skipped_rewards
-    else:
-        groups, prompts, stats = _sample_batched(
-            model, tokenizer, examples, cfg, n_sampled, cfg.temperature, task
-        )
+                                think_close)[0]) for ex, comp in pairs])
+        for (_, comp), res in zip(pairs, results):
+            graded[id(comp)] = res
+
+    examples, groups, prompts, stats, skipped = _two_stage(
+        examples, cfg, n_sampled,
+        lambda exs, n: _sample_batched(model, tokenizer, exs, cfg, n, cfg.temperature, task),
+        _grade, lambda comp: graded[id(comp)].total)
     if sage_r and examples:
         # the sampled rollouts' KV buffers are dead now; don't run the SAGE
         # beams on top of them (the two phases stack in memory otherwise)
@@ -248,11 +260,7 @@ def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
     pending = [(ex, comp) for ex, group in zip(examples, groups)
                for comp in group if id(comp) not in graded]
     if pending:
-        results = _grade_batch(task, [
-            (ex, _visible_reply(_completion_text(tokenizer, comp),
-                                think_close)[0]) for ex, comp in pending])
-        for (_, comp), res in zip(pending, results):
-            graded[id(comp)] = res
+        _grade(pending)
     rollouts: list[Rollout] = []
     for ex, prompt, group in zip(examples, prompts, groups):
         for gi, comp in enumerate(group):
@@ -353,7 +361,7 @@ def update_policy(model, optimizer, loss_and_grad, rollouts, advantages, cfg,
                   pad_id, denom_tokens: float | None = None,
                   subset_rng: np.random.Generator | None = None):
     """One (or more) clipped-PG epochs over the rollout batch, microbatched
-    with gradient accumulation. Returns (pg_mean, kl_mean) per token.
+    with gradient accumulation. Returns (pg_mean, kl_mean, pre-clip grad norm).
 
     denom_tokens: pass the PRE-pruning completion-token count when the batch
     was thinned by update_adv_frac, so dropped terms count as zero instead of
@@ -389,7 +397,6 @@ def update_policy(model, optimizer, loss_and_grad, rollouts, advantages, cfg,
             ref_chunks.append(score_logprobs(model, inp[lo:hi], tgt[lo:hi]))
     ref_lp = np.concatenate(ref_chunks, axis=0)
 
-    pg_total, kl_total = 0.0, 0.0
     for _ in range(cfg.epochs_per_batch):
         acc = None
         pg_total, kl_total = 0.0, 0.0
@@ -956,7 +963,6 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
         # Same scoreboard to the live dashboard (dash.), one amber note per
         # step next to the streamed episodes; rl-dash. shows the full group.
         try:
-            from .engine import _tap
             _tap().note(
                 f"step {step}: reward {rec['reward_mean']:+.2f}±{rec['reward_std']:.2f} "
                 f"active {int(active.sum())}/{len(rewards)} len {rec['mean_len']:.0f} "
@@ -1312,7 +1318,6 @@ def _episode_record(tokenizer, ep, think_close) -> dict:
 
 def _injected_episode(tokenizer, task, ex, cfg, chat_kwargs):
     """Build an Episode from the task's oracle segments (text, generated)."""
-    from .engine import Episode, Segment
     eos_id = next(iter(sorted(tokenizer.eos_token_ids)))
     ep = Episode()
     segs = task.injected_episode(ex)
@@ -1348,7 +1353,6 @@ def collect_episodes(model, tokenizer, examples, cfg: TrainConfig, task):
     think_close = _think_close_marker(tokenizer, cfg, task)
     chat_kwargs = {**getattr(task, "chat_template_kwargs", {}), **cfg.chat_kwargs}
     graded: dict[int, tuple[dict, object]] = {}  # id(Episode) -> (record, result)
-    skipped = 0
 
     def _grade(pairs):
         recs = [_episode_record(tokenizer, ep, think_close) for _, ep in pairs]
@@ -1356,38 +1360,10 @@ def collect_episodes(model, tokenizer, examples, cfg: TrainConfig, task):
         for (_, ep), rec, res in zip(pairs, recs, ress):
             graded[id(ep)] = (rec, res)
 
-    if 0 < cfg.group_stage1 < n_sampled:
-        # Two-stage: sample a few, abandon groups already decided (see
-        # collect_rollouts / _stage1_dead), then sample the rest for the live ones.
-        g1 = cfg.group_stage1
-        groups, prompts, stats = _sample_episodes(
-            model, tokenizer, examples, cfg, task, g1, cfg.temperature)
-        _grade([(ex, ep) for ex, group in zip(examples, groups) for ep in group])
-        live = [i for i, group in enumerate(groups)
-                if not _stage1_dead([graded[id(ep)][1].total for ep in group],
-                                    cfg.stage1_skip)]
-        skipped = len(examples) - len(live)
-        # Abandoned groups' stage-1 rewards, for reward_mean_all (see
-        # collect_rollouts): survivors-only means lie downward as saturated
-        # (all-good) groups vanish from the metric.
-        live_set = set(live)
-        skipped_rewards = [graded[id(ep)][1].total
-                           for i, group in enumerate(groups)
-                           if i not in live_set for ep in group]
-        examples = [examples[i] for i in live]
-        groups = [groups[i] for i in live]
-        prompts = [prompts[i] for i in live]
-        if examples:
-            mx.clear_cache()
-            groups2, _, stats2 = _sample_episodes(
-                model, tokenizer, examples, cfg, task, n_sampled - g1, cfg.temperature)
-            for group, extra in zip(groups, groups2):
-                group.extend(extra)
-            stats = stats2
-        stats.stage1_skipped_rewards = skipped_rewards
-    else:
-        groups, prompts, stats = _sample_episodes(
-            model, tokenizer, examples, cfg, task, n_sampled, cfg.temperature)
+    examples, groups, prompts, stats, skipped = _two_stage(
+        examples, cfg, n_sampled,
+        lambda exs, n: _sample_episodes(model, tokenizer, exs, cfg, task, n, cfg.temperature),
+        _grade, lambda ep: graded[id(ep)][1].total)
     if inject_r:
         for ex, group in zip(examples, groups):
             for _ in range(inject_r):
@@ -1489,27 +1465,9 @@ def evaluate_episodes(model, tokenizer, task, cfg: TrainConfig):
     # to cut the standard error below the effect size) killed the run on a
     # Metal OOM at the first eval -- after 9 steps and before the first
     # checkpoint. Same failure the matrix eval had; same fix.
-    chunk = max(1, cfg.rollout_batch_size or len(examples))
-    groups = []
-    lo = 0
-    while lo < len(examples):
-        n_try = min(chunk, len(examples) - lo)
-        while True:
-            try:
-                g, _, _ = _sample_episodes(model, tokenizer, examples[lo:lo + n_try],
-                                           cfg, task, 1, 0.0)
-                break
-            except RuntimeError as e:
-                if "Insufficient Memory" not in str(e) and "out of memory" not in str(e).lower():
-                    raise
-                mx.clear_cache()
-                if n_try == 1:
-                    raise
-                n_try = max(1, n_try // 2)
-                print(f"   [eval oom] retrying at {n_try} prompts", flush=True)
-        groups.extend(g)
-        lo += n_try
-        mx.clear_cache()
+    groups, _, _ = _chunked_backoff(
+        lambda exs: _sample_episodes(model, tokenizer, exs, cfg, task, 1, 0.0),
+        examples, max(1, cfg.rollout_batch_size or len(examples)))
     think_close = _think_close_marker(tokenizer, cfg, task)
     records = [_episode_record(tokenizer, g[0], think_close) for g in groups]
     results = task.episode_reward(examples, records)
@@ -1531,12 +1489,11 @@ def evaluate_episodes(model, tokenizer, task, cfg: TrainConfig):
         "eval_reward": float(np.mean([r.total for r in a_results])),
         "eval_mean_len": float(np.mean([g[0].gen_count for g in groups])),
         "eval_rounds": float(np.mean([g[0].rounds for g in groups])),
-        "eval_len_capped": float(np.mean(is_capped)),
         "eval_n_graded": len(alive),
     }
     for key in sorted({k for r in a_results for k in r.parts}):
         out[f"eval_{key}"] = float(np.mean([r.parts.get(key, 0.0) for r in a_results]))
-    out["eval_len_capped"] = float(np.mean(is_capped))  # over ALL episodes
+    out["eval_len_capped"] = float(np.mean(is_capped))  # over ALL episodes, after the parts
     # Per-regime slices: the falsification test lives here (post vs future
     # on the same papers must differ).
     for key in ("regime", "band"):
@@ -1617,16 +1574,17 @@ def collect_multiturn(model, tokenizer, examples, cfg: TrainConfig, task):
     GRPO baseline. Row order is [ex0 turn0 ×G, ex1 turn0 ×G, ..., ex0
     turn1 ×G, ...] so `reshape(-1, group_size)` groups correctly.
     Not stage-1-skippable (rows share no prompt after turn 0)."""
-    from .engine import Episode
     G = cfg.group_size
     # Episode path for any task that grades episodes (tool tasks, even when
     # served with tools=[]); string path only for plain reward() tasks.
     tools = hasattr(task, "episode_reward") or getattr(task, "tools", None)
     think_close = _think_close_marker(tokenizer, cfg, task)
-    chat_kwargs = {**getattr(task, "chat_template_kwargs", {}), **cfg.chat_kwargs}
     turns = int(getattr(task, "turns", 1))
-    # per-row state: current Example (messages = full history so far)
-    rows = [replace_example(ex) for ex in examples for _ in range(G)]
+    # per-row state: current Example (messages = full history so far); each
+    # row owns its copy because followup() extends the history in place
+    rows = [Example(messages=list(ex.messages), meta=dict(ex.meta),
+                    chat_kwargs=dict(ex.chat_kwargs))
+            for ex in examples for _ in range(G)]
     rollouts: list[Rollout] = []
     stats = None
     for t in range(turns):
@@ -1646,7 +1604,6 @@ def collect_multiturn(model, tokenizer, examples, cfg: TrainConfig, task):
             for g in groups:
                 comp = g[0]
                 ep = Episode()
-                from .engine import Segment
                 ep.segments.append(Segment(tokens=list(comp.tokens), logprobs=list(comp.logprobs),
                                            generated=True, finish_reason=comp.finish_reason))
                 ep.finish_reason = comp.finish_reason
@@ -1674,12 +1631,6 @@ def collect_multiturn(model, tokenizer, examples, cfg: TrainConfig, task):
                 new_rows.append(task.followup(ex, t + 1, history))
             rows = new_rows
     return rollouts, stats, 0
-
-
-def replace_example(ex):
-    from .tasks.base import Example
-    return Example(messages=list(ex.messages), meta=dict(ex.meta),
-                   chat_kwargs=dict(ex.chat_kwargs))
 
 
 def evaluate_multiturn(model, tokenizer, task, cfg: TrainConfig):

@@ -18,7 +18,6 @@ sys.path.insert(0, str(_REPO / "src"))
 sys.path.insert(0, str(_REPO / "scripts"))
 
 import mlx.core as mx
-import mlx.nn as nn
 
 import mlx_lm.models.qwen3_5 as q35
 from mlx_lm.models.qwen3_5 import DecoderLayer, TextModelArgs

@@ -262,8 +262,6 @@ def test_off_topic_search_hit_is_not_frozen_in_cache(tmp_path):
     # The defect this gate exists for: a bad first answer used to be cached
     # forever (only errors and empty pages had a TTL), so one throttled day
     # poisoned every later run that re-issued the same query.
-    import json
-    import time
 
     from mlx_rl.webtools import WebTools
     w = WebTools(cache_dir=tmp_path, error_ttl_s=0.0)

@@ -1,7 +1,6 @@
 """Efficient-RL levers:
 two-stage group sampling (--group-stage1), advantage-based update pruning
 (--update-adv-frac), and the stage-1 abandon rule."""
-import random
 
 import numpy as np
 import pytest

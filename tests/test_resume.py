@@ -6,11 +6,9 @@ one. Marked integration (needs the tiny model cached); the rest are pure.
 """
 
 import json
-import pickle
 import random
 import subprocess
 import sys
-from pathlib import Path
 
 import mlx.core as mx
 import mlx.nn as nn

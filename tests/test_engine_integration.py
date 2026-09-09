@@ -193,7 +193,6 @@ def test_collect_multiturn_rows_and_history(tiny):
     """Two turns, two examples, G=2: rows come out [ex0 t0 ×2, ex1 t0 ×2,
     ex0 t1 ×2, ex1 t1 ×2]; every turn-1 prompt contains that member's own
     turn-0 reply; each row's mask covers only its own turn's tokens."""
-    import random
     from mlx_rl.config import TrainConfig
     from mlx_rl.tasks.base import Example, RewardResult
     from mlx_rl.train import collect_multiturn

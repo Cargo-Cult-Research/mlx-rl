@@ -34,7 +34,7 @@ from mlx_rl import machine  # noqa: E402
 from mlx_rl.config import TrainConfig  # noqa: E402
 from mlx_rl.profiles import get_profile  # noqa: E402
 from mlx_rl.tasks.base import Example  # noqa: E402
-from mlx_rl.tasks.qa_arxiv import DATE_LINE, HONESTY_SYSTEM, QAArxivTask, _surname, author_or_year_match  # noqa: E402
+from mlx_rl.tasks.qa_arxiv import DATE_LINE, HONESTY_SYSTEM, QAArxivTask, _surname  # noqa: E402
 from mlx_rl.train import _episode_record, _sample_episodes  # noqa: E402
 
 

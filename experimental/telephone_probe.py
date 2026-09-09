@@ -29,7 +29,7 @@ import numpy as np
 from mlx_lm import load
 
 from mlx_rl.profiles import PROFILES
-from mlx_rl.tasks.telephone import LABELS, QUALITIES, ROOTS, TelephoneTask, _softmax
+from mlx_rl.tasks.telephone import LABELS, TelephoneTask, _softmax
 
 
 def main() -> None:

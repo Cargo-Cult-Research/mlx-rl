@@ -39,7 +39,7 @@ import mlx.core as mx
 import mlx.nn as nn
 
 from mlx_lm.models import gated_delta
-from mlx_lm.models.gated_delta import gated_delta_ops, gated_delta_update
+from mlx_lm.models.gated_delta import gated_delta_ops
 from mlx_lm.models.qwen3_5 import DecoderLayer, TextModelArgs
 
 CONFIG = (Path(os.environ.get("MLX_RL_MODELS_DIR",
