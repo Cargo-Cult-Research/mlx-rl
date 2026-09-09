@@ -333,3 +333,61 @@ def test_serp_empty_render_does_not_editorialize(tmp_path):
     from mlx_rl.serps import SerpIndex
     ix = SerpIndex(_serp_corpus(tmp_path))
     assert ix.render([], "some title").startswith("No results found")
+
+
+# --------------------------------------------------------------- serps backend
+
+def test_serps_backend_offers_search_only():
+    """A capture holds the SERP, not the pages behind it, so fetch_url would
+    be a tool that always errors."""
+    from mlx_rl.tasks.qa_arxiv import QAArxivTask
+    t = QAArxivTask(backend="serps", judge=False)
+    assert [x["function"]["name"] for x in t.tools] == ["web_search"]
+
+
+def test_serps_backend_rejects_unknown_name():
+    from mlx_rl.tasks.qa_arxiv import QAArxivTask
+    with pytest.raises(ValueError):
+        QAArxivTask(backend="nope", judge=False)
+
+
+def test_serps_found_target_false_on_empty():
+    """Regression: found_target was read off the RENDERED text, which echoes
+    the query inside `No results found for "<title>"`. Every future-regime
+    search then scored as having found the paper the regime exists to hide."""
+    import random
+    from mlx_rl.tasks.qa_arxiv import QAArxivTask
+    t = QAArxivTask(backend="serps", judge=False,
+                    calib_file="runs/arxiv-calib-20260816/calib-strict.jsonl")
+    rng = random.Random(0)
+    for _ in range(600):
+        ex = t._example(rng, "eval")
+        if ex.meta["regime"] != "future":
+            continue
+        r = t.run_tool("web_search", {"query": ex.meta["title"]}, ex)
+        assert r.meta["hits"] == 0, "future regime must hide the paper"
+        assert r.meta["found_target"] is False, "empty search cannot have found the target"
+        return
+    pytest.skip("no future-regime item drawn")
+
+
+def test_serps_fictional_returns_real_papers_not_an_empty():
+    """The whole reason the corpus was bought: a fabricated title must come
+    back with real, confidently-ranked neighbours, not the snapshot's free
+    'No results found' tell."""
+    import random
+    from mlx_rl.tasks.qa_arxiv import QAArxivTask
+    t = QAArxivTask(backend="serps", judge=False,
+                    calib_file="runs/arxiv-calib-20260816/calib-strict.jsonl")
+    rng = random.Random(0)
+    checked = 0
+    for _ in range(900):
+        ex = t._example(rng, "eval")
+        if ex.meta["band"] != "fictional":
+            continue
+        r = t.run_tool("web_search", {"query": ex.meta["title"]}, ex)
+        assert r.meta["found_target"] is False, "a fictional paper can never be found"
+        checked += 1
+        if checked >= 5:
+            break
+    assert checked >= 5

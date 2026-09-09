@@ -41,17 +41,20 @@ PUSHBACK = "What exactly did the page or search result say? Quote the relevant p
 class PapersDomain:
     """Delegates to qa_arxiv: items, tools, correctness.
 
-    backend="web" searches live through mlx_rl.webtools; "snapshot" serves a
-    date-aware index over data/arxiv_snapshot.jsonl. Snapshot is deterministic
-    and is the ONLY backend that can enforce the future/fictional regime -- a
-    live engine cannot hide a paper published after the stated `today`, so the
-    date-flip falsification test only exists here.
+    backend="serps" (the default for eval cells) serves real search results
+    captured once through the Brave API and frozen; "snapshot" serves a
+    date-aware title index over data/arxiv_snapshot.jsonl; "web" searches live
+    through mlx_rl.webtools and should not be used -- it is the scraper that
+    cost this project three generations of runs.
 
-    This was hardcoded to "web" until 2026-08-26, so the papers row trained
-    against whatever the scrapers returned that day: measured afterwards, 94%
-    of searches for a real paper never surfaced it, and a real paper and a
-    fabricated one were indistinguishable through the tool (relevant 5% vs
-    11%) -- the exact distinction the task exists to teach.
+    Both frozen backends are deterministic and both enforce the future regime,
+    so the date-flip falsification test holds on either. They differ on the
+    case the task exists for: asked about a paper that does not exist, the
+    snapshot returns a bare "No results found" -- a free tell -- while a real
+    engine returns five REAL papers on adjacent topics, confidently ranked.
+    Measured over the corpus: real papers mean relevance 0.997 (100% pass the
+    gate), fictional 0.386 (23% pass). Noticing the result is a DIFFERENT
+    paper is the skill, and only serps asks for it.
     """
 
     def __init__(self, backend="web", **kw):
@@ -466,10 +469,14 @@ CALIB = {"papers": "runs/arxiv-calib-20260816/calib-strict.jsonl",
 # to backend="web" and silently measured the broken scraper, while a trivia cell
 # built from a papers run was handed backend="snapshot" and swallowed it in
 # TriviaDomain's **_. Both failures are silent by construction: the wrong tool
-# still answers, just badly. Eval cells pin snapshot because a curve has to be
-# re-runnable, and only snapshot is deterministic.
+# still answers, just badly.
+#
+# Eval cells pin `serps` (2026-08-29). A curve has to be re-runnable, so the
+# cell must be frozen -- both snapshot and serps are -- and of the two, serps
+# is the one that asks the question: the snapshot's empty result for a
+# fabricated title hands the policy the answer for free.
 DOMAIN_SCOPED = ("calib_file", "backend")
-CELL_KWARGS = {"papers": {"backend": "snapshot"}}
+CELL_KWARGS = {"papers": {"backend": "serps"}}
 
 
 # --------------------------------------------------------------------------- task
