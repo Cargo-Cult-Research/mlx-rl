@@ -36,6 +36,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from .jsonl import read_jsonl
+
 
 class JudgeError(RuntimeError):
     pass
@@ -134,13 +136,8 @@ class Judge:
         self._cache: dict[str, dict] = {}
         self.calls = 0
         self.cache_hits = 0
-        if self.cache_path.exists():
-            for line in self.cache_path.read_text().splitlines():
-                try:
-                    r = json.loads(line)
-                except json.JSONDecodeError:  # a crash mid-append: skip, re-judge
-                    continue
-                self._cache[r["key"]] = {"kind": r["kind"], "value": r["value"]}
+        for r in read_jsonl(self.cache_path, lenient=True):  # torn last line: re-judge
+            self._cache[r["key"]] = {"kind": r["kind"], "value": r["value"]}
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
 
     @property

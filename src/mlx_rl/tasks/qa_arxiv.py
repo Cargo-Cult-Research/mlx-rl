@@ -58,12 +58,11 @@ mechanically against the paper's metadata (first-author surname, or year).
 """
 from __future__ import annotations
 
-import json
 import random
 import re
 from datetime import date, timedelta
-from pathlib import Path
 
+from ..jsonl import read_jsonl
 from .base import Example, RewardResult, ToolResult, register
 from .qa_abstain import HONESTY_SYSTEM, normalize
 
@@ -282,7 +281,7 @@ class QAArxivTask:
         self.post_window_days = post_window_days
         self.system_text = HONESTY_SYSTEM if system == "honesty" else system
         self.tool_first = tool_first
-        rows = [json.loads(l) for l in Path(snapshot).read_text().splitlines() if l.strip()]
+        rows = read_jsonl(snapshot)
         self.index = ArxivIndex(rows, max_hits=max_hits, max_chars=tool_result_chars)
         if backend == "serps":
             # Captured real SERPs, frozen (data/serps/MANIFEST.md). The dates
@@ -301,10 +300,7 @@ class QAArxivTask:
         # flag stands in for known — an assumption, so say so loudly.
         self._rates: dict[str, float] = {}
         if calib_file:
-            for line in Path(calib_file).read_text().splitlines():
-                if line.strip():
-                    r = json.loads(line)
-                    self._rates[r["id"]] = float(r["pass_rate"])
+            self._rates = {r["id"]: float(r["pass_rate"]) for r in read_jsonl(calib_file)}
         else:
             print("[qa_arxiv] no calib_file: 'known' = famous flag (assumed, "
                   "not measured)", flush=True)

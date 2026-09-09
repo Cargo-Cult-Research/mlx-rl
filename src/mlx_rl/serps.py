@@ -22,10 +22,10 @@ reliable date and are passed through -- documented rather than guessed at.
 from __future__ import annotations
 
 import html
-import json
 import re
 from pathlib import Path
 
+from .jsonl import read_jsonl
 from .webtools import _content_words, relevance, render_results
 
 _ARXIV_ID = re.compile(r"arxiv\.org/(?:abs|pdf)/(\d{2})(\d{2})\.\d{4,5}")
@@ -61,14 +61,12 @@ class SerpIndex:
                  max_hits: int = 5, max_chars: int = 2500,
                  body_chars: int = 300, dates: dict[str, str] | None = None):
         self.rows = []
-        for line in Path(path).open():
-            if line.strip():
-                r = json.loads(line)
-                if r.get("ok") and r.get("results"):
-                    for h in r["results"]:
-                        h["body"] = _clean(h.get("body", ""))
-                        h["title"] = _clean(h.get("title", ""))
-                    self.rows.append(r)
+        for r in read_jsonl(path):
+            if r.get("ok") and r.get("results"):
+                for h in r["results"]:
+                    h["body"] = _clean(h.get("body", ""))
+                    h["title"] = _clean(h.get("title", ""))
+                self.rows.append(r)
         self._norm = [" ".join(re.findall(r"[a-z0-9]+", r["q"].lower())) for r in self.rows]
         self._words = [_content_words(r["q"]) for r in self.rows]
         self.min_cov, self.max_hits, self.max_chars = min_cov, max_hits, max_chars

@@ -28,6 +28,7 @@ from pathlib import Path
 
 from ..toolfail import FailingTools
 from ..webtools import FETCH_URL_TOOL, WEB_SEARCH_TOOL, WebTools
+from ..jsonl import read_jsonl
 from .base import Example, RewardResult, ToolResult, register
 from .qa_abstain import HONESTY_SYSTEM, load_triviaqa
 from .qa_abstain import QAAbstainTask as _QA
@@ -83,13 +84,7 @@ class TriviaDomain:
                  seed=12345, webcache_dir="runs/webcache", regime_mix=None, **_):
         self.tools = [WEB_SEARCH_TOOL, FETCH_URL_TOOL]
         self.web = WebTools(cache_dir=webcache_dir)
-        rates = {}
-        p = Path(calib_file)
-        if p.exists():
-            for line in p.read_text().splitlines():
-                if line.strip():
-                    r = json.loads(line)
-                    rates[r["qid"]] = float(r["pass_rate"])
+        rates = {r["qid"]: float(r["pass_rate"]) for r in read_jsonl(calib_file, lenient=True)}
         rows = [r for r in load_triviaqa() if r["qid"] in rates]  # only calibrated items
         rng = random.Random(seed)
         rng.shuffle(rows)
@@ -239,7 +234,7 @@ class PackagesDomain:
                  offer_lookup: bool = False, **_):
         self.tools = ([PYPI_TOOL, WEB_SEARCH_TOOL] if offer_lookup else [WEB_SEARCH_TOOL])
         self.web = WebTools(cache_dir=webcache_dir)
-        rows = [json.loads(l) for l in Path(prompts).read_text().splitlines() if l.strip()]
+        rows = read_jsonl(prompts)
         rng = random.Random(seed)
         rng.shuffle(rows)
         n_ev = int(len(rows) * eval_frac)
@@ -247,11 +242,8 @@ class PackagesDomain:
         self.master = {_norm_pkg(x) for x in Path(master).read_text().split()}
         self._pypi_cache: dict[str, dict] = {}
         self._cache_file = Path(webcache_dir) / "pypi.jsonl"
-        if self._cache_file.exists():
-            for l in self._cache_file.read_text().splitlines():
-                if l.strip():
-                    d = json.loads(l)
-                    self._pypi_cache[d["name"]] = d
+        for d in read_jsonl(self._cache_file, lenient=True):
+            self._pypi_cache[d["name"]] = d
         print(f"[packages domain] {len(rows)} prompts, {len(self.master)} master names", flush=True)
 
     def sample(self, rng, split):

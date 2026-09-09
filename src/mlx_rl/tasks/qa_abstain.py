@@ -43,6 +43,7 @@ import random
 import re
 import string
 
+from ..jsonl import read_jsonl
 from .base import Example, RewardResult, register
 
 _N_EVAL = 500
@@ -223,10 +224,7 @@ class QAAbstainTask:
         self._bands: dict[str, list[dict]] | None = None
         self._rates: dict[str, float] = {}
         if calib_file:
-            with open(calib_file) as f:
-                for line in f:
-                    r = json.loads(line)
-                    self._rates[r["qid"]] = float(r["pass_rate"])
+            self._rates = {r["qid"]: float(r["pass_rate"]) for r in read_jsonl(calib_file)}
             self._bands = {"known": [], "uncertain": [], "unknown": [], "unprobed": []}
             for row in self._train:
                 key = (_band(self._rates[row["qid"]])
