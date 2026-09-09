@@ -18,7 +18,11 @@ every reward hack in this project was caught; this puts them on the phone.
 
 The token stream itself (each episode as it decodes) is on the housekeeping
 dashboard (dash.strawrunway.com) via mlx_rl.dashtap; this page is the
-outcome view next to it. Nothing here writes anything.
+outcome view next to it. Three more views hang off it: /labbook (training
+curves per experiment manifest in runs/experiments/, plus everything found
+on disk), /matrix (the transfer matrix), and /review (human labels on
+sampled replies -- the ONE thing here that writes, to
+runs/human-review/labels.jsonl; the mirror timer file is the other).
 
 Run:  python3 scripts/rl_dash.py [--port 8105] [--public-port 8106] [--runs runs] [--run runs/<dir>]
 """
@@ -120,9 +124,8 @@ def _state(run: Path) -> dict:
         "config": {k: cfg.get(k) for k in ("task", "steps", "batch_prompts", "group_size",
                                            "max_new_tokens", "max_tool_rounds", "lr",
                                            "kl_coef", "inject_r", "micro_batch")},
-        "task_kwargs": cfg.get("task_kwargs"),
         "metrics_mtime": (run / "metrics.jsonl").stat().st_mtime if (run / "metrics.jsonl").exists() else None,
-        "steps": [{k: m.get(k) for k in _KEYS if k in m} for m in steps[-N_STEPS:]],
+        "steps": [{k: m[k] for k in _KEYS if k in m} for m in steps[-N_STEPS:]],
         "evals": [{k: v for k, v in m.items() if k == "step" or k.startswith("eval_")}
                   for m in evals[-8:]],
         "samples": list(reversed(samples)),
@@ -172,7 +175,7 @@ h2{font-size:13px;color:#8b949e;margin:14px 0 4px;text-transform:uppercase;lette
 <div id="samples"></div>
 </main>
 <script>
-const KEYS=["step","reward_mean","reward_std","active_groups","mean_len","frac_called","frac_correct","frac_grounded","frac_abstain","frac_denial","frac_no_reply","frac_tool_cap","frac_len_capped","kl","gen_s","update_s","gen_tok_s","peak_gb","web_search_live","web_search_hit","web_fetch_live","web_fetch_hit","web_errors","web_search_real","web_search_fallback_error","web_search_fallback_empty","frac_fallback"];
+const KEYS=__KEYS__;
 const SHORT={reward_mean:"reward",reward_std:"±",active_groups:"active",mean_len:"len",frac_called:"called",frac_correct:"correct",frac_grounded:"grounded",frac_abstain:"abstain",frac_denial:"denial",frac_no_reply:"noreply",frac_tool_cap:"toolcap",frac_len_capped:"lencap",gen_s:"gen s",update_s:"upd s",gen_tok_s:"tok/s",peak_gb:"peak GB",web_search_live:"srch live",web_search_hit:"srch hit",web_fetch_live:"fetch live",web_fetch_hit:"fetch hit",web_errors:"web err",web_search_real:"real",web_search_fallback_error:"fb err",web_search_fallback_empty:"fb empty",frac_fallback:"ep fallback"};
 function esc(s){return (s??"").toString().replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
 function fmt(k,v){if(v==null)return"";if(typeof v!=="number")return esc(v);if(k==="step"||k==="active_groups"||k.startsWith("web_"))return v;if(k==="mean_len"||k==="gen_tok_s"||k==="gen_s"||k==="update_s")return v.toFixed(0);return v.toFixed(2)}
@@ -595,14 +598,10 @@ OFF_PAGE = (b"<!doctype html><html><head><meta charset='utf-8'>"
 EXPERIMENTS_DIR = ROOT / "runs" / "experiments"
 # metrics.jsonl names, mapped to the short names the page draws. Checked
 # against a real file -- guessing these is how the first version drew nothing.
-CURVE_KEYS = {"reward_mean": "reward", "reward_std": "reward_std",
-              "frac_correct": "correct", "frac_called": "called",
-              "frac_abstain": "abstain", "mean_len": "mean_len",
-              "active_groups": "active_groups",
-              "groups_skipped_stage1": "skipped", "kl": "kl",
-              "gen_tok_s": "gen_tok_s", "peak_gb": "peak_gb",
-              "n_seqs": "n_seqs", "grad_norm": "grad_norm",
-              "adv_std": "adv_std"}
+# Only what the labbook page draws (S("...") in its script); "reward" also
+# marks a row as a training step.
+CURVE_KEYS = {"reward_mean": "reward", "kl": "kl", "n_seqs": "n_seqs",
+              "grad_norm": "grad_norm"}
 
 
 def _leg_curve(run_dir: Path) -> dict:
@@ -629,31 +628,32 @@ def _leg_curve(run_dir: Path) -> dict:
         if any(k.startswith("eval_") for k in d):
             evals.append({"step": d.get("step"),
                           **{k: v for k, v in d.items() if k.startswith("eval_")}})
-    done = (run_dir / "promoted" / "adapters.safetensors").exists()
     last = m.stat().st_mtime
-    # "Stalled" has to be judged against THIS run's pace, not a constant: a
-    # fixed 15-minute window called a healthy run stalled as soon as steps got
-    # slower (fixing the sign-biased pruning took steps from 9 to 17 minutes,
-    # because 3.7x more sequences reach the update). Allow three median step
-    # intervals, floored so a fast run is not marked stalled on one slow step.
-    ts = [r["ts"] for r in raw_ts if r.get("ts")]
+    status, median_gap = _run_status(run_dir, last, [r["ts"] for r in raw_ts if r.get("ts")])
+    return {"steps": steps, "evals": evals, "status": status, "updated": last,
+            "median_step_s": round(median_gap)}
+
+
+def _run_status(run_dir: Path, last: float, ts: list[float]) -> tuple[str, float]:
+    """done | running | stalled | ended, plus the median step interval.
+
+    "Stalled" has to be judged against THIS run's pace, not a constant: a
+    fixed 15-minute window called a healthy run stalled as soon as steps got
+    slower (fixing the sign-biased pruning took steps from 9 to 17 minutes,
+    because 3.7x more sequences reach the update). Allow three median step
+    intervals, floored so a fast run is not marked stalled on one slow step.
+    And "stalled" is a call to action, so it has to expire: a run that
+    stopped a week ago is history, not a problem; calling seven of those
+    stalled buries the one that actually died an hour ago. One rule for the
+    index table and the leg cards -- they used to disagree on the same page."""
     gaps = sorted(b - a for a, b in zip(ts, ts[1:]) if b > a)
     median_gap = gaps[len(gaps) // 2] if gaps else 0.0
-    window = max(900.0, 3.0 * median_gap)
     age = time.time() - last
-    # "Stalled" is a call to action, so it has to expire. A run that stopped
-    # a week ago is history, not a problem; calling seven of those stalled
-    # buries the one that actually died an hour ago.
-    if done:
-        status = "done"
-    elif age < window:
-        status = "running"
-    elif age < 86400:
-        status = "stalled"
-    else:
-        status = "ended"
-    return {"steps": steps, "evals": evals, "status": status, "updated": last,
-            "median_step_s": round(median_gap), "stall_after_s": round(window)}
+    if (run_dir / "promoted" / "adapters.safetensors").exists():
+        return "done", median_gap
+    if age < max(900.0, 3.0 * median_gap):
+        return "running", median_gap
+    return ("stalled" if age < 86400 else "ended"), median_gap
 
 
 def _merge_heldout(leg: dict, extra_dir: Path) -> int:
@@ -743,19 +743,13 @@ def _discover_runs() -> list[dict]:
         cell = None
         if kw.get("domain"):
             cell = f"{kw['domain']}:{kw.get('situation', 'single')}"
-        last_step = None
-        try:                       # the tail line is enough: how far it got
-            for line in reversed(m.read_text().splitlines()):
-                if line.strip():
-                    last_step = json.loads(line).get("step")
-                    break
-        except (json.JSONDecodeError, OSError):
-            pass
+        last_step, stamps = None, []
+        for row in _tail_jsonl(m, 12):   # enough to pace the stall window
+            if row.get("ts"):
+                stamps.append(row["ts"])
+            last_step = row.get("step", last_step)
         ts = m.stat().st_mtime
-        age = time.time() - ts
-        status = ("done" if (d / "promoted" / "adapters.safetensors").exists()
-                  else "running" if age < 1800 else
-                  "stalled" if age < 86400 else "ended")
+        status, _ = _run_status(d, ts, stamps)
         out.append({"name": d.name, "rel": rel, "ts": ts, "cell": cell,
                     "steps": cfg.get("steps"), "last_step": last_step,
                     "status": status})
@@ -790,7 +784,7 @@ def _auto_spec(manifests: list[Path]) -> dict:
         "A run worth reasoning about gets a manifest in runs/experiments/, "
         "which is where the title, the question and the caveats live.",
         f"Showing runs touched in the last {AUTO_WINDOW_DAYS} days: "
-        f"{len(shown)} of {len(runs)} on disk.",
+        f"{len(recent)} of {len(runs)} on disk.",
     ]
     if dropped_cap:
         notes.append(f"{dropped_cap} more are inside the window but past the "
@@ -926,7 +920,8 @@ def make_handler(runs_dir: Path, pinned: Path | None, public: bool):
                     return self._send(200, OFF_PAGE, "text/html; charset=utf-8")
                 return self._send(403, b'{"error":"mirror is off"}', "application/json")
             if p == "/":
-                return self._send(200, PAGE.encode(), "text/html; charset=utf-8")
+                return self._send(200, PAGE.replace("__KEYS__", json.dumps(_KEYS)).encode(),
+                                  "text/html; charset=utf-8")
             if p in ("/matrix", "/matrix/"):
                 return self._send(200, MATRIX_PAGE.encode(), "text/html; charset=utf-8")
             if p == "/api/matrix":
