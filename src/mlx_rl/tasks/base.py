@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import random
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -59,4 +60,15 @@ def register(cls):
 def get_task(name: str, **kwargs) -> Task:
     if name not in _REGISTRY:
         raise KeyError(f"Unknown task {name!r}; available: {sorted(_REGISTRY)}")
-    return _REGISTRY[name](**kwargs)
+    cls = _REGISTRY[name]
+    # Several constructors swallow unknown kwargs (**_), so a typo in
+    # --task-kwargs (`subset` for `subsets`) silently trains a different
+    # distribution. Say so loudly; the honesty task forwards to a domain and
+    # is exempt because its extras are legitimately domain-scoped.
+    params = inspect.signature(cls.__init__).parameters
+    unknown = sorted(set(kwargs) - set(params))
+    if unknown and name != "honesty":
+        print(f"[tasks] WARNING: {name} ignores task_kwargs {unknown} "
+              f"(accepted: {sorted(k for k in params if k not in ('self',) and params[k].kind is not inspect.Parameter.VAR_KEYWORD)})",
+              flush=True)
+    return cls(**kwargs)
