@@ -217,6 +217,12 @@ def _cfg(**kw):
     return SimpleNamespace(**base)
 
 
+@pytest.fixture(autouse=True)
+def _preflight_on(monkeypatch):
+    # MLX_RL_SKIP_PREFLIGHT in the environment would turn these into no-ops
+    monkeypatch.delenv("MLX_RL_SKIP_PREFLIGHT", raising=False)
+
+
 def test_preflight_rejects_impossible_token_budget(capsys):
     from mlx_rl.preflight import preflight
     with pytest.raises(SystemExit) as e:
