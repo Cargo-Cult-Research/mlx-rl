@@ -15,7 +15,7 @@ import sys
 import random
 import time
 from collections import deque
-from dataclasses import asdict, replace
+from dataclasses import asdict, fields, replace
 from pathlib import Path
 
 import mlx.core as mx
@@ -1069,11 +1069,13 @@ def main() -> None:
     p.add_argument("--sage-m", type=int, default=d.sage_m, help="SAGE beam/exploration width")
     p.add_argument("--sage-tr", type=float, default=d.sage_tr,
                    help="tolerance ratio TR=h/(2m): </think> accepted in top-h by Φ")
-    p.add_argument("--sage-max-steps", type=int, default=d.sage_max_reasoning_steps,
+    p.add_argument("--sage-max-steps", dest="sage_max_reasoning_steps", type=int,
+                   default=d.sage_max_reasoning_steps,
                    help="reasoning-step budget T_max")
     p.add_argument("--sage-max-step-tokens", type=int, default=d.sage_max_step_tokens,
                    help="per-reasoning-step token safety cap")
-    p.add_argument("--sage-think-temp", type=float, default=d.sage_think_temperature,
+    p.add_argument("--sage-think-temp", dest="sage_think_temperature", type=float,
+                   default=d.sage_think_temperature,
                    help="step-sampling temperature (paper: 1.0)")
     p.add_argument("--sage-answer-reserve", type=int, default=d.sage_answer_reserve,
                    help="tokens reserved for the answer phase (reasoning capped "
@@ -1100,7 +1102,8 @@ def main() -> None:
     p.add_argument("--lora-layers", type=int, default=d.lora.num_layers)
     p.add_argument("--no-share-prompt", dest="share_prompt", action="store_false")
     p.add_argument("--no-manage-machine", dest="manage_machine", action="store_false")
-    p.add_argument("--lease-wait", type=float, default=d.lease_wait_s, help="seconds to wait for the machine lease")
+    p.add_argument("--lease-wait", dest="lease_wait_s", type=float, default=d.lease_wait_s,
+                   help="seconds to wait for the machine lease")
     p.add_argument("--lease-block", default=d.lease_block,
                    choices=["exclusive", "experiments"],
                    help="memlease block: experiments coexists with the :8084 "
@@ -1113,12 +1116,14 @@ def main() -> None:
                    help="correctness-gated total-length penalty λ (0 = off)")
     p.add_argument("--length-budget", type=int, default=d.length_budget,
                    help="token budget for length normalisation (0 = max_new_tokens)")
-    p.add_argument("--activation-headroom", type=float, default=d.activation_headroom_gb,
+    p.add_argument("--activation-headroom", dest="activation_headroom_gb", type=float,
+                   default=d.activation_headroom_gb,
                    help="GB added to the memory-guard estimate (default 4)")
     p.add_argument("--swap-rate-mb-s", type=float, default=d.swap_rate_mb_s,
                    help="abort on sustained paging at/above this rate; "
                         "0 disables the rate detector")
-    p.add_argument("--swap-guard-margin", type=float, default=d.swap_guard_margin_gb,
+    p.add_argument("--swap-guard-margin", dest="swap_guard_margin_gb", type=float,
+                   default=d.swap_guard_margin_gb,
                    help="hard-abort if swap grows this many GB above baseline (0 = off)")
     p.add_argument("--grad-checkpoint", action="store_true",
                    help="recompute layer forwards in backward instead of "
@@ -1154,65 +1159,18 @@ def main() -> None:
             base_kwargs.update(prof.think_chat_kwargs)  # SAGE trains the thinking policy
     chat_kwargs = {**base_kwargs, **json.loads(a.chat_kwargs)}
 
+    # Every flag whose dest names a TrainConfig field flows straight in; the
+    # rest (profile-derived, JSON, LoRA) are assembled explicitly below.
+    explicit = {"model", "task_kwargs", "chat_kwargs", "think_end"}
+    field_names = {f.name for f in fields(TrainConfig)} - explicit
     cfg = TrainConfig(
+        **{k: v for k, v in vars(a).items() if k in field_names},
         model=model,
-        profile=a.profile,
         vlm_policy=prof.vlm if prof else False,
         extra_eos=tuple(prof.extra_eos) if prof else (),
-        share_prompt=a.share_prompt,
-        manage_machine=a.manage_machine,
-        lease_wait_s=a.lease_wait,
-        lease_block=a.lease_block,
-        required_gb=a.required_gb,
-        rollout_batch_size=a.rollout_batch_size,
-        task=a.task,
         task_kwargs=json.loads(a.task_kwargs),
         chat_kwargs=chat_kwargs,
-        steps=a.steps,
-        batch_prompts=a.batch_prompts,
-        group_size=a.group_size,
-        group_stage1=a.group_stage1,
-        stage1_skip=a.stage1_skip,
-        update_adv_frac=a.update_adv_frac,
-        token_subset_frac=a.token_subset_frac,
-        micro_batch=a.micro_batch,
-        max_tool_rounds=a.max_tool_rounds,
-        max_episode_tokens=a.max_episode_tokens,
-        init_adapter=a.init_adapter,
-        epochs_per_batch=a.epochs_per_batch,
-        max_new_tokens=a.max_new_tokens,
-        temperature=a.temperature,
-        lr=a.lr,
-        kl_coef=a.kl_coef,
-        clip_eps=a.clip_eps,
-        normalize_std=a.normalize_std,
-        sage_r=a.sage_r,
-        inject_r=a.inject_r,
-        abort_inactive_window=a.abort_inactive_window,
-        sage_m=a.sage_m,
-        sage_tr=a.sage_tr,
-        sage_max_reasoning_steps=a.sage_max_steps,
-        sage_max_step_tokens=a.sage_max_step_tokens,
-        sage_think_temperature=a.sage_think_temp,
-        sage_answer_reserve=a.sage_answer_reserve,
         think_end=think_end,
-        length_penalty=a.length_penalty,
-        length_budget=a.length_budget,
-        activation_headroom_gb=a.activation_headroom,
-        swap_guard_margin_gb=a.swap_guard_margin,
-        swap_rate_mb_s=a.swap_rate_mb_s,
-        eval_every=a.eval_every,
-        eval_n=a.eval_n,
-        eval_cells=a.eval_cells,
-        eval_cells_n=a.eval_cells_n,
-        eval_max_new_tokens=a.eval_max_new_tokens,
-        grad_checkpoint=a.grad_checkpoint,
-        gdn_serial=a.gdn_serial,
-        gdn_chunk=a.gdn_chunk,
-        checkpoint_every=a.checkpoint_every,
-        resume_from=a.resume_from,
-        keep_resume=a.keep_resume,
-        seed=a.seed,
         lora=LoraConfig(
             rank=a.rank,
             scale=a.lora_scale,
