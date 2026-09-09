@@ -2,7 +2,7 @@
 
 The rule (2026-08-22 audit): **`src/mlx_rl` and `scripts/` are the tested,
 stable surface; everything that exists for one experiment lives here.**
-Probe scripts, per-arc drivers, dataset spot-checks, superseded dashboards.
+Probe scripts, per-arc drivers, dataset spot-checks.
 
 What that buys:
 

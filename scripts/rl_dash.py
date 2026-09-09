@@ -104,6 +104,61 @@ def _tail_jsonl(path: Path, n: int, max_bytes: int = 4_000_000) -> list[dict]:
     return out
 
 
+def scan_anomalies(cfg: dict, metrics: list[dict], samples: list[dict], run: Path) -> list[dict]:
+    """Each anomaly: {level: error|warn|info, step, msg}. Tuned to observed
+    failure classes, not hypothetical ones -- the grader-leak and SAGE-breach
+    checks are how those bugs were caught the first time (ported from the
+    retired experimental/dashboard.py so they stay reachable)."""
+    a: list[dict] = []
+    cap = cfg.get("max_new_tokens") or 0
+    train = [m for m in metrics if "reward_mean" in m]
+    if not (run / "ABORTED").exists() and cfg.get("steps") and train:
+        # A swap-guard kill or a crash is otherwise invisible: the run just
+        # stops progressing with nothing in-band to say why.
+        last = max(m["step"] for m in train)
+        finished = any(m.get("final") for m in metrics)
+        stale = time.time() - (run / "metrics.jsonl").stat().st_mtime > 86400
+        if not finished and last < cfg["steps"] and stale:
+            a.append({"level": "error", "step": last,
+                      "msg": f"run DIED at step {last}/{cfg['steps']} -- no final eval, "
+                             "no writes for a day; check the log tail"})
+    for smp in samples:
+        step = smp.get("step")
+        for i, c in enumerate(smp.get("completions", [])):
+            tl = c.get("think_len")
+            if cap and tl is not None and tl > cap:
+                a.append({"level": "error", "step": step,
+                          "msg": f"SAGE think_len {tl} > max_new_tokens {cap} "
+                                 f"(completion {i}) -- reasoning budget breached"})
+            if (c.get("parts") or {}).get("think_closed") == 0.0 and (c.get("reward") or 0) > 0:
+                a.append({"level": "error", "step": step,
+                          "msg": f"reward {c['reward']:.2f} granted on an UNCLOSED think "
+                                 f"block (completion {i}) -- grader leak"})
+    upd = sorted(m.get("update_s", 0.0) for m in train)
+    med_upd = upd[len(upd) // 2] if upd else 0.0
+    prev_eval = None
+    for m in metrics:
+        step = m.get("step")
+        if (m.get("swap_gb") or 0) > 1.0:
+            a.append({"level": "warn", "step": step,
+                      "msg": f"swap grew {m['swap_gb']:.1f} GB above baseline -- "
+                             "approaching the paging cliff"})
+        if med_upd > 60 and m.get("update_s", 0) > 3 * med_upd:
+            a.append({"level": "warn", "step": step,
+                      "msg": f"update_s {m['update_s']:.0f}s is >3x the median "
+                             f"({med_upd:.0f}s) -- swap/thrash suspect"})
+        if m.get("no_update") and m.get("active_groups") == 0:
+            a.append({"level": "warn", "step": step, "msg": "no active groups -- update skipped"})
+        if "eval_reward" in m:
+            if prev_eval is not None and m["eval_reward"] < prev_eval - 0.15:
+                a.append({"level": "info", "step": step,
+                          "msg": f"eval_reward dropped {prev_eval:.2f} -> {m['eval_reward']:.2f}"})
+            prev_eval = m["eval_reward"]
+    order = {"error": 0, "warn": 1, "info": 2}
+    a.sort(key=lambda x: (order[x["level"]], -(x["step"] or 0)))
+    return a
+
+
 def _state(run: Path) -> dict:
     cfg = {}
     try:
@@ -129,6 +184,7 @@ def _state(run: Path) -> dict:
         "evals": [{k: v for k, v in m.items() if k == "step" or k.startswith("eval_")}
                   for m in evals[-8:]],
         "samples": list(reversed(samples)),
+        "anomalies": scan_anomalies(cfg, metrics, samples, run)[:40],
         "now": time.time(),
     }
 
@@ -169,6 +225,7 @@ h2{font-size:13px;color:#8b949e;margin:14px 0 4px;text-transform:uppercase;lette
 </style></head><body>
 <header><h1>rl-dash</h1><span id="run" class="dim">…</span><span id="age" class="dim"></span><span id="abort" class="warn"></span><span id="share" class="dim"></span></header>
 <main>
+<div id="anomalies"></div>
 <h2>steps</h2><div class="wrap"><table id="steps"></table></div>
 <h2>eval</h2><div class="wrap"><table id="evals"></table></div>
 <h2>samples — first prompt's whole group, newest step first</h2>
@@ -204,6 +261,7 @@ async function tick(){try{const r=await fetch(B+"/api/state",{cache:"no-store"})
  document.getElementById("run").textContent=s.run+"  "+JSON.stringify(s.config);
  const age=s.metrics_mtime?Math.round(s.now-s.metrics_mtime):null;document.getElementById("age").textContent=age==null?"":`last write ${age}s ago`;
  document.getElementById("abort").textContent=s.aborted?("ABORTED: "+s.aborted):"";
+ document.getElementById("anomalies").innerHTML=(s.anomalies||[]).map(a=>`<div class="${a.level==="error"?"warn":"dim"}">${esc(a.level)}${a.step!=null?" @"+a.step:""}: ${esc(a.msg)}</div>`).join("");
  table(document.getElementById("steps"),s.steps,KEYS.filter(k=>s.steps.some(r=>k in r)));
  table(document.getElementById("evals"),s.evals);samples(s.samples)}catch(e){document.getElementById("age").textContent="fetch failed"}}
 tick();setInterval(tick,15000);

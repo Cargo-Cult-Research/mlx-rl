@@ -406,7 +406,7 @@ multi-hour run in its own session so nothing but the run can kill it), the
 `bundle_artifacts.sh` (package adapters + reproduction inputs for release).
 Everything built for one experiment — probes (`probe_backward.py`,
 `anatomy_*.py`, `bench_rollout.py`, `oracle_sage.py`, `think_length.py`),
-per-arc drivers, `dashboard.py`, `sage_server.py` — lives in
+per-arc drivers, `sage_server.py` — lives in
 [experimental/](experimental/), which nothing in the core depends on. Each
 file has a docstring with usage; see `experimental/README.md` for the rule.
 
