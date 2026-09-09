@@ -36,7 +36,7 @@ import random
 import sys
 
 from .base import Example, RewardResult, register
-from .code import _TIMEOUT_S, _extract_code, _resolve_sandbox_exec, sandbox_run
+from .code import _TIMEOUT_S, _extract_code, _resolve_sandbox_exec, run_asserts, sandbox_run
 
 _KODCODE_REPO = "KodCode/KodCode-Light-RL-10K"
 _MBPP_PLUS_REPO = "evalplus/mbppplus"
@@ -218,16 +218,7 @@ class KodCodeTask:
         if not code or "def " not in code:
             return RewardResult(0.0, {"correct": 0.0, "code": 1.0, "nopatch": 1.0})
         if example.meta["kind"] == "mbpp":
-            script = "\n".join([
-                *example.meta["test_imports"],
-                code, "",
-                *example.meta["test_list"],
-                "print('ALL_TESTS_PASSED')",
-            ])
-            p = sandbox_run({"cand.py": script}, [sys.executable, "cand.py"],
-                            self._sandbox_exec, timeout=_TIMEOUT_S)
-            ok = (p is not None and p.returncode == 0
-                  and "ALL_TESTS_PASSED" in p.stdout)
+            ok = run_asserts(code, example.meta, self._sandbox_exec)
         else:
             p = sandbox_run(
                 {"solution.py": code, "test_solution.py": example.meta["test"]},

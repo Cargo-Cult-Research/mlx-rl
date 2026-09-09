@@ -160,15 +160,20 @@ class CodeTask:
         code = _extract_code(completion)
         if not code or "def " not in code:
             return RewardResult(0.0, {"correct": 0.0, "code": 1.0, "nopatch": 1.0})
-        script = "\n".join([
-            *example.meta.get("test_imports", []),
-            code, "",
-            *example.meta["test_list"],
-            "print('ALL_TESTS_PASSED')",
-        ])
-        p = sandbox_run({"cand.py": script}, [sys.executable, "cand.py"],
-                        self._sandbox_exec, timeout=_TIMEOUT_S)
-        ok = (p is not None and p.returncode == 0
-              and "ALL_TESTS_PASSED" in p.stdout)
-        return RewardResult(1.0 if ok else 0.0,
-                            {"correct": float(ok), "code": 1.0})
+        ok = run_asserts(code, example.meta, self._sandbox_exec)
+        return RewardResult(1.0 if ok else 0.0, {"correct": float(ok), "code": 1.0})
+
+
+def run_asserts(code: str, meta: dict, sandbox_exec: str | None) -> bool:
+    """MBPP-shaped grading: candidate + the row's assert list in one script,
+    passed iff it runs to the sentinel. Shared with the kodcode task's MBPP
+    eval rows."""
+    script = "\n".join([
+        *meta.get("test_imports", []),
+        code, "",
+        *meta["test_list"],
+        "print('ALL_TESTS_PASSED')",
+    ])
+    p = sandbox_run({"cand.py": script}, [sys.executable, "cand.py"],
+                    sandbox_exec, timeout=_TIMEOUT_S)
+    return p is not None and p.returncode == 0 and "ALL_TESTS_PASSED" in p.stdout
