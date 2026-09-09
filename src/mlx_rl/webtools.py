@@ -218,7 +218,12 @@ class WebTools:
                 if ev is None:
                     ev = self._inflight[k] = threading.Event()
                     return None, ev
-            ev.wait(self.hard_timeout + 5)
+            if not ev.wait(self.hard_timeout + 5):
+                # The owner died without _release (a crashed producer): take
+                # the claim over instead of waiting on the same dead event forever.
+                with self._lock:
+                    if self._inflight.get(k) is ev:
+                        del self._inflight[k]
 
     def _release(self, kind: str, key: str, ev: threading.Event, d: dict) -> None:
         with self._lock:
