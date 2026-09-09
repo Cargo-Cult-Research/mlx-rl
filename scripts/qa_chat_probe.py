@@ -353,14 +353,9 @@ def main() -> None:
         "seed": a.seed, "n_items": len(items), "system": system,
     }, indent=2) + "\n")
 
-    think_close = None  # decoded after tokenizer load, when in thinking mode
-    holder = None
-    if not a.no_manage_machine:
-        holder = machine.acquire(38.0, note="qa_abstain chat-transfer probe")
-    try:
+    with machine.lease(38.0, "qa_abstain chat-transfer probe", manage=not a.no_manage_machine):
         model, tokenizer = mlx_load(prof.model, adapter_path=a.adapter)
-        if prof.think_end is not None and prof.chat_kwargs.get("enable_thinking"):
-            think_close = tokenizer.decode([prof.think_end])
+        think_close = prof.think_close(tokenizer)
         t0 = time.time()
         with (out / "replies.jsonl").open("w") as f:
             for lo in range(0, len(items), a.batch_items):
@@ -383,8 +378,6 @@ def main() -> None:
                 print(f"{done}/{len(items)} items "
                       f"({done * a.k / (time.time() - t0):.1f} repl/s)",
                       flush=True)
-    finally:
-        machine.release(holder)
 
     report(_load_jsonl(out / "replies.jsonl"), out)
 

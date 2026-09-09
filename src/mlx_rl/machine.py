@@ -34,6 +34,7 @@ import os
 import shlex
 import subprocess
 import sys
+from contextlib import contextmanager
 
 def _default_cmd() -> list[str]:
     path = os.path.expanduser("~/code/housekeeping/memlease.py")
@@ -129,3 +130,22 @@ def release(holder: str | None) -> None:
     if holder is None or not _enabled():
         return
     _run(["release", holder, "--block", _HELD.pop(holder, "exclusive")])
+
+
+@contextmanager
+def lease(required_gb: float, note: str = "", manage: bool = True,
+          wait_s: float = 0, block: str = "exclusive"):
+    """acquire/release around a block, for scripts. manage=False (a
+    --no-manage-machine flag) skips the lease but NOT the in-process memory
+    guard: an unmanaged 30-40 GB eval beside whatever else is resident is
+    exactly the OOM class that killed the 08-21 grid runs."""
+    if not manage:
+        from .memory import assert_fits
+        assert_fits(required_gb)
+        yield None
+        return
+    holder = acquire(required_gb, wait_s=wait_s, note=note, block=block)
+    try:
+        yield holder
+    finally:
+        release(holder)

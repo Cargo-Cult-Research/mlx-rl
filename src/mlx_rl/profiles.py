@@ -43,6 +43,15 @@ class ModelProfile:
     # text-only rollouts, towers frozen in the tree for Phase-2 audio.
     vlm: bool = False
 
+    def think_close(self, tokenizer) -> str | None:
+        """The decoded end-of-thinking marker when this profile generates in
+        thinking mode by default, else None (grade the full text). Scripts
+        that probe the base model use this; the trainer's _think_close_marker
+        also folds in the task's and run's chat kwargs."""
+        if self.think_end is None or not self.chat_kwargs.get("enable_thinking"):
+            return None
+        return tokenizer.decode([self.think_end])
+
 
 _ATTN = (
     "self_attn.q_proj",

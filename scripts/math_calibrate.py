@@ -90,10 +90,7 @@ def main() -> None:
     picks = [(i, task._train[i]) for i in idxs]
     examples = [task._example(row) for _, row in picks]
 
-    holder = None
-    if not a.no_manage_machine:
-        holder = machine.acquire(38.0, note="math corpus calibration probe")
-    try:
+    with machine.lease(38.0, "math corpus calibration probe", manage=not a.no_manage_machine):
         model, tokenizer = mlx_load(prof.model)
         think_close = _think_close_marker(tokenizer, cfg, task)
         tk = {**getattr(task, "chat_template_kwargs", {}), **chat_kwargs}
@@ -105,8 +102,6 @@ def main() -> None:
             model, tokenizer, prompts, a.k, a.budget, 1.0,
             extra_eos=tuple(cfg.extra_eos))
         print(f"sampled: {a.n}x{a.k} in {time.time()-t0:.0f}s", flush=True)
-    finally:
-        machine.release(holder)
 
     with (out / "calib.jsonl").open("w") as f:
         for (idx, row), ex, group in zip(picks, examples, groups):

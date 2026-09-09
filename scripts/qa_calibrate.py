@@ -81,10 +81,7 @@ def main() -> None:
     rng = random.Random(a.seed)
     rows = rng.sample(task._train, min(a.n, len(task._train)))
 
-    holder = None
-    if not a.no_manage_machine:
-        holder = machine.acquire(38.0, note="qa_abstain calibration probe")
-    try:
+    with machine.lease(38.0, "qa_abstain calibration probe", manage=not a.no_manage_machine):
         model, tokenizer = mlx_load(prof.model, adapter_path=a.adapter)
         t0 = time.time()
         with (out / "calib.jsonl").open("w") as f:
@@ -116,8 +113,6 @@ def main() -> None:
                 print(f"{done}/{len(rows)} questions "
                       f"({done * a.k / (time.time() - t0):.1f} compl/s)",
                       flush=True)
-    finally:
-        machine.release(holder)
 
     # Band histogram + raw examples per band (numbers hide bugs; show data).
     recs = [json.loads(l) for l in (out / "calib.jsonl").read_text().splitlines()]

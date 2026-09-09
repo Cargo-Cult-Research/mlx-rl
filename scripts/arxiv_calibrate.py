@@ -53,14 +53,9 @@ def main() -> None:
     prof = get_profile(a.profile)
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    holder = None
-    if not a.no_manage_machine:
-        holder = machine.acquire(38.0, note="arxiv calibration probe")
-    try:
+    with machine.lease(38.0, "arxiv calibration probe", manage=not a.no_manage_machine):
         model, tokenizer = mlx_load(prof.model)
-        think_close = None
-        if prof.think_end is not None and prof.chat_kwargs.get("enable_thinking"):
-            think_close = tokenizer.decode([prof.think_end])
+        think_close = prof.think_close(tokenizer)
         t0 = time.time()
         n_known = 0
         with out.open("w") as f:
@@ -90,9 +85,6 @@ def main() -> None:
                 f.flush()
                 print(f"  {lo + len(chunk)}/{len(rows)}  known so far {n_known}  "
                       f"{time.time() - t0:.0f}s", flush=True)
-    finally:
-        if holder:
-            machine.release(holder)
     print(f"wrote {out}: {n_known} known of {len(rows)}")
 
 

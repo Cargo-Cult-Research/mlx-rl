@@ -94,8 +94,7 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     print(f"[retrofit] {len(pts)} points {[s for s, _ in pts]} x {a.cells} @ n={a.n}", flush=True)
 
-    holder = machine.acquire(38.0, wait_s=3600, note="retrofit eval")
-    try:
+    with machine.lease(38.0, "retrofit eval", wait_s=3600):
         model, tokenizer, info = load_policy(cfg.model, lora, required_gb=38.0)
         print(f"[retrofit] loaded {info.get('model_path')}", flush=True)
         cells = build_eval_cells(cfg)
@@ -123,8 +122,6 @@ def main() -> None:
                 f.write(json.dumps(rec) + "\n")
                 f.flush()
                 print(f"  step {step:3d} done in {rec['wall_s']}s", flush=True)
-    finally:
-        machine.release(holder)
     print(f"[retrofit] wrote {out}/metrics.jsonl", flush=True)
 
 

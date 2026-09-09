@@ -98,14 +98,7 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     arms = [(n, str(Path(p).expanduser()) if p else None) for n, _, p in (s.partition("=") for s in a.arm)]
     results: dict = {"n": a.n, "k": a.k, "cells": list(tasks), "arms": {}}
-    holder = None if a.no_manage_machine else machine.acquire(38.0, note="matrix eval")
-    if a.no_manage_machine:
-        # Opting out of the lease must not mean opting out of the memory
-        # guard: an unmanaged 30-40 GB eval beside whatever else is resident
-        # is exactly the OOM class that killed the 08-21 grid runs.
-        from mlx_rl.memory import assert_fits
-        assert_fits(38.0)
-    try:
+    with machine.lease(38.0, "matrix eval", manage=not a.no_manage_machine):
         with (out / "episodes.jsonl").open("w") as f:
             for name, adapter in arms:
                 model, tokenizer = mlx_load(prof.model, adapter_path=adapter)
@@ -226,9 +219,6 @@ def main() -> None:
                 del model, tokenizer
                 gc.collect()
                 mx.clear_cache()
-    finally:
-        if holder:
-            machine.release(holder)
     # base deltas
     base = results["arms"].get("base", {}).get("cells", {})
     for name, arm in results["arms"].items():
@@ -246,6 +236,8 @@ if __name__ == "__main__":
     code = 0
     try:
         main()
+    except SystemExit as e:   # argparse --help / usage errors are not crashes
+        code = e.code if isinstance(e.code, int) else 1
     except BaseException:  # noqa: BLE001
         traceback.print_exc()
         code = 1
