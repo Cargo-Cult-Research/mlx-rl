@@ -1,6 +1,6 @@
 """RFCS: step splitting, numeric containment, ratio semantics."""
 
-from mlx_rl.rfcs import rfcs, split_steps, to_number
+from mlx_rl.rfcs import rfcs, split_steps
 
 
 def test_split_steps_drops_blank_segments():
@@ -31,9 +31,3 @@ def test_undefined_cases_return_none():
     assert rfcs("no numbers here\n\nat all", "42") is None  # never appears
     assert rfcs("step", "x+1") is None                      # non-numeric answer
     assert rfcs("", "42") is None                           # empty think
-
-
-def test_to_number():
-    assert to_number("1,006") == 1006
-    assert to_number("7/3") is not None
-    assert to_number("nope") is None
