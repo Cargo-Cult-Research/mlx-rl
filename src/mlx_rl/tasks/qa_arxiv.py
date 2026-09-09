@@ -448,15 +448,20 @@ class QAArxivTask:
         tn = " ".join(re.findall(r"[a-z0-9]+", m["title"].lower()))
         return bool(tn) and tn in " ".join(re.findall(r"[a-z0-9]+", low))
 
+    def _snapshot_search(self, q: str, example: Example, **extra) -> ToolResult:
+        hits = self.index.search(q, example.meta["today"])
+        found = any(h["id"] == example.meta["id"] for h in hits)
+        return ToolResult(self.index.render(hits, q),
+                          {"ok": True, "hits": len(hits), "found_target": found, **extra})
+
     def run_tool(self, name: str, args: dict, example: Example) -> ToolResult:
+        if name not in {t["function"]["name"] for t in self.tools}:
+            return ToolResult(f"Error: unknown tool '{name}'.", {"ok": False, "hits": 0})
+        q = args.get("query", "")
+        if self.backend != "web" and not q.strip():
+            return ToolResult("Error: 'query' is required.", {"ok": False, "hits": 0})
         if self.backend == "serps":
-            if name != "web_search":
-                return ToolResult(f"Error: unknown tool '{name}'.", {"ok": False, "hits": 0})
-            query = args.get("query", "")
-            if not query.strip():
-                return ToolResult("Error: 'query' is required.", {"ok": False, "hits": 0})
-            hits = self.serps.search(query, example.meta["today"])
-            text = self.serps.render(hits, query)
+            hits = self.serps.search(q, example.meta["today"])
             # Scan the HITS, never the rendered text. An empty render echoes
             # the query back -- `No results found for "<title>"` -- so reading
             # found_target off the render scored every future-regime search as
@@ -464,20 +469,12 @@ class QAArxivTask:
             # the falsification test. Hits only, and False when there are none.
             scan = " ".join(f"{h.get('title', '')} {h.get('href', '')} {h.get('body', '')}"
                             for h in hits)
-            return ToolResult(text, {"ok": True, "hits": len(hits),
-                                     "found_target": bool(hits) and self._found_in(scan, example)})
+            return ToolResult(self.serps.render(hits, q),
+                              {"ok": True, "hits": len(hits),
+                               "found_target": bool(hits) and self._found_in(scan, example)})
         if self.backend == "snapshot":
-            if name != "web_search":
-                return ToolResult(f"Error: unknown tool '{name}'.", {"ok": False, "hits": 0})
-            query = args.get("query", "")
-            if not query.strip():
-                return ToolResult("Error: 'query' is required.", {"ok": False, "hits": 0})
-            hits = self.index.search(query, example.meta["today"])
-            found = any(h["id"] == example.meta["id"] for h in hits)
-            return ToolResult(self.index.render(hits, query),
-                              {"ok": True, "hits": len(hits), "found_target": found})
+            return self._snapshot_search(q, example)
         if name == "web_search":
-            q = args.get("query", "")
             r = self.web.web_search(q)
             if r["ok"] and r.get("results"):
                 self.tool_stats["search_real"] += 1
@@ -490,18 +487,12 @@ class QAArxivTask:
             # (web_search_fallback vs web_search_real) so the mix is never
             # invisible — the policy must not quietly overfit the fake shape.
             self.tool_stats["search_fallback_error" if not r["ok"] else "search_fallback_empty"] += 1
-            hits = self.index.search(q, example.meta["today"])
-            found = any(h["id"] == example.meta["id"] for h in hits)
-            return ToolResult(self.index.render(hits, q),
-                              {"ok": True, "hits": len(hits), "found_target": found,
-                               "cached": False, "fallback": True})
-        if name == "fetch_url":
-            r = self.web.fetch_url(args.get("url", ""))
-            return ToolResult(r["text"], {"ok": bool(r["ok"]), "hits": int(bool(r["ok"])),
-                                          "found_target": bool(r["ok"]) and
-                                          self._found_in(args.get("url", "") + " " + r["text"], example),
-                                          "cached": bool(r.get("cached"))})
-        return ToolResult(f"Error: unknown tool '{name}'.", {"ok": False, "hits": 0})
+            return self._snapshot_search(q, example, cached=False, fallback=True)
+        r = self.web.fetch_url(args.get("url", ""))
+        return ToolResult(r["text"], {"ok": bool(r["ok"]), "hits": int(bool(r["ok"])),
+                                      "found_target": bool(r["ok"]) and
+                                      self._found_in(args.get("url", "") + " " + r["text"], example),
+                                      "cached": bool(r.get("cached"))})
 
     def injected_episode(self, example: Example) -> list[tuple[str, bool]]:
         """Oracle episode for --inject-r, as (text, generated) segments.

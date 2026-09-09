@@ -206,19 +206,23 @@ def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
     inject_r = cfg.inject_r
     n_sampled = cfg.group_size - sage_r - inject_r
     think_close = _think_close_marker(tokenizer, cfg, task)
-    graded: dict[int, object] = {}  # id(Completion) -> RewardResult (no double-grade)
+    # id(Completion) -> (Completion, RewardResult). Judge/code grading is
+    # costly, so nothing is graded twice. The cache holds the Completion
+    # itself: abandoned stage-1 groups are otherwise garbage-collected, and a
+    # stage-2 member reusing the freed id would inherit a stale reward.
+    graded: dict[int, tuple[Completion, object]] = {}
 
-    def _grade(pairs):  # judge/code grading is costly; cache it
+    def _grade(pairs):
         results = _grade_batch(task, [
             (ex, _visible_reply(_completion_text(tokenizer, comp),
                                 think_close)[0]) for ex, comp in pairs])
         for (_, comp), res in zip(pairs, results):
-            graded[id(comp)] = res
+            graded[id(comp)] = (comp, res)
 
     examples, groups, prompts, stats, skipped = _two_stage(
         examples, cfg, n_sampled,
         lambda exs, n: _sample_batched(model, tokenizer, exs, cfg, n, cfg.temperature, task),
-        _grade, lambda comp: graded[id(comp)].total)
+        _grade, lambda comp: graded[id(comp)][1].total)
     if sage_r and examples:
         # the sampled rollouts' KV buffers are dead now; don't run the SAGE
         # beams on top of them (the two phases stack in memory otherwise)
@@ -266,7 +270,7 @@ def collect_rollouts(model, tokenizer, examples, cfg: TrainConfig, task):
         for gi, comp in enumerate(group):
             text = _completion_text(tokenizer, comp)
             visible, closed = _visible_reply(text, think_close)
-            res = graded[id(comp)]
+            _, res = graded[id(comp)]
             # Correctness-gated total-length efficiency (kills the
             # reasoning-relocation hack) + a relocation monitor for BOTH arms.
             ntok = len(comp.tokens)
@@ -1348,18 +1352,20 @@ def collect_episodes(model, tokenizer, examples, cfg: TrainConfig, task):
     n_sampled = cfg.group_size - inject_r
     think_close = _think_close_marker(tokenizer, cfg, task)
     chat_kwargs = {**getattr(task, "chat_template_kwargs", {}), **cfg.chat_kwargs}
-    graded: dict[int, tuple[dict, object]] = {}  # id(Episode) -> (record, result)
+    # id(Episode) -> (Episode, record, result); holds the Episode so a freed
+    # id can never alias a stale grade (see collect_rollouts).
+    graded: dict[int, tuple[Episode, dict, object]] = {}
 
     def _grade(pairs):
         recs = [_episode_record(tokenizer, ep, think_close) for _, ep in pairs]
         ress = task.episode_reward([ex for ex, _ in pairs], recs)
         for (_, ep), rec, res in zip(pairs, recs, ress):
-            graded[id(ep)] = (rec, res)
+            graded[id(ep)] = (ep, rec, res)
 
     examples, groups, prompts, stats, skipped = _two_stage(
         examples, cfg, n_sampled,
         lambda exs, n: _sample_episodes(model, tokenizer, exs, cfg, task, n, cfg.temperature),
-        _grade, lambda ep: graded[id(ep)][1].total)
+        _grade, lambda ep: graded[id(ep)][2].total)
     if inject_r:
         for ex, group in zip(examples, groups):
             for _ in range(inject_r):
@@ -1371,7 +1377,7 @@ def collect_episodes(model, tokenizer, examples, cfg: TrainConfig, task):
     rollouts: list[Rollout] = []
     for ex, prompt, group in zip(examples, prompts, groups):
         for gi, ep in enumerate(group):
-            rec, res = graded[id(ep)]
+            _, rec, res = graded[id(ep)]
             toks = ep.completion_tokens
             parts = dict(res.parts)
             parts["base_reward"] = round(res.total, 4)
