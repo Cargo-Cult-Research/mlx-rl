@@ -22,6 +22,9 @@ from dataclasses import dataclass, field
 import mlx.core as mx
 from mlx_lm.generate import BatchGenerator, BatchStats
 
+from mlx_lm.models import cache as cache_mod
+from mlx_lm.sample_utils import make_sampler
+
 from .dashtap import load_tap
 
 _TAP = None
@@ -33,8 +36,6 @@ def _tap():
     if _TAP is None:
         _TAP = load_tap()
     return _TAP
-from mlx_lm.models import cache as cache_mod
-from mlx_lm.sample_utils import make_sampler
 
 
 @dataclass
@@ -85,22 +86,27 @@ def _credit_prompt(gen, n_tokens: int, seconds: float) -> None:
 
 
 def prefill_cache(model, prompt_ids: list[int], prefill_step_size: int = 2048,
-                  kv_bits: int | None = None) -> list:
-    """Consume prompt[:-1] into a fresh cache (chunked). The last prompt
-    token is left for the generator: it becomes the 1-token 'prompt' whose
-    forward produces the first completion logits. kv_bits quantizes the
-    cache at creation (the shared-prompt path bypasses the generator's
-    cache factory, so it must be quantized here to match)."""
+                  kv_bits: int | None = None, keep_last: bool = True) -> list:
+    """Consume the prompt into a fresh cache (chunked). With keep_last the
+    final token is left out for the generator: it becomes the 1-token
+    'prompt' whose forward produces the first completion logits. kv_bits
+    quantizes the cache at creation (the shared-prompt path bypasses the
+    generator's cache factory, so it must be quantized here to match)."""
     c = cache_mod.make_prompt_cache(model)
     if kv_bits is not None:
         from mlx_lm.models.cache import KVCache, QuantizedKVCache
         c = [QuantizedKVCache(group_size=64, bits=kv_bits)
              if isinstance(ci, KVCache) else ci for ci in c]
-    toks = mx.array(prompt_ids[:-1])
+    toks = mx.array(prompt_ids[:-1] if keep_last else prompt_ids)
     for i in range(0, toks.size, prefill_step_size):
         model(toks[i : i + prefill_step_size][None], cache=c)
         mx.eval([x.state for x in c])
     return c
+
+
+def _sample_token(lp: mx.array, temperature: float) -> int:
+    return (int(mx.random.categorical(lp / temperature)) if temperature > 0
+            else int(mx.argmax(lp)))
 
 
 @dataclass
@@ -126,19 +132,13 @@ def _answer_from(model, prompt_ids, reasoning_toks, think_len, *, eos,
     so instead of trimming the winner's over-generated cache we re-prefill its
     clean token sequence once (~O(think_len))."""
     full = list(prompt_ids) + list(reasoning_toks)
-    c = cache_mod.make_prompt_cache(model)
-    a = mx.array(full)
-    for i in range(0, a.size, prefill_step_size):
-        model(a[i:i + prefill_step_size][None], cache=c)
-        mx.eval([x.state for x in c])
+    c = prefill_cache(model, full, prefill_step_size, keep_last=False)
     tok = list(reasoning_toks)
     lps = [0.0] * len(reasoning_toks)
     pend = full[-1]
     while len(tok) < max_new_tokens:
-        lg = model(mx.array([[pend]]), cache=c)[0, -1].astype(mx.float32)
-        lp = lg - mx.logsumexp(lg)
-        t = (int(mx.random.categorical(lp / temperature)) if temperature > 0
-             else int(mx.argmax(lp)))
+        lp = _next_lp(model, pend, c)
+        t = _sample_token(lp, temperature)
         tok.append(t); lps.append(float(lp[t])); pend = t
         if t in eos:
             return Completion(tok, lps, "stop", think_len)
@@ -163,11 +163,7 @@ def _sage_batched(model, prompt_ids, think_end, *, eos, m, tr, max_new_tokens,
     produced think_len 2069 > cap 2048 with zero answer tokens)."""
     h = max(1, round(tr * 2 * m))
     think_budget = max(1, max_new_tokens - answer_reserve)
-    c = cache_mod.make_prompt_cache(model)
-    pre = mx.array(prompt_ids[:-1])
-    for i in range(0, pre.size, prefill_step_size):
-        model(pre[i:i + prefill_step_size][None], cache=c)
-        mx.eval([x.state for x in c])
+    c = prefill_cache(model, prompt_ids, prefill_step_size)
     cache = [type(x).merge([x]) for x in c]          # -> batched (BatchKVCache/ArraysCache)
     rows = [{"tok": [], "slp": 0.0, "pend": prompt_ids[-1]}]
 
@@ -182,8 +178,7 @@ def _sage_batched(model, prompt_ids, think_end, *, eos, m, tr, max_new_tokens,
                  "think_at": None} for i in rep]
         B = len(rows)
         pend = mx.array([[r["pend"]] for r in rows])
-        gen_len = 0
-        for k in range(step_tokens):
+        for _ in range(step_tokens):
             if all(r["end"] in ("think", "eos") for r in rows):
                 break
             lg = model(pend, cache=cache)[:, -1].astype(mx.float32)
@@ -193,7 +188,6 @@ def _sage_batched(model, prompt_ids, think_end, *, eos, m, tr, max_new_tokens,
             chosen = mx.take_along_axis(lp, nxt[:, None], axis=-1)[:, 0]
             mx.eval(nxt, chosen)
             nl, cl = nxt.tolist(), chosen.tolist()
-            gen_len = k + 1
             for i, r in enumerate(rows):
                 if r["end"] in ("think", "eos"):
                     continue
@@ -267,8 +261,7 @@ def _grow_step(model, cand: _Cand, *, think_end: int, eos: set[int],
     toks, lps, pending, ended = [], [], cand.pending, "cap"
     for _ in range(max_step_tokens):
         lp = _next_lp(model, pending, cache)
-        t = (int(mx.random.categorical(lp / temperature)) if temperature > 0
-             else int(mx.argmax(lp)))
+        t = _sample_token(lp, temperature)
         toks.append(t); lps.append(float(lp[t])); pending = t
         if t == think_end:
             ended = "think"; break
@@ -378,8 +371,7 @@ def _answer_phase(model, cand: _Cand, *, eos: set[int], max_new_tokens: int,
         return Completion(cand.tokens, cand.logprobs, "stop", think_len)
     while len(cand.tokens) < max_new_tokens:
         lp = _next_lp(model, cand.pending, cand.cache)
-        t = (int(mx.random.categorical(lp / temperature)) if temperature > 0
-             else int(mx.argmax(lp)))
+        t = _sample_token(lp, temperature)
         cand.tokens.append(t); cand.logprobs.append(float(lp[t])); cand.pending = t
         if t in eos:
             return Completion(cand.tokens, cand.logprobs, "stop", think_len)
@@ -412,6 +404,53 @@ class _QuantizedKVBatchGenerator(BatchGenerator):
         ]
 
 
+def _eos_set(tokenizer, extra_eos) -> set[int]:
+    eos = set(getattr(tokenizer, "eos_token_ids", None) or [tokenizer.eos_token_id])
+    return eos | set(extra_eos)
+
+
+def _make_generator(model, stops, max_new_tokens, temperature, completion_batch_size,
+                    group_size, prefill_batch_size, prefill_step_size, kv_bits):
+    gen_cls = BatchGenerator if kv_bits is None else _QuantizedKVBatchGenerator
+    gen_kw = {} if kv_bits is None else {"kv_bits": kv_bits}
+    return gen_cls(
+        model,
+        max_tokens=max_new_tokens,
+        stop_tokens=[[t] for t in sorted(stops)],
+        sampler=make_sampler(temp=temperature),
+        completion_batch_size=max(completion_batch_size, group_size),
+        prefill_batch_size=prefill_batch_size,
+        prefill_step_size=prefill_step_size,
+        **gen_kw,
+    )
+
+
+def _insert_group(gen, model, prompt, group_size, share_prompt, prefill_step_size,
+                  kv_bits) -> list[int]:
+    """Enter one prompt's group_size rows into the generator; with
+    share_prompt the prompt is prefilled once here and every member starts
+    from a copy-on-write clone of that cache."""
+    if share_prompt and len(prompt) > 1:
+        t_pre = time.perf_counter()
+        base = prefill_cache(model, prompt, prefill_step_size, kv_bits=kv_bits)
+        _credit_prompt(gen, len(prompt) - 1, time.perf_counter() - t_pre)
+        return gen.insert([[prompt[-1]] for _ in range(group_size)],
+                          caches=[clone_cache_list(base) for _ in range(group_size)])
+    return gen.insert([list(prompt) for _ in range(group_size)])
+
+
+def _new_stats() -> BatchStats:
+    """mlx-lm's stats() computes prompt_tokens/prompt_time in a finally block.
+    When share_prompt prefills outside the generator (or the body raises
+    before any prefill), prompt_time is 0 and that division raises
+    ZeroDivisionError *from the finally*, replacing the real exception and
+    making genuine failures unreadable. A nonzero epsilon keeps the
+    division harmless (tps error ~1e-9 relative) so errors propagate intact."""
+    stats = BatchStats()
+    stats.prompt_time = 1e-9
+    return stats
+
+
 def rollout_groups(
     model,
     tokenizer,
@@ -434,49 +473,20 @@ def rollout_groups(
     aggregate prompt/generation tokens-per-second.
     kv_bits: quantize per-sequence KV caches (8 = half footprint); None = fp16.
     """
-    eos = set(getattr(tokenizer, "eos_token_ids", None) or [tokenizer.eos_token_id])
-    eos |= set(extra_eos)
+    eos = _eos_set(tokenizer, extra_eos)
     tap = _tap()
-
-    gen_cls = BatchGenerator if kv_bits is None else _QuantizedKVBatchGenerator
-    gen_kw = {} if kv_bits is None else {"kv_bits": kv_bits}
-    gen = gen_cls(
-        model,
-        max_tokens=max_new_tokens,
-        stop_tokens=[[t] for t in sorted(eos)],
-        sampler=make_sampler(temp=temperature),
-        completion_batch_size=max(completion_batch_size, group_size),
-        prefill_batch_size=prefill_batch_size,
-        prefill_step_size=prefill_step_size,
-        **gen_kw,
-    )
+    gen = _make_generator(model, eos, max_new_tokens, temperature, completion_batch_size,
+                          group_size, prefill_batch_size, prefill_step_size, kv_bits)
     groups = [[Completion() for _ in range(group_size)] for _ in prompts]
     uid_to: dict[int, tuple[int, int]] = {}
     tap_st: dict[int, dict] = {}   # uid -> {rid, emitted (chars), flushed (toks)}
-    stats = BatchStats()
-    # mlx-lm's stats() computes prompt_tokens/prompt_time in a finally block.
-    # When share_prompt prefills outside the generator (or the body raises
-    # before any prefill), prompt_time is 0 and that division raises
-    # ZeroDivisionError *from the finally*, replacing the real exception and
-    # making genuine failures unreadable. A nonzero epsilon keeps the
-    # division harmless (tps error ~1e-9 relative) so errors propagate intact.
-    stats.prompt_time = 1e-9
+    stats = _new_stats()
     try:
         with gen.stats(stats):
             for pi, prompt in enumerate(prompts):
                 ptail = tokenizer.decode(prompt[-120:])[-400:]
-                if share_prompt and len(prompt) > 1:
-                    t_pre = time.perf_counter()
-                    base = prefill_cache(model, prompt, prefill_step_size,
-                                         kv_bits=kv_bits)
-                    _credit_prompt(gen, len(prompt) - 1,
-                                   time.perf_counter() - t_pre)
-                    uids = gen.insert(
-                        [[prompt[-1]] for _ in range(group_size)],
-                        caches=[clone_cache_list(base) for _ in range(group_size)],
-                    )
-                else:
-                    uids = gen.insert([list(prompt) for _ in range(group_size)])
+                uids = _insert_group(gen, model, prompt, group_size, share_prompt,
+                                     prefill_step_size, kv_bits)
                 for gi, u in enumerate(uids):
                     uid_to[u] = (pi, gi)
                     tap_st[u] = {
@@ -630,30 +640,18 @@ def rollout_episodes(
     graded (the served-agent behaviour). A further call after that ends the
     episode as 'tool_cap'. Without on_cap the cap ends the episode at once.
     """
-    eos = set(getattr(tokenizer, "eos_token_ids", None) or [tokenizer.eos_token_id])
-    eos |= set(extra_eos)
+    eos = _eos_set(tokenizer, extra_eos)
     tool_stop = set(tool_stop_ids)
-    stops = sorted(eos | tool_stop)
     if max_episode_tokens is None:
         max_episode_tokens = max_new_tokens * (max_tool_rounds + 1)
     tap = _tap()
-
-    gen_cls = BatchGenerator if kv_bits is None else _QuantizedKVBatchGenerator
-    gen_kw = {} if kv_bits is None else {"kv_bits": kv_bits}
-    gen = gen_cls(
-        model,
-        max_tokens=max_new_tokens,
-        stop_tokens=[[t] for t in stops],
-        sampler=make_sampler(temp=temperature),
-        completion_batch_size=max(completion_batch_size, group_size),
-        prefill_batch_size=prefill_batch_size,
-        prefill_step_size=prefill_step_size,
-        **gen_kw,
-    )
+    gen = _make_generator(model, eos | tool_stop, max_new_tokens, temperature,
+                          completion_batch_size, group_size, prefill_batch_size,
+                          prefill_step_size, kv_bits)
     groups = [[Episode() for _ in range(group_size)] for _ in prompts]
     uid_to: dict[int, tuple[int, int]] = {}
     tap_st: dict[tuple[int, int], dict] = {}
-    stats = BatchStats()
+    stats = _new_stats()
     pool = ThreadPoolExecutor(max_workers=max(1, tool_workers))
     pending: dict = {}  # future -> (pi, gi, cache, all_tokens, remaining, t_submit)
 
@@ -707,18 +705,8 @@ def rollout_episodes(
         with gen.stats(stats):
             for pi, prompt in enumerate(prompts):
                 ptail = tokenizer.decode(prompt[-120:])[-400:]
-                if share_prompt and len(prompt) > 1:
-                    t_pre = time.perf_counter()
-                    base = prefill_cache(model, prompt, prefill_step_size,
-                                         kv_bits=kv_bits)
-                    _credit_prompt(gen, len(prompt) - 1,
-                                   time.perf_counter() - t_pre)
-                    uids = gen.insert(
-                        [[prompt[-1]] for _ in range(group_size)],
-                        caches=[clone_cache_list(base) for _ in range(group_size)],
-                    )
-                else:
-                    uids = gen.insert([list(prompt) for _ in range(group_size)])
+                uids = _insert_group(gen, model, prompt, group_size, share_prompt,
+                                     prefill_step_size, kv_bits)
                 for gi, u in enumerate(uids):
                     uid_to[u] = (pi, gi)
                     _start_segment(pi, gi)
