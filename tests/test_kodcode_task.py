@@ -215,20 +215,10 @@ def test_epoch_sampling_is_deterministic():
     assert run(0) != run(1)
 
 
-def test_replace_sampling_is_the_default():
-    t = _task()
-    assert getattr(t, "_sampling", "replace") == "replace"
-
-
 def test_bad_sampling_mode_rejected():
+    # validated before the dataset download, so this never touches the network
     with pytest.raises(ValueError, match="sampling"):
         KodCodeTask(sandbox=HAVE_SEATBELT, subsets="Filter", sampling="wat")
-
-
-def test_val_empty_by_default():
-    t = _task()
-    t._val = []
-    assert t.val_examples() == []
 
 
 def test_subsets_include_filter():

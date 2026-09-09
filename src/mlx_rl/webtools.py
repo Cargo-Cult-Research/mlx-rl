@@ -184,24 +184,20 @@ class WebTools:
     # measured 2026-08-16 evening: bing/yahoo answer in <2 s, duckduckgo
     # throttles after a few hundred anonymous calls. Anonymous scraping is
     # weather, not infrastructure — a search API key is the stable answer.
-    ENGINES = ("bing", "yahoo", "duckduckgo", "brave")
+    engines = ("bing", "yahoo", "duckduckgo", "brave")
+    max_results = 5
+    fetch_chars, search_chars = 4000, 2500
+    min_interval, timeout = 1.0, 10.0          # pacing between live calls; per-call
+    hard_timeout = timeout + 5.0               # thread join: a hung HTTP client
+    search_budget_s = 2.5 * timeout            # total across the engine rotation
+    min_relevance = 0.5                        # gate: how much of the query a hit echoes
 
-    def __init__(self, cache_dir: str | Path = "runs/webcache", max_results: int = 5,
-                 fetch_chars: int = 4000, search_chars: int = 2500,
-                 min_interval_s: float = 1.0, timeout_s: float = 10.0,
-                 error_ttl_s: float = 600.0, engines: tuple[str, ...] | None = None,
-                 min_relevance: float = 0.5):
-        self.engines = tuple(engines) if engines else self.ENGINES
-        self.min_relevance = min_relevance
+    def __init__(self, cache_dir: str | Path = "runs/webcache", error_ttl_s: float = 600.0):
         self.dir = Path(cache_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
-        self.max_results = max_results
-        self.fetch_chars, self.search_chars = fetch_chars, search_chars
-        self.min_interval, self.timeout, self.error_ttl = min_interval_s, timeout_s, error_ttl_s
+        self.error_ttl = error_ttl_s
         self._lock = threading.Lock()   # cache + pacing bookkeeping only
         self._last = 0.0
-        self.hard_timeout = timeout_s + 5.0
-        self.search_budget_s = 2.5 * timeout_s   # total across the engine rotation
         # In-flight de-duplication: eight group members asking the same
         # title at once should cost ONE live call, not eight cache misses.
         self._inflight: dict[str, threading.Event] = {}

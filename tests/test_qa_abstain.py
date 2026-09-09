@@ -138,7 +138,7 @@ def test_dataset_loads_and_splits():
 def test_chat_probe_scoring():
     import importlib.util, pathlib
     spec = importlib.util.spec_from_file_location(
-        "qa_chat_probe", pathlib.Path("scripts/qa_chat_probe.py"))
+        "qa_chat_probe", pathlib.Path(__file__).resolve().parents[1] / "scripts/qa_chat_probe.py")
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
 

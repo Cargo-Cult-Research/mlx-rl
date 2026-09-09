@@ -87,6 +87,8 @@ class KodCodeTask:
         if bad or not self._formats:
             raise ValueError(f"train_formats: unknown {sorted(bad)}; "
                              f"choose from {list(_TRAIN_FORMATS)}")
+        if sampling not in ("replace", "epoch"):  # before the dataset download
+            raise ValueError(f"sampling: expected 'replace' or 'epoch', got {sampling!r}")
         want = {d.strip() for d in difficulties.split(",") if d.strip()}
         # Optional include-list on top of the hard excludes. Calibration
         # (scripts/kodcode_calibrate.py, 2026-08 probe on the 4-bit 0.5B):
@@ -123,8 +125,6 @@ class KodCodeTask:
             if n >= len(rows):
                 raise ValueError(f"val_frac={val_frac} would leave no training rows")
             self._val, self._train = rows[:n], rows[n:]
-        if sampling not in ("replace", "epoch"):
-            raise ValueError(f"sampling: expected 'replace' or 'epoch', got {sampling!r}")
         self._sampling = sampling
         self._order: list[int] = []   # epoch mode: remaining indices, popped
         self.epoch = 0

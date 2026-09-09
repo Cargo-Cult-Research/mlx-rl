@@ -221,7 +221,6 @@ class QAAbstainTask:
         # draw bands by weight. Questions absent from the calib file stay in
         # a shared "unprobed" pool drawn with the residual weight mass.
         self._bands: dict[str, list[dict]] | None = None
-        self._band_mix = band_mix
         self._rates: dict[str, float] = {}
         if calib_file:
             with open(calib_file) as f:
@@ -331,10 +330,11 @@ class QAAbstainTask:
         """Grade a batch: tag frames locally, chat frames through one judge
         call. The trainer prefers this over reward() when it exists."""
         out: list[RewardResult | None] = [None] * len(examples)
-        chat_idx = [i for i, ex in enumerate(examples)
-                    if ex.meta.get("frame") == "chat"]
+        chat_idx = []
         for i, (ex, comp) in enumerate(zip(examples, completions)):
-            if i not in chat_idx:
+            if ex.meta.get("frame") == "chat":
+                chat_idx.append(i)
+            else:
                 out[i] = self.reward(ex, comp)
         if chat_idx:
             if self._judge is None:
@@ -374,7 +374,7 @@ class QAAbstainTask:
         "sunderland" — the judge extracts phrases, not normalized keys)."""
         if grade(value, aliases):
             return True
-        val = f" {' '.join(normalize(value).split())} "
+        val = f" {normalize(value)} "
         return any(na and f" {na} " in val
                    for na in (normalize(a) for a in aliases))
 

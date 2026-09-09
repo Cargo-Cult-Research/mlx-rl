@@ -119,16 +119,6 @@ PROFILES: dict[str, ModelProfile] = {
         extra_eos=(1, 106, 50),
         vlm=True,
     ),
-    # Text-only extraction of the same weights (ears/tools/
-    # convert_e4b_text.py), verified bit-identical to the vlm language model
-    # 2026-08-03 (max |dlogp| = 0.0). Reference/control rig: pure mlx-lm
-    # path, no towers, no mlx-vlm involvement.
-    "e4b-text": ModelProfile(
-        name="e4b-text",
-        model=os.path.join(MODELS_DIR, "gemma-4-E4B-it-8bit-text"),
-        lora_keys=_ATTN,
-        extra_eos=(1, 106, 50),
-    ),
 }
 
 
