@@ -160,7 +160,6 @@ def main() -> None:
                 def kind(p):
                     return "no_reply" if p.get("no_reply") else "answer" if p.get("answered") else "denial" if p.get("denial") else "abstain"
                 agg = {}
-                agree = 0
                 for ex, rec, r1, r2 in zip(fx, frec, res1, res2):
                     fam = ex.meta["family"]
                     for key in ("all", fam):

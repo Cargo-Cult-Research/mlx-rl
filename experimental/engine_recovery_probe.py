@@ -1,4 +1,5 @@
 """Does an anonymous-scraping block on brave/duckduckgo ever lift?
+# lifecycle: one-off (archive when the scraper question is closed -- it was: the scrapers were retired 2026-08-28)
 
 One query per engine every 10 minutes, logged. The question this settles:
 whether a slow background crawl (option 1 -- one query a minute for days) is
