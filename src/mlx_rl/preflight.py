@@ -56,8 +56,8 @@ def preflight(cfg) -> None:
         # registers the model via judge_local.register_resident_model). Only
         # a judge on DIFFERENT weights loads a second copy, invisible to
         # estimate_run_gb, and must be counted here.
-        jpath = tkw.get("judge_model_path") \
-            or "~/models/mlx/Qwen3.6-35B-A3B-4bit"
+        from .profiles import DEFAULT_JUDGE_MODEL
+        jpath = tkw.get("judge_model_path") or DEFAULT_JUDGE_MODEL
         try:
             if str(resolve_model_path(jpath)) != str(resolve_model_path(cfg.model)):
                 judge_gb = model_disk_gb(resolve_model_path(jpath))

@@ -20,8 +20,9 @@ difficulty sweeps and fall outside every training band (an all-fail group
 carries zero GRPO gradient), so they cost label accuracy only, not
 training signal.
 
-⚠️ SECURITY: same as tasks/code.py — candidate code runs in a plain
-subprocess with a timeout, NOT sandboxed.
+Candidate code runs through tasks/code.py's sandbox_run: Seatbelt (no
+network, writes confined to its temp dir) + rlimits + scrubbed env, one
+process per test case with the case's input on stdin.
 
 Curriculum: pass labels_file= (a difficulty_sweep JSONL for this task) plus
 min_pass=/max_pass= to restrict training draws to a difficulty band;
@@ -33,29 +34,19 @@ from __future__ import annotations
 import gzip
 import json
 import random
-import re
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 from .base import Example, RewardResult, register
+from .code import _extract_code, _resolve_sandbox_exec, sandbox_run
 
 _DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "deepcoder"
-_CODE_BLOCK = re.compile(r"```(?:python|py)?[ \t]*\n(.*?)```", re.DOTALL)
 _CASE_TIMEOUT_S = 10
 _PROMPT_SUFFIX = (
     "\n\nRead input from standard input and write the answer to standard "
     "output. Reply with your reasoning, then a complete Python program in "
     "one ```python code block."
 )
-
-
-def _extract_code(completion: str) -> str:
-    if "</think>" in completion:
-        completion = completion.split("</think>", 1)[1]
-    blocks = _CODE_BLOCK.findall(completion)
-    return (blocks[-1] if blocks else completion).strip()
 
 
 def _norm_out(s: str) -> str:
@@ -100,7 +91,8 @@ class DeepCoderTask:
     name = "deepcoder"
 
     def __init__(self, labels_file: str | None = None,
-                 min_pass: int = 0, max_pass: int = 10**9, **_):
+                 min_pass: int = 0, max_pass: int = 10**9, sandbox: bool = True, **_):
+        self._sandbox_exec = _resolve_sandbox_exec(sandbox)
         self._train = _load("train")
         self._eval = _load("test")
         if labels_file:
@@ -151,18 +143,13 @@ class DeepCoderTask:
         code = _extract_code(completion)
         if not code:
             return RewardResult(0.0, {"correct": 0.0, "code": 1.0, "nopatch": 1.0})
-        with tempfile.TemporaryDirectory() as d:
-            f = Path(d) / "cand.py"
-            f.write_text(code)
-            for case in example.meta["tests"]:
-                try:
-                    p = subprocess.run(
-                        [sys.executable, str(f)], cwd=d,
-                        input=case["input"], capture_output=True,
-                        text=True, timeout=_CASE_TIMEOUT_S)
-                except subprocess.TimeoutExpired:
-                    return RewardResult(0.0, {"correct": 0.0, "code": 1.0,
-                                              "timeout": 1.0})
-                if not _outputs_match(p.stdout, case["output"]):
-                    return RewardResult(0.0, {"correct": 0.0, "code": 1.0})
+        # Same Seatbelt + rlimit sandbox as the code/kodcode tasks: the
+        # candidate is model-written, so it never runs with trainer privileges.
+        for case in example.meta["tests"]:
+            p = sandbox_run({"cand.py": code}, [sys.executable, "cand.py"],
+                            self._sandbox_exec, _CASE_TIMEOUT_S, stdin=case["input"])
+            if p is None:
+                return RewardResult(0.0, {"correct": 0.0, "code": 1.0, "timeout": 1.0})
+            if not _outputs_match(p.stdout, case["output"]):
+                return RewardResult(0.0, {"correct": 0.0, "code": 1.0})
         return RewardResult(1.0, {"correct": 1.0, "code": 1.0})

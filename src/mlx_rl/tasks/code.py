@@ -82,7 +82,7 @@ def _resolve_sandbox_exec(sandbox: bool) -> str | None:
 
 
 def sandbox_run(files: dict[str, str], argv: list[str],
-                sandbox_exec: str | None, timeout: int):
+                sandbox_exec: str | None, timeout: int, stdin: str | None = None):
     """Run `argv` in a fresh temp dir seeded with `files` (relative paths in
     argv resolve there), under Seatbelt when sandbox_exec is set, always with
     rlimits and a scrubbed env. Returns the CompletedProcess, or None on
@@ -96,7 +96,7 @@ def sandbox_run(files: dict[str, str], argv: list[str],
         env = {"PATH": "/usr/bin:/bin", "HOME": str(d),
                "TMPDIR": str(d), "LC_ALL": "C.UTF-8"}
         try:
-            return subprocess.run(argv, cwd=d, env=env,
+            return subprocess.run(argv, cwd=d, env=env, input=stdin,
                                   preexec_fn=_limit_resources,
                                   capture_output=True, text=True,
                                   timeout=timeout)

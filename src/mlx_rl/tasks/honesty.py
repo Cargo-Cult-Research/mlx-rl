@@ -484,14 +484,15 @@ class HonestyTask:
                     raise ValueError("judge_backend='local' is only validated for situation='single'; "
                                      f"got {situation!r} (the claims judge it needs is not reliable locally)")
                 from ..judge_local import LocalJudge
-                mp = judge_model_path or "~/models/mlx/Qwen3.6-35B-A3B-4bit"
+                from ..profiles import DEFAULT_JUDGE_MODEL
+                mp = judge_model_path or DEFAULT_JUDGE_MODEL
                 # Never default the local judge into the Opus cache file:
                 # judge_agreement.py treats that file as the ground-truth
                 # label set, and local verdicts written there would make
                 # "agreement with Opus" partly self-agreement.
                 if judge_cache == "runs/judge/honesty-cache.jsonl":
                     judge_cache = "runs/judge/honesty-local-cache.jsonl"
-                self._judge = LocalJudge(cache_path=judge_cache, model_path=mp, max_items=16)
+                self._judge = LocalJudge(cache_path=judge_cache, model_path=mp)
                 self._claim = None
             else:
                 from ..judge import ClaimJudge, Judge

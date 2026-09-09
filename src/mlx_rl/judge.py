@@ -136,7 +136,10 @@ class Judge:
         self.cache_hits = 0
         if self.cache_path.exists():
             for line in self.cache_path.read_text().splitlines():
-                r = json.loads(line)
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:  # a crash mid-append: skip, re-judge
+                    continue
                 self._cache[r["key"]] = {"kind": r["kind"], "value": r["value"]}
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -234,8 +237,17 @@ class Judge:
             envelope = results[-1]
         if envelope.get("is_error"):
             raise JudgeError(f"claude error result: {envelope.get('result', '')[:300]}")
-        result = envelope.get("result", "")
-        arr = _extract_array(result)
+        verdicts = self._parse_verdicts(envelope.get("result", ""), n)
+        self._log_call(t0, n, model=self.model, session_id=envelope.get("session_id"),
+                       usage=envelope.get("usage"))
+        return verdicts
+
+    def _parse_verdicts(self, text: str, n: int) -> list[dict]:
+        """The JSON contract, validated the same way for every transport: n
+        records in order (the "i" field, when present, must agree with the
+        position -- a reordered array would otherwise be zipped onto the wrong
+        items silently), a known kind, and a non-empty value on VALUE_KIND."""
+        arr = _extract_array(text)
         if len(arr) != n:
             raise ValueError(f"judge returned {len(arr)} verdicts for {n} items")
         verdicts = []
@@ -250,12 +262,14 @@ class Judge:
                 raise ValueError(f"item {j}: kind={kind} without a value")
             verdicts.append({"kind": kind,
                              "value": value.strip() if kind == self.VALUE_KIND else None})
+        return verdicts
+
+    def _log_call(self, t0: float, n: int, **fields) -> None:
+        """One line per model call in <cache>.calls.jsonl with the provider's
+        usage envelope; scripts/judge_usage.py sums what was reported."""
         with self.log_path.open("a") as f:
             f.write(json.dumps({"ts": t0, "wall_s": round(time.time() - t0, 1),
-                                "n_items": n, "model": self.model,
-                                "session_id": envelope.get("session_id"),
-                                "usage": envelope.get("usage")}) + "\n")
-        return verdicts
+                                "n_items": n, **fields}) + "\n")
 
 
 class ClaimJudge(Judge):

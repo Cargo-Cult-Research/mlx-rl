@@ -23,6 +23,9 @@ from dataclasses import dataclass, field
 # ~/models/mlx, which expands to the same location the profiles historically
 # hardcoded.
 MODELS_DIR = os.environ.get("MLX_RL_MODELS_DIR", os.path.expanduser("~/models/mlx"))
+# The qwen36 35B base: the weights the honesty rows train from, so the local
+# judge on it rides the resident model for free (judge_local, preflight).
+DEFAULT_JUDGE_MODEL = os.path.join(MODELS_DIR, "Qwen3.6-35B-A3B-4bit")
 
 
 @dataclass(frozen=True)
@@ -59,7 +62,7 @@ PROFILES: dict[str, ModelProfile] = {
     # keys match nothing on the linear layers; target both kinds.
     "qwen36": ModelProfile(
         name="qwen36",
-        model=os.path.join(MODELS_DIR, "Qwen3.6-35B-A3B-4bit"),
+        model=DEFAULT_JUDGE_MODEL,
         lora_keys=_ATTN
         + (
             "linear_attn.in_proj_qkv",

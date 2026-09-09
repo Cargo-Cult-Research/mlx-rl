@@ -32,6 +32,11 @@ class MixtureTask:
 
     def _tag(self, name: str, ex: Example) -> Example:
         ex.meta["_task"] = name
+        # The trainer reads chat_template_kwargs off the TOP-level task only,
+        # so a sub-task's (toolformat's tools=, telephone's enable_thinking)
+        # would be lost here; carry them on the example instead.
+        ex.chat_kwargs = {**getattr(self._tasks[name], "chat_template_kwargs", {}),
+                          **ex.chat_kwargs}
         return ex
 
     def _pick(self, rng: random.Random) -> str:

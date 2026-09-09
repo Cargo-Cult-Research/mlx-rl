@@ -12,14 +12,13 @@ judge's because a local model's format-following degrades over long lists.
 """
 from __future__ import annotations
 
-import json
 import time
 from contextlib import nullcontext
 from functools import lru_cache
 
 from .judge import PREAMBLE as _BASE_PREAMBLE
-from .judge import ClaimJudge as _CJ
-from .judge import ClaimJudge, Judge, JudgeError, _extract_array
+from .judge import ClaimJudge, Judge, JudgeError
+from .profiles import DEFAULT_JUDGE_MODEL
 
 # The resident policy model, registered by the trainer (and any eval script
 # that has one loaded). When its base weights ARE the judge model — the
@@ -83,10 +82,9 @@ class _LocalMixin:
     # from, so in-training judging shares the resident model (free). The
     # judge_agreement/judge_reward_impact scripts pass other paths when
     # measuring judge models against each other.
-    def __init__(self, *a, model_path: str = "~/models/mlx/Qwen3.6-35B-A3B-4bit",
+    def __init__(self, *a, model_path: str = DEFAULT_JUDGE_MODEL,
                  max_items: int = 16, gen_tokens: int = 4096, **kw):
-        kw.setdefault("max_items", max_items)
-        super().__init__(*a, **kw)
+        super().__init__(*a, max_items=max_items, **kw)
         self.model_path = model_path
         self.gen_tokens = gen_tokens
         self.model_name = model_path.rstrip("/").split("/")[-1]
@@ -131,34 +129,14 @@ class _LocalMixin:
             out = generate(model, tokenizer, prompt=text, max_tokens=self.gen_tokens,
                            sampler=make_sampler(temp=temp), verbose=False)
         self.calls += 1
-        arr = _extract_array(out)          # same tolerant extractor as the CLI judge
-        if len(arr) != n:
-            raise ValueError(f"judge returned {len(arr)} verdicts for {n} items")
-        verdicts = []
-        for j, rec in enumerate(arr, 1):
-            # The CLI judge validates the "i" ordering field; without this a
-            # locally reordered array would be zipped positionally onto the
-            # wrong items with no error.
-            i = rec.get("i")
-            if i is not None and int(i) != j:
-                raise ValueError(f"item {j}: out-of-order verdict (i={i})")
-            kind = rec.get("kind")
-            if kind not in self.KINDS:
-                raise ValueError(f"item {j}: bad kind {kind!r}")
-            value = rec.get("value")
-            if kind == self.VALUE_KIND and not (isinstance(value, str) and value.strip()):
-                raise ValueError(f"item {j}: kind={kind} without a value")
-            verdicts.append({"kind": kind,
-                             "value": value.strip() if kind == self.VALUE_KIND else None})
+        verdicts = self._parse_verdicts(out, n)  # same contract as the CLI judge
         # Same usage shape the CLI judge logs, so one aggregator reads both.
         # These tokens are local compute, not billed -- "local": True is what
         # keeps them out of the spend total rather than the model name, which
         # is only a string and would drift.
-        with self.log_path.open("a") as f:
-            f.write(json.dumps({"ts": t0, "wall_s": round(time.time() - t0, 1),
-                                "n_items": n, "model": self.model_name, "local": True,
-                                "usage": {"input_tokens": len(tokenizer.encode(text)),
-                                          "output_tokens": len(tokenizer.encode(out))}}) + "\n")
+        self._log_call(t0, n, model=self.model_name, local=True,
+                       usage={"input_tokens": len(tokenizer.encode(text)),
+                              "output_tokens": len(tokenizer.encode(out))})
         return verdicts
 
 
@@ -190,7 +168,7 @@ containing several numbered answers is still ONE item.
 class LocalClaimJudge(_LocalMixin, ClaimJudge):
     """claims_result / reports_failure / no_claim, locally."""
 
-    PREAMBLE = _CJ.PREAMBLE.replace("Judge only what the text says",
+    PREAMBLE = ClaimJudge.PREAMBLE.replace("Judge only what the text says",
                                     _CLAIM_RULES + "Judge only what the text says")
 
 
