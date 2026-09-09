@@ -451,17 +451,32 @@ def update_policy(model, optimizer, loss_and_grad, rollouts, advantages, cfg,
     return pg_total / denom, kl_total / denom, gnorm
 
 
+
+
+def _eval_set(task, cfg: TrainConfig) -> tuple[TrainConfig, list[Example]]:
+    """The held-out examples every eval flavour scores: a fixed seed disjoint
+    from the training stream, the task's eval split when it has one, and the
+    eval-only length cap applied to the config."""
+    if cfg.eval_max_new_tokens:
+        cfg = replace(cfg, max_new_tokens=cfg.eval_max_new_tokens)
+    rng = random.Random(cfg.seed + 100_000)
+    esample = getattr(task, "eval_sample", task.sample)
+    return cfg, [esample(rng) for _ in range(cfg.eval_n)]
+
+
+def _mean_parts(results, prefix: str = "eval_") -> dict:
+    """Mean of every reward part over a result list, absent parts as 0."""
+    keys = sorted({k for r in results for k in r.parts})
+    return {f"{prefix}{k}": float(np.mean([r.parts.get(k, 0.0) for r in results])) for k in keys}
+
+
 def evaluate(model, tokenizer, task, cfg: TrainConfig):
     """Greedy decode on a fixed held-out set (batched); returns mean reward + rates."""
     if int(getattr(task, "turns", 1)) > 1:
         return evaluate_multiturn(model, tokenizer, task, cfg)
     if getattr(task, "tools", None):
         return evaluate_episodes(model, tokenizer, task, cfg)
-    if cfg.eval_max_new_tokens:
-        cfg = replace(cfg, max_new_tokens=cfg.eval_max_new_tokens)
-    rng = random.Random(cfg.seed + 100_000)  # disjoint from training stream
-    esample = getattr(task, "eval_sample", task.sample)  # held-out split, no leak
-    examples = [esample(rng) for _ in range(cfg.eval_n)]
+    cfg, examples = _eval_set(task, cfg)
     groups, _, _ = _sample_batched(model, tokenizer, examples, cfg, 1, 0.0, task)
     think_close = _think_close_marker(tokenizer, cfg, task)
     visibles = [_visible_reply(_completion_text(tokenizer, group[0]),
@@ -489,9 +504,7 @@ def evaluate(model, tokenizer, task, cfg: TrainConfig):
     if rfcs_vals:
         out["eval_rfcs"] = float(np.mean(rfcs_vals))
         out["eval_rfcs_n"] = len(rfcs_vals)
-    for key in sorted({k for r in results for k in r.parts}):
-        out[f"eval_{key}"] = float(np.mean([r.parts.get(key, 0.0) for r in results]))
-    return out
+    return {**out, **_mean_parts(results)}
 
 
 def train(cfg: TrainConfig, out_dir: str | Path) -> Path:
@@ -1415,11 +1428,7 @@ def evaluate_cells(model, tokenizer, cells, cfg: TrainConfig) -> dict:
 
 def evaluate_episodes(model, tokenizer, task, cfg: TrainConfig):
     """Greedy episode eval on the task's held-out split."""
-    if cfg.eval_max_new_tokens:
-        cfg = replace(cfg, max_new_tokens=cfg.eval_max_new_tokens)
-    rng = random.Random(cfg.seed + 100_000)
-    esample = getattr(task, "eval_sample", task.sample)
-    examples = [esample(rng) for _ in range(cfg.eval_n)]
+    cfg, examples = _eval_set(task, cfg)
     # Chunked, with backoff: this used to hand the whole eval set to the
     # generator at once, so raising eval_n to get a readable curve (160 items,
     # to cut the standard error below the effect size) killed the run on a
@@ -1451,8 +1460,7 @@ def evaluate_episodes(model, tokenizer, task, cfg: TrainConfig):
         "eval_rounds": float(np.mean([g[0].rounds for g in groups])),
         "eval_n_graded": len(alive),
     }
-    for key in sorted({k for r in a_results for k in r.parts}):
-        out[f"eval_{key}"] = float(np.mean([r.parts.get(key, 0.0) for r in a_results]))
+    out.update(_mean_parts(a_results))
     out["eval_len_capped"] = float(np.mean(is_capped))  # over ALL episodes, after the parts
     # Per-regime slices: the falsification test lives here (post vs future
     # on the same papers must differ).
@@ -1596,11 +1604,7 @@ def collect_multiturn(model, tokenizer, examples, cfg: TrainConfig, task):
 def evaluate_multiturn(model, tokenizer, task, cfg: TrainConfig):
     """Greedy multi-turn eval: per-turn reward and rates on the held-out
     split, so 'does the behaviour survive to turn 3+' is a number."""
-    if cfg.eval_max_new_tokens:
-        cfg = replace(cfg, max_new_tokens=cfg.eval_max_new_tokens)
-    rng = random.Random(cfg.seed + 100_000)
-    esample = getattr(task, "eval_sample", task.sample)
-    examples = [esample(rng) for _ in range(cfg.eval_n)]
+    cfg, examples = _eval_set(task, cfg)
     ecfg = replace(cfg, group_size=1, temperature=0.0)
     rollouts, _, _ = collect_multiturn(model, tokenizer, examples, ecfg, task)
     out = {"eval_reward": float(np.mean([r.reward for r in rollouts])),
