@@ -48,9 +48,9 @@ them, and the report prints raw replies per bucket for the eyeball check.
 
 Run twice (base, then --adapter) and diff:
 
-    .venv/bin/python experimental/qa_chat_probe.py \
+    .venv/bin/python scripts/qa_chat_probe.py \
         --calib runs/qa-calib-YYYYMMDD/calib.jsonl --out runs/qa-chat-base
-    .venv/bin/python experimental/qa_chat_probe.py \
+    .venv/bin/python scripts/qa_chat_probe.py \
         --calib runs/qa-calib-YYYYMMDD/calib.jsonl \
         --adapter runs/qa-full-YYYYMMDD/adapters --out runs/qa-chat-rl
 

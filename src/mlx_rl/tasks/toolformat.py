@@ -156,14 +156,6 @@ def _fill(rng: random.Random, tool: str, template: str) -> tuple[str, dict]:
     return template.format(**args), args
 
 
-def render_call(name: str, args: dict) -> str:
-    """The one true form, per the model's own chat template."""
-    params = "".join(
-        f"<parameter={k}>\n{v}\n</parameter>\n" for k, v in args.items()
-    )
-    return f"<tool_call>\n<function={name}>\n{params}</function>\n</tool_call>"
-
-
 @register
 class ToolFormatTask:
     name = "toolformat"

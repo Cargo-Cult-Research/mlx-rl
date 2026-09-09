@@ -18,31 +18,12 @@ import random
 import re
 from fractions import Fraction
 
+from ..rfcs import to_number as _to_number
 from .base import Example, RewardResult, register
 
 _REPO = "agentica-org/DeepScaleR-Preview-Dataset"
 _FILE = "deepscaler.json"
 _N_EVAL = 200
-# int / decimal / fraction, optional commas-as-thousands, optional $…$ wrap
-_NUMERIC = re.compile(r"-?[\d,]+(?:\.\d+)?(?:\s*/\s*-?\d+)?")
-
-
-def _to_number(s: str) -> Fraction | None:
-    """Normalize an answer string to an exact Fraction, or None if non-numeric."""
-    s = s.strip().strip("$").replace("\\!", "").replace("\\,", "").strip()
-    m = _NUMERIC.fullmatch(s)
-    if not m:
-        return None
-    s = s.replace(",", "").replace(" ", "")
-    try:
-        if "/" in s:
-            num, den = s.split("/")
-            return Fraction(int(num), int(den))
-        return Fraction(s)
-    except (ValueError, ZeroDivisionError):
-        return None
-
-
 def _last_boxed(text: str) -> str | None:
     """Contents of the last \\boxed{...}, with balanced-brace parsing."""
     start = text.rfind("\\boxed{")

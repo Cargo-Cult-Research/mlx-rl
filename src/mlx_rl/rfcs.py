@@ -21,9 +21,17 @@ _RATIO = re.compile(r"(-?\d+)\s*/\s*(\d+)")
 _FRAC = re.compile(r"\\[dt]?frac\{(-?\d+)\}\{(-?\d+)\}")
 
 
+# int / decimal / fraction, optional commas-as-thousands, optional $…$ wrap
+_NUMERIC = re.compile(r"-?[\d,]+(?:\.\d+)?(?:\s*/\s*-?\d+)?")
+
+
 def to_number(s: str) -> Fraction | None:
-    """Answer string -> exact Fraction, or None if non-numeric."""
-    s = s.strip().strip("$").replace(",", "").replace(" ", "")
+    """Answer string -> exact Fraction, or None if non-numeric. Shared by the
+    math task's grader and the RFCS step scan so both agree on what a number is."""
+    s = s.strip().strip("$").replace("\\!", "").replace("\\,", "").strip()
+    if not _NUMERIC.fullmatch(s):
+        return None
+    s = s.replace(",", "").replace(" ", "")
     try:
         if "/" in s:
             num, den = s.split("/")

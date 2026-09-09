@@ -962,18 +962,14 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
         group = rollouts[: cfg.group_size]
         # Same scoreboard to the live dashboard (dash.), one amber note per
         # step next to the streamed episodes; rl-dash. shows the full group.
-        try:
-            _tap().note(
-                f"step {step}: reward {rec['reward_mean']:+.2f}±{rec['reward_std']:.2f} "
-                f"active {int(active.sum())}/{len(rewards)} len {rec['mean_len']:.0f} "
-                + " ".join(f"{k[5:]} {v:.2f}" for k, v in rec.items()
-                           if k.startswith("frac_") and k in (
-                               "frac_correct", "frac_called", "frac_abstain",
-                               "frac_denial", "frac_no_reply", "frac_len_capped"))
-                + f" | first group: {' '.join(f'{r.reward:+.1f}' for r in group)}"
-                + f" | gen {rec['gen_s']:.0f}s upd {rec['update_s']:.0f}s")
-        except Exception:
-            pass
+        _tap().note(
+            f"step {step}: reward {rec['reward_mean']:+.2f}±{rec['reward_std']:.2f} "
+            f"active {int(active.sum())}/{len(rewards)} len {rec['mean_len']:.0f} "
+            + " ".join(f"{k[5:]} {rec[k]:.2f}" for k in (
+                "frac_correct", "frac_called", "frac_abstain",
+                "frac_denial", "frac_no_reply", "frac_len_capped") if k in rec)
+            + f" | first group: {' '.join(f'{r.reward:+.1f}' for r in group)}"
+            + f" | gen {rec['gen_s']:.0f}s upd {rec['update_s']:.0f}s")
         samples_f.write(
             json.dumps(
                 {

@@ -26,7 +26,7 @@ import json
 import re
 from pathlib import Path
 
-from .webtools import _content_words, relevance
+from .webtools import _content_words, relevance, render_results
 
 _ARXIV_ID = re.compile(r"arxiv\.org/(?:abs|pdf)/(\d{2})(\d{2})\.\d{4,5}")
 
@@ -35,15 +35,6 @@ def _clean(s: str) -> str:
     """Tag-stripped text -> what a person would read. Entities decoded
     (`&quot;` costs six characters to say `"`), whitespace collapsed."""
     return " ".join(html.unescape(re.sub(r"<[^>]+>", "", s)).split())
-
-
-def _ellipsize(s: str, limit: int) -> str:
-    """Cut at a word boundary and SAY it was cut."""
-    if len(s) <= limit:
-        return s
-    cut = s[: limit - 1]
-    sp = cut.rfind(" ")
-    return (cut[:sp] if sp > limit * 0.6 else cut).rstrip() + "\u2026"
 
 
 def _arxiv_month(href: str) -> str | None:
@@ -134,22 +125,10 @@ class SerpIndex:
         return hits[: self.max_hits]
 
     def render(self, hits: list[dict], query: str = "") -> str:
-        """Search-engine shaped. What an empty MEANS is the policy's call.
-
-        Each body is capped BEFORE the whole is, because a single verbose
-        result must not evict the others. Measured on the first 353 captures:
-        one ACL BibTeX snippet ran to 1,008 characters and a flat 1,600-char
-        total cut results 4 and 5 off 95% of renders -- on an authors question,
-        severing the one hit that listed the authors. Caps land on a word
-        boundary with an ellipsis, so the policy can see that it was cut
-        rather than reading a half-word as a fact.
-        """
+        """Search-engine shaped. What an empty MEANS is the policy's call."""
         if not hits:
             return f'No results found for "{query.strip()[:120]}".'
-        lines = [f"{i}. {h['title']}\n   {h['href']}\n   "
-                 f"{_ellipsize(h.get('body', ''), self.body_chars)}"
-                 for i, h in enumerate(hits, 1)]
-        return _ellipsize("\n".join(lines), self.max_chars)
+        return render_results(hits, self.max_chars, self.body_chars)
 
     def coverage(self) -> dict:
         """What the corpus can and cannot answer -- for the lab book."""

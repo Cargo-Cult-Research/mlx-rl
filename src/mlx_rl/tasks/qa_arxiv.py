@@ -76,8 +76,6 @@ DATE_LINE = "Today's date is {today}."
 # prompt + date and nothing else.
 from ..webtools import FETCH_URL_TOOL, WEB_SEARCH_TOOL, WebTools  # noqa: E402
 
-SEARCH_TOOL = WEB_SEARCH_TOOL  # backwards-compatible name
-
 # The model's native emission format (qwen3 chat template): an inner
 # <function=NAME> block nested in <tool_call> tags.
 _FUNC_RE = re.compile(r"<function=([A-Za-z_][A-Za-z0-9_]*)>(.*?)</function>", re.S)
@@ -94,6 +92,7 @@ def parse_tool_call(text: str):
 
 
 def format_tool_call(name: str, **params) -> str:
+    """The one true form, per the model's own chat template."""
     body = "".join(f"<parameter={k}>\n{v}\n</parameter>\n" for k, v in params.items())
     return f"<tool_call>\n<function={name}>\n{body}</function>\n</tool_call>"
 

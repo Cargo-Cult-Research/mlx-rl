@@ -223,7 +223,7 @@ a name gets **promoted to an adapter library** (defaults to
 `~/models/adapters/<name>/`):
 
 ```sh
-uv run python -m mlx_rl.promote runs/myrun --name sage-arith
+uv run python scripts/promote_adapter.py runs/myrun --name sage-arith
 ```
 
 (The library location can be overridden with `MLX_RL_ADAPTERS_DIR`.)

@@ -116,10 +116,27 @@ def _content_words(s: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", s.lower())) - _STOP
 
 
-def _render(results: list[dict], limit: int) -> str:
-    lines = [f"{i}. {r['title']}\n   {r['href']}\n   {r['body']}"
+def ellipsize(s: str, limit: int) -> str:
+    """Cut at a word boundary and SAY it was cut."""
+    if len(s) <= limit:
+        return s
+    cut = s[: limit - 1]
+    sp = cut.rfind(" ")
+    return (cut[:sp] if sp > limit * 0.6 else cut).rstrip() + "\u2026"
+
+
+def render_results(results: list[dict], limit: int, body_chars: int = 400) -> str:
+    """Search-engine shaped result list. Each body is capped BEFORE the whole
+    is, because a single verbose result must not evict the others. Measured
+    on the first 353 captures: one ACL BibTeX snippet ran to 1,008 characters
+    and a flat 1,600-char total cut results 4 and 5 off 95% of renders -- on
+    an authors question, severing the one hit that listed the authors. Caps
+    land on a word boundary with an ellipsis, so the policy can see that it
+    was cut rather than reading a half-word as a fact."""
+    lines = [f"{i}. {r['title']}\n   {r['href']}\n   "
+             f"{ellipsize(r.get('body', ''), body_chars)}"
              for i, r in enumerate(results, 1)]
-    return "\n".join(lines)[:limit]
+    return ellipsize("\n".join(lines), limit)
 
 
 def relevance(query: str, results: list[dict]) -> float:
@@ -329,7 +346,7 @@ class WebTools:
                 rel = relevance(q, results)
                 d = {"ok": True, "results": results, "engine": engine,
                      "relevance": round(rel, 3),
-                     "text": _render(results, self.search_chars)}
+                     "text": render_results(results, self.search_chars)}
                 if rel >= self.min_relevance:
                     return d
                 # Off-topic. NOT a hit: the engine answered a different
