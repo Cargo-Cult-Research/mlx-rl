@@ -201,6 +201,9 @@ _buckets_lock = threading.Lock()
 def _rate_ok(ip: str) -> bool:
     now = time.monotonic()
     with _buckets_lock:
+        if len(_buckets) > 2000:   # public endpoint: never let the dict grow without bound
+            for k in [k for k, (_, t) in _buckets.items() if now - t > 3600]:
+                del _buckets[k]
         tokens, last = _buckets.get(ip, [float(RATE_BURST), now])
         tokens = min(RATE_BURST, tokens + (now - last) * RATE_PER_MIN / 60.0)
         if tokens < 1.0:
@@ -360,13 +363,15 @@ def make_handler(upstream: str):
             Rounds are capped, so a model that loops on tool calls costs a
             bounded number of generations."""
             tools = [SEARCH_TOOL] if use_tools else None
-            for _ in range(MAX_TOOL_ROUNDS if use_tools else 1):
+            for rnd in range(MAX_TOOL_ROUNDS if use_tools else 1):
                 ok, text = self._stream_once(arm, msgs, adapter, tools)
                 if not ok:
                     return False
                 call = parse_tool_call(text) if use_tools else None
                 if not call:
                     return True
+                if rnd == MAX_TOOL_ROUNDS - 1:
+                    break   # no generation left to read the result: skip the live arXiv call
                 name, params = call
                 if name != SEARCH_TOOL["function"]["name"]:
                     result = "Error: unknown tool '{}'.".format(name)
