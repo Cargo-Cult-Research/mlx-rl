@@ -18,6 +18,8 @@ import copy
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
+import importlib.util
+import os
 
 import mlx.core as mx
 from mlx_lm.generate import BatchGenerator, BatchStats
@@ -378,7 +380,44 @@ def _answer_phase(model, cand: _Cand, *, eos: set[int], max_new_tokens: int,
     return Completion(cand.tokens, cand.logprobs, "length", think_len)
 
 
-class _QuantizedKVBatchGenerator(BatchGenerator):
+def _load_small_batch_kernel():
+    """The machine-local small-batch matmul kernel, if present.
+
+    MLX's 4-bit matmul is ~2x off its floor for 6-16 decode rows — the row
+    count a group of G=8-16 rollouts runs at (dense 27B decode step at 16
+    rows: 141 -> 86 ms). housekeeping/kernels/qmm_small.py patches
+    nn.QuantizedLinear for that window; it is discovered the way memlease is
+    (MLX_RL_QMM_SMALL=<path>, default ~/code/housekeeping/kernels/qmm_small.py,
+    empty/absent = off). The custom kernel has no gradient, so it is applied
+    only around generator steps, never the update pass."""
+    path = os.environ.get("MLX_RL_QMM_SMALL",
+                          os.path.expanduser("~/code/housekeeping/kernels/qmm_small.py"))
+    if not path or not os.path.exists(path):
+        return None
+    spec = importlib.util.spec_from_file_location("qmm_small", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_QMM_SMALL = _load_small_batch_kernel()
+
+
+class _RolloutBatchGenerator(BatchGenerator):
+    """BatchGenerator whose decode steps run with the small-batch kernel
+    (_next is the step both next() and next_generated() go through)."""
+
+    def _next(self):
+        if _QMM_SMALL is None:
+            return super()._next()
+        _QMM_SMALL.patch()
+        try:
+            return super()._next()
+        finally:
+            _QMM_SMALL.unpatch()
+
+
+class _QuantizedKVBatchGenerator(_RolloutBatchGenerator):
     """BatchGenerator with per-sequence quantized KV caches.
 
     mlx-lm's kv_bits support (maybe_quantize_kv_cache) only exists on the
@@ -411,7 +450,7 @@ def _eos_set(tokenizer, extra_eos) -> set[int]:
 
 def _make_generator(model, stops, max_new_tokens, temperature, completion_batch_size,
                     group_size, prefill_batch_size, prefill_step_size, kv_bits):
-    gen_cls = BatchGenerator if kv_bits is None else _QuantizedKVBatchGenerator
+    gen_cls = _RolloutBatchGenerator if kv_bits is None else _QuantizedKVBatchGenerator
     gen_kw = {} if kv_bits is None else {"kv_bits": kv_bits}
     return gen_cls(
         model,

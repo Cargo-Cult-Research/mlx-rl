@@ -26,6 +26,13 @@ training-weak machine is good at.
 - **SAGE-RL hybrid rollouts** (arXiv 2602.08354): optionally generate r of
   the G group members with SAGE confidence-guided decoding — see the
   dedicated section below.
+- **Optional small-batch kernel:** a group of G=8–16 rollouts decodes at
+  8–16 rows, where MLX's 4-bit matmul re-streams weights or pads to a 32-row
+  tile. If `~/code/housekeeping/kernels/qmm_small.py` exists (or
+  `MLX_RL_QMM_SMALL` points at it; set it empty to disable) the engine
+  applies its 8/16-row Metal tiles around generator steps only — the kernel
+  has no gradient, so the update pass never sees it. Dense 27B rollouts at 16
+  rows: 110 → 184 tok/s.
 - **Optional memory lease:** if you run something else memory-hungry on the
   same box (e.g. a local inference server), point `MLX_RL_MEMLEASE_CMD` at an
   external coordinator command and the trainer will call it to make room before
