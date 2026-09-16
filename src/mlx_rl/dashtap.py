@@ -1,14 +1,10 @@
-"""Live-dashboard tap discovery (housekeeping dashboard on :8097).
+"""Optional live tap on the rollout token streams.
 
-Rollouts mirror their token streams to the machine's live dashboard so Urs
-can watch training generations from his phone, exactly like :8084 traffic.
-Same discovery pattern as the memory lease (machine.py): zero hard deps —
-``~/code/housekeeping/dash/tap.py`` is probed at import time and any failure
-degrades to a no-op tap.
-
-Env:
-  MLX_RL_DASHTAP=0        disable the tap entirely
-  MLX_RL_DASHTAP=/path    override the probed tap.py location
+Point ``MLX_RL_DASHTAP`` at a module exposing ``DashTap(src=...)`` with
+``start(**meta) -> rid``, ``text(rid, s)``, ``end(rid, **meta)`` and
+``note(text)``, and rollouts mirror what they generate to it as it decodes.
+Unset, or on any failure to load, this is a no-op: nothing in training
+depends on it.
 """
 
 from __future__ import annotations
@@ -33,10 +29,9 @@ class NullTap:
 
 
 def load_tap():
-    override = os.environ.get("MLX_RL_DASHTAP")
-    if override == "0":
+    path = os.environ.get("MLX_RL_DASHTAP", "")
+    if not path or path == "0":
         return NullTap()
-    path = override or os.path.expanduser("~/code/housekeeping/dash/tap.py")
     try:
         spec = importlib.util.spec_from_file_location("_dashtap_lib", path)
         mod = importlib.util.module_from_spec(spec)
