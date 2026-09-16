@@ -7,7 +7,6 @@ from . import (  # noqa: F401  (registers the tasks)
     math,
     mixture,
     qa_abstain,
-    qa_arxiv,
     toolformat,
 )
 from .base import Example, RewardResult, Task, get_task

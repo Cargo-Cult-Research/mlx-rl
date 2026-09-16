@@ -1376,7 +1376,7 @@ def build_eval_cells(cfg: TrainConfig) -> dict:
     """
     if not cfg.eval_cells:
         return {}
-    from .tasks.honesty import CALIB, CELL_KWARGS, DOMAIN_SCOPED, HonestyTask
+    from .tasks.honesty import CALIB, DOMAIN_SCOPED, HonestyTask
     cells = {}
     for spec in filter(None, (s.strip() for s in cfg.eval_cells.split(","))):
         domain, _, situation = spec.partition(":")
@@ -1384,7 +1384,6 @@ def build_eval_cells(cfg: TrainConfig) -> dict:
         kw = dict(cfg.task_kwargs)
         for k in DOMAIN_SCOPED:             # per-domain, never carried over
             kw.pop(k, None)
-        kw.update(CELL_KWARGS.get(domain, {}))
         kw["domain"], kw["situation"] = domain, situation
         if domain in CALIB:
             kw["calib_file"] = CALIB[domain]

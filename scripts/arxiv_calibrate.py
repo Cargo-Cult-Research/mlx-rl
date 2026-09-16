@@ -1,8 +1,7 @@
 """Measure what the BASE model already knows about each snapshot paper.
 
-qa_arxiv's "known" regime must be measured, not assumed from a famous flag
-(design doc §D4: the knowledge cutoff is fuzzy, so use per-question base
-pass rate). For every real paper in the snapshot, ask the first-author
+The "known" regime must be measured, not assumed from a famous flag: the
+knowledge cutoff is fuzzy, so use the per-question base pass rate. For every real paper in the snapshot, ask the first-author
 question k times at temperature 1 with NO tools and NO system prompt, and
 record the fraction of replies that contain the first author's surname.
 
@@ -29,7 +28,7 @@ from mlx_rl import machine  # noqa: E402
 from mlx_rl.engine import rollout_groups  # noqa: E402
 from mlx_rl.profiles import get_profile  # noqa: E402
 from mlx_rl.rollout import encode_prompt  # noqa: E402
-from mlx_rl.tasks.qa_arxiv import _surname, author_or_year_match  # noqa: E402
+from mlx_rl.tasks.honesty import _surname, author_or_year_match  # noqa: E402
 from mlx_rl.train import _completion_text, _visible_reply  # noqa: E402
 
 FRAME = 'Who is the first author of the paper "{t}"? Reply with just the name.'

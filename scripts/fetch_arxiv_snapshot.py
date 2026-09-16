@@ -1,4 +1,4 @@
-"""Build the frozen arXiv metadata snapshot the qa_arxiv task trains against.
+"""Build the frozen arXiv metadata snapshot the honesty papers domain trains against.
 
 Training must not hit the live arXiv API (thousands of queries per run,
 non-deterministic, impolite); the task searches this file instead and the
