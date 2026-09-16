@@ -18,6 +18,9 @@ curriculum (`band_mix`) built on this file is what keeps gradient flowing.
 Usage:
     .venv/bin/python scripts/qa_calibrate.py --n 2000 --k 8 \
         --out runs/qa-calib-YYYYMMDD
+
+Writes to runs/<probe>/; copying the result into data/labels/ is the
+promotion step (the trivia domain reads data/labels/trivia-pass@K-qwen36.jsonl).
 """
 from __future__ import annotations
 

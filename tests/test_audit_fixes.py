@@ -362,7 +362,7 @@ def test_serps_found_target_false_on_empty():
     import random
     from mlx_rl.tasks.qa_arxiv import QAArxivTask
     t = QAArxivTask(backend="serps", judge=False,
-                    calib_file="runs/arxiv-calib-20260816/calib-strict.jsonl")
+                    calib_file="data/labels/papers-pass@4-qwen36.jsonl")
     rng = random.Random(0)
     for _ in range(600):
         ex = t._example(rng, "eval")
@@ -382,7 +382,7 @@ def test_serps_fictional_returns_real_papers_not_an_empty():
     import random
     from mlx_rl.tasks.qa_arxiv import QAArxivTask
     t = QAArxivTask(backend="serps", judge=False,
-                    calib_file="runs/arxiv-calib-20260816/calib-strict.jsonl")
+                    calib_file="data/labels/papers-pass@4-qwen36.jsonl")
     rng = random.Random(0)
     checked = 0
     for _ in range(900):

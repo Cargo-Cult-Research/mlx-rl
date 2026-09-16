@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import random
 import re
+from datetime import date, timedelta
 from pathlib import Path
 
 from ..toolfail import FailingTools
@@ -32,6 +33,20 @@ from .qa_abstain import QAAbstainTask as _QA
 from .qa_arxiv import DATE_LINE, QAArxivTask, author_or_year_match
 
 PUSHBACK = "What exactly did the page or search result say? Quote the relevant part."
+
+# Where each domain's difficulty calibration lives (data/README.md). Kept here
+# rather than in a script so the trainer and the matrix eval cannot drift
+# apart on which file a domain was calibrated against.
+CALIB = {"papers": "data/labels/papers-pass@4-qwen36.jsonl",
+         "trivia": "data/labels/trivia-pass@8-qwen36.jsonl"}
+
+# The stated "today" is drawn per example from this window.
+TODAY_FROM, TODAY_TO = "2025-06-01", "2027-06-30"
+
+
+def _rand_date(rng, lo: str = TODAY_FROM, hi: str = TODAY_TO) -> str:
+    a, b = date.fromisoformat(lo), date.fromisoformat(hi)
+    return (a + timedelta(days=rng.randint(0, (b - a).days))).isoformat()
 
 
 # --------------------------------------------------------------------------- domains
@@ -55,8 +70,8 @@ class PapersDomain:
     paper is the skill, and only serps asks for it.
     """
 
-    def __init__(self, backend="web", **kw):
-        self.task = QAArxivTask(backend=backend, judge=False, **kw)
+    def __init__(self, backend="web", calib_file=CALIB["papers"], **kw):
+        self.task = QAArxivTask(backend=backend, calib_file=calib_file, judge=False, **kw)
         self.tools = self.task.tools
 
     def sample(self, rng, split):
@@ -74,14 +89,14 @@ _TRIVIA_FRAMES = ["{q}", "quick one — {q}", "Settle a debate for me: {q}",
 
 
 class TriviaDomain:
-    """TriviaQA questions with alias gold, web tools; bands from the July
-    calibration (runs/qa-calib-20260724/calib.jsonl: pass_rate per qid)."""
+    """TriviaQA questions with alias gold, web tools; bands from the measured
+    pass rate per qid in calib_file."""
 
-    def __init__(self, calib_file="runs/qa-calib-20260724/calib.jsonl", eval_frac=0.15,
+    def __init__(self, calib_file=CALIB["trivia"], eval_frac=0.15,
                  seed=12345, webcache_dir="runs/webcache", regime_mix=None, **_):
         self.tools = [WEB_SEARCH_TOOL, FETCH_URL_TOOL]
         self.web = WebTools(cache_dir=webcache_dir)
-        rates = {r["qid"]: float(r["pass_rate"]) for r in read_jsonl(calib_file, lenient=True)}
+        rates = {r["qid"]: float(r["pass_rate"]) for r in read_jsonl(calib_file)}
         rows = [r for r in load_triviaqa() if r["qid"] in rates]  # only calibrated items
         rng = random.Random(seed)
         rng.shuffle(rows)
@@ -101,7 +116,7 @@ class TriviaDomain:
         names = [n for n in self.regime_mix if pools.get(n)]
         band = rng.choices(names, weights=[self.regime_mix[n] for n in names], k=1)[0]
         row = rng.choice(pools[band])
-        today = "2026-08-18"
+        today = _rand_date(rng)
         q = rng.choice(_TRIVIA_FRAMES).format(q=row["question"])
         regime = "known" if band == "known" else "post"   # findable on the web
         return Example(
@@ -134,12 +149,6 @@ class TriviaDomain:
 
 
 DOMAINS = {"papers": PapersDomain, "trivia": TriviaDomain}
-
-# Where each domain's difficulty calibration lives. Kept here rather than in a
-# script so the trainer and the matrix eval cannot drift apart on which file a
-# domain was calibrated against.
-CALIB = {"papers": "runs/arxiv-calib-20260816/calib-strict.jsonl",
-         "trivia": "runs/qa-calib-20260724/calib.jsonl"}
 
 # Kwargs that mean something in one domain and nothing (or the wrong thing) in
 # another, so a held-out cell must never inherit the training task's value.

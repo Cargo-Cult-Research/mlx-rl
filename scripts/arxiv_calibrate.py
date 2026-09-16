@@ -10,6 +10,9 @@ Output: jsonl {"id", "title", "pass_rate", "k"} — pass it to the task as
 task_kwargs calib_file; known = pass_rate >= 0.8.
 
     uv run python scripts/arxiv_calibrate.py --out runs/arxiv-calib-<date>/calib.jsonl
+
+Writes to runs/<probe>/; copying the result into data/labels/ is the
+promotion step (the papers domain reads data/labels/papers-pass@K-qwen36.jsonl).
 """
 from __future__ import annotations
 

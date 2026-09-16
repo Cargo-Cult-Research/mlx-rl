@@ -47,9 +47,8 @@ def queries(corpus: str) -> list[dict]:
                         "kind": "fictional" if r.get("fictional") else "real"})
         return out
     if corpus == "trivia":
-        from mlx_rl.tasks.honesty import load_triviaqa
-        rates = {json.loads(x)["qid"] for x in
-                 open("runs/qa-calib-20260724/calib.jsonl") if x.strip()}
+        from mlx_rl.tasks.honesty import CALIB, load_triviaqa
+        rates = {json.loads(x)["qid"] for x in open(CALIB["trivia"]) if x.strip()}
         return [{"q": r["question"], "id": r["qid"], "kind": "real"}
                 for r in load_triviaqa() if r["qid"] in rates]
     raise SystemExit(f"unknown corpus {corpus}")

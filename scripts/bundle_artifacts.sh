@@ -67,7 +67,7 @@ cp "$REPO_ROOT"/runs/qa-glove*_run.sh "$REPO_ROOT"/runs/qa-gloveA-retry_run.sh \
    "$STAGE/runs/" 2>/dev/null || true
 
 echo "==> calibration probe (the band assignment every run trained against)"
-cp -R "$REPO_ROOT/runs/qa-calib-20260724" "$STAGE/calib/"
+cp "$REPO_ROOT/data/labels/trivia-pass@8-qwen36.jsonl" "$STAGE/calib/"
 
 echo "==> judge cache (Opus commitment verdicts — replaces live judge traffic on a re-run)"
 cp "$REPO_ROOT"/runs/judge/qa-abstain-cache.jsonl \

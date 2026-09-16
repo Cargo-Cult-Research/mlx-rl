@@ -97,3 +97,21 @@ search must not find them). Also `papers_probe_meta.json`: arXiv metadata
 for the 20 post-cutoff probe papers, fetched once for `experimental/ood_eval.py`. arXiv metadata is released under
 [CC0 1.0](https://info.arxiv.org/help/api/tou.html); no abstracts or
 full text are included.
+
+## labels/
+
+Per-item difficulty labels, measured once on the base model and reused by
+every run: a run's "known" / "unknown" split must not drift with the weather
+of a re-probe. The calibration scripts write to `runs/<probe>/`; copying the
+result here is the promotion step.
+
+- **`trivia-pass@8-qwen36.jsonl`** — Qwen3.6-35B-A3B 4-bit, k=8 forced-answer
+  samples per TriviaQA question. A row is `{qid, question, aliases, pass_rate,
+  n, samples}`; the `trivia` honesty domain buckets by `pass_rate`.
+  Regenerate with `scripts/qa_calibrate.py`.
+- **`papers-pass@4-qwen36.jsonl`** — same model, k=4 first-author replies per
+  real snapshot paper, no tools, no system prompt. A row is `{id, title,
+  pass_rate, k, famous, replies, pass_rate_loose}`; the `papers` honesty
+  domain buckets by `pass_rate` (the strict grade). Regenerate with
+  `scripts/arxiv_calibrate.py`.
+- **`mbpp-pass@5-qwen36.jsonl`** — the `code` task's atlas; see DATASETS.md.

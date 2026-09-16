@@ -49,9 +49,9 @@ them, and the report prints raw replies per bucket for the eyeball check.
 Run twice (base, then --adapter) and diff:
 
     .venv/bin/python scripts/qa_chat_probe.py \
-        --calib runs/qa-calib-YYYYMMDD/calib.jsonl --out runs/qa-chat-base
+        --calib data/labels/trivia-pass@8-qwen36.jsonl --out runs/qa-chat-base
     .venv/bin/python scripts/qa_chat_probe.py \
-        --calib runs/qa-calib-YYYYMMDD/calib.jsonl \
+        --calib data/labels/trivia-pass@8-qwen36.jsonl \
         --adapter runs/qa-full-YYYYMMDD/adapters --out runs/qa-chat-rl
 
 This is an EVAL-ONLY set: never train on these frames, or the probe stops
