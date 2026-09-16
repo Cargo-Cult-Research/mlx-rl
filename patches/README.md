@@ -57,9 +57,25 @@ adapter. Requesting it by its real repo id resolves to a no-adapter entry and
 serves the base model — which is a useful way to A/B base vs adapter from one
 server, but a trap if you assume the name is cosmetic.
 
+## mlx-lm-0.31.3-batchgen-mixed-processors.patch
+
+**Symptom:** a batched generation that merges a request carrying logits
+processors with one that carries none dies with `TypeError: 'NoneType' object
+is not iterable` in `GenerationBatch._step`.
+
+**Cause:** `PromptProcessingBatch.extend` fills the per-slot
+`logits_processors` list with `None` for processor-free requests, but `_step`
+iterates `self.logits_processors[e]` for every slot as soon as *any* slot has
+processors. A homogeneous batch never hits it; a mixed one always does.
+
+**Fix:** use `[]` rather than `None` as the empty per-slot value on both merge
+paths, and iterate `self.logits_processors[e] or []` so a `None` left by an
+older caller is still safe.
+
 ## Upstream
 
-Neither is reported upstream yet (<https://github.com/ml-explore/mlx-lm>).
-Both are self-contained with easy reproducers: gemma2 needs any `gemma-2-*`
-model and `batch >= 2`; the server one needs any `--adapter-path` plus a
-request whose behaviour you can distinguish from the base model.
+Each is self-contained and has an easy reproducer against
+<https://github.com/ml-explore/mlx-lm>: gemma2 needs any `gemma-2-*` model at
+`batch >= 2`, the server one needs any `--adapter-path` plus a request whose
+behaviour you can distinguish from the base model, and the batched-generation
+one needs two concurrent requests where only one supplies a logits processor.

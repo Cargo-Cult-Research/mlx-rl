@@ -19,9 +19,9 @@ useful mainly as a regression detector), DeepCoder at the hard end
 (competition problems with long reasoning traces and real headroom), with
 math, calibrated question-answering, and several synthetic tasks covering the
 axes that neither code corpus reaches — numeric reasoning, knowing when to
-abstain, output-format discipline, and emergent communication. The difficulty
-sweeps documented further down exist to find, per corpus and per policy, the
-band in between where the gradient actually lives.
+abstain, and output-format discipline. The difficulty atlases below exist to
+find, per corpus and per policy, the band in between where the gradient
+actually lives.
 
 ## What ships
 
@@ -29,8 +29,10 @@ band in between where the gradient actually lives.
 |---|---|---|---|---|
 | `code` | Sanitized MBPP | 427 (347 train / 80 eval) | function passes hidden asserts | shipped in `data/`, CC BY 4.0 ([provenance](data/README.md)) |
 | `deepcoder` | DeepCoder-Preview, stdin/stdout subset | 18,983 train / 175 test | program matches every stored case | fetched by `scripts/fetch_deepcoder.py` |
+| `kodcode` | KodCode-Light-RL-10K (train), `evalplus/mbppplus` (eval) | 10k / 378 | pytest exit code on the hidden tests | HF Hub on first use, ⚠️ **CC BY-NC 4.0** (non-commercial) |
 | `math` | DeepScaleR-Preview | ~25k verifiable of 40,315 | last `\boxed{}` matches numerically | HF Hub on first use, MIT |
 | `qa_abstain` | TriviaQA `rc.nocontext` (train), PopQA (OOD eval) | ~138k / ~14k | +1 correct, 0 abstain, −penalty wrong | HF Hub on first use, Apache-2.0 / MIT |
+| `honesty` | TriviaQA (`trivia` domain); frozen arXiv metadata + captured search results (`papers` domain) | ~138k / 2,157 captured SERPs | +1 correct or backed-up decline, 0 decline, −penalty wrong or denial | HF Hub on first use; snapshot shipped in `data/`, arXiv metadata CC0 |
 | `arithmetic` | synthetic | unbounded | exact answer in tags | generated |
 | `toolformat` | synthetic | unbounded | canonical tool-call form + right tool/args | generated |
 | `mixture` | router over the above | — | delegates to the sub-task | — |
@@ -46,11 +48,11 @@ the reasoning is shallow. `deepcoder` is competition programming — TACO,
 SYNTHETIC-1, and pre-cutoff LiveCodeBench, curated upstream so every problem's
 tests were verified against a reference solution. The fetch script keeps only
 stdin/stdout problems, which buys one unambiguous judge (function-call
-problems, which need per-problem harness glue, are dropped; see
-`data/deepcoder/FETCH-REPORT.txt` for the full accounting of what was filtered
-and why). Output comparison is calibrated against upstream reference solutions
-by `experimental/deepcoder_judge_check.py`: per-line rstrip, trailing blanks
-dropped, then token-level comparison with 1e-6 float tolerance, because
+problems, which need per-problem harness glue, are dropped). The fetch writes
+a full accounting of what was filtered and why to
+`data/deepcoder/FETCH-REPORT.txt` alongside the corpus. Output comparison was
+calibrated against upstream reference solutions: per-line rstrip, trailing
+blanks dropped, then token-level comparison with 1e-6 float tolerance, because
 reference answers print floats at differing precisions. Problems that accept
 multiple valid orderings stay under-credited by construction — they label as
 `n_pass=0`, fall outside every training band, and so cost label accuracy
@@ -58,13 +60,16 @@ without corrupting training signal.
 
 ## Why difficulty labels exist
 
-`experimental/difficulty_sweep.py` runs a base policy over every problem in a
-corpus, k samples each, and writes one JSONL row per problem with `n_pass`,
-per-sample `rewards`, `lens`, and `finishes`. This is measured once and reused
-forever. The `deepcoder` task consumes such a file via `labels_file=` plus
-`min_pass=`/`max_pass=` to restrict *training* draws to a difficulty band
-(eval draws are never filtered), so the curriculum can be stepped up as the
-policy improves without re-measuring.
+A difficulty sweep runs a base policy over every problem in a corpus, k
+samples each, and writes one JSONL row per problem with `n_pass`, per-sample
+`rewards`, `lens`, and `finishes` — measured once and reused forever. The
+per-domain probes that ship write that shape:
+`scripts/kodcode_calibrate.py`, `scripts/qa_calibrate.py` and
+`scripts/arxiv_calibrate.py`; the generic multi-corpus sweep driver that
+produced the atlases below is not shipped. The `deepcoder` task consumes such
+a file via `labels_file=` plus `min_pass=`/`max_pass=` to restrict *training*
+draws to a difficulty band (eval draws are never filtered), so the curriculum
+can be stepped up as the policy improves without re-measuring.
 
 The band matters because of correctness detail 1 in the README: zero-variance
 groups are dropped. Problems the policy always solves and problems it never
@@ -73,10 +78,8 @@ batch that mostly disagrees with itself.
 
 ## Measured: MBPP difficulty atlas
 
-Qwen3.6-35B-A3B 4-bit, k=5, cap 4096, three temperature legs under one
-exclusive memory lease (`experimental/run_mbpp_sweep.sh`), 2026-08-13 → 08-14,
-~166 min for the final leg. 427 problems × 3 legs = 1281 rows in
-`runs/sweeps/code-pass@5.jsonl`; the same rows are the label file at
+**Qwen3.6-35B-A3B** 4-bit, k=5, cap 4096, three temperature legs, captured
+2026-08-13/14. 427 problems × 3 legs = 1281 rows, shipped as the label file
 `data/labels/mbpp-pass@5-qwen36.jsonl`.
 
 | T | split | n | pass@5 | mean pass@1 | zero-pass | at cap | median len |
@@ -111,7 +114,8 @@ That saturation is the direct reason DeepCoder was added.
 
 ## Measured: DeepCoder pilot
 
-200-problem seeded sample, same base policy. Three legs, 2026-08-14.
+200-problem seeded sample, same base policy, three legs, captured
+2026-08-14.
 
 | Leg | k | cap | pass@k | mean pass@1 | at cap |
 |---|---|---|---|---|---|
@@ -144,7 +148,7 @@ magnitude more decode per problem than MBPP.
 
 ## Reading these numbers
 
-Two rules the sweeps follow, both learned the hard way:
+Two rules the sweeps follow:
 
 1. **A run with truncations is a broken measurement, not a low score.** Every
    sweep row records `lens` and `finishes` per sample so `finish == "length"`
@@ -156,56 +160,16 @@ Two rules the sweeps follow, both learned the hard way:
    problem. The zero-pass tail in particular looks ~3× bigger that way (34
    row-level zeros vs. 4 actually-unsolved problems).
 
-## Open items
+## Two gotchas when using a label file
 
 - **`labels_file` keeps only the last row per `task_id`.** The loader in
   `tasks/deepcoder.py` does a plain dict assignment, so pointing it at a
-  multi-leg file like `data/labels/mbpp-pass@5-qwen36.jsonl` silently keeps the
-  T=0.6 leg and discards T=1.0 and T=0.8 — for 170 of 427 MBPP problems (39.8%)
-  the legs disagree on `n_pass`, and training rollouts sample at T=1.0, so the
-  band would be built from the wrong temperature. Either filter the label file
-  to one leg before use, or teach the loader to select on `temperature`.
-- **`code` has no `labels_file` parameter**, so the MBPP atlas currently has no
-  consumer. Given the saturation result there is little reason to add one.
-- **The DeepCoder difficulty atlas does not exist yet** — only the 200-problem
-  pilot does. A full sweep over 18,983 train problems at a non-binding cap is
-  the prerequisite for a real curriculum band, and at ~10k+ tokens per
-  generation it is a multi-day job.
-
-## Status: the DeepCoder curriculum is PARKED (2026-08-16)
-
-Parked deliberately, not abandoned, and **the trigger to resume is an event,
-not a date**: *a SAGE-RL arm gets scheduled on a code task.*
-
-**Why it is parked.** Nothing currently queued needs it. The near-term work is
-tool-use / multi-turn / calibration on `qa_abstain`, which already has its own
-difficulty machinery (`scripts/qa_calibrate.py` → `calib_file` + `band_mix`,
-bands measured over 2,000 questions). The coding corpora are not on that path.
-
-**Why it is worth resuming when SAGE comes back.** This is the strongest case
-for the whole curriculum idea, and it is mechanical rather than aesthetic:
-GRPO drops zero-variance groups and skips signal-free steps, so a corpus the
-policy always passes contributes no gradient at all. MBPP is saturated for
-qwen36 (0.97 pass@5 here; 0.870 MBPP+ under the official harness — see
-`docs/mbpp-evalplus-results.md`), so it produces all-pass groups and cannot
-train a SAGE arm. SAGE-RL specifically needs problems that require multi-step
-reasoning *and* that the model sometimes gets right, because it learns when to
-stop thinking from group-relative advantage across chains. DeepCoder is the
-corpus with the headroom (qwen36 0.52 pass@3), and a difficulty band is what
-turns its rollouts into signal instead of waste. Since rollouts dominate RL
-cost, that is the efficiency argument for the task, not a refinement of it.
-
-**State when parked** — nothing here needs redoing:
-
-| artifact | state |
-|---|---|
-| MBPP pass@5 atlas | **done**, shipped: `data/labels/mbpp-pass@5-qwen36.jsonl` (3 temperatures — read the `labels_file` caveat above before using it) |
-| DeepCoder pilots | 3 × 200 problems in `runs/sweeps/` (qwen36, qwen36-16k, qwen3-4b) |
-| DeepCoder full atlas | **not started** |
-| curriculum plumbing | **done**: `labels_file=` + `min_pass=`/`max_pass=` in `tasks/deepcoder.py`, `experimental/difficulty_sweep.py` |
-
-**What resuming costs.** The sweep asks for ~60 GB and a ≥32k cap (the pilot
-log shows it aborting the memory guard at 60 GB with a lens backend resident),
-so it wants an exclusive memory lease and an otherwise idle box. Following the
-`qa_abstain` precedent, ~2,000 labelled problems is enough for usable bands —
-that is the sizing to plan against, not all 18,983.
+  multi-leg file like `data/labels/mbpp-pass@5-qwen36.jsonl` keeps the T=0.6
+  leg and discards T=1.0 and T=0.8. For 170 of 427 MBPP problems (39.8%) the
+  legs disagree on `n_pass`, and training rollouts sample at T=1.0, so the
+  band would be built from the wrong temperature. Filter the label file to one
+  leg before use, or select on `temperature` in the loader.
+- **`code` has no `labels_file` parameter.** The label-file curriculum
+  (`labels_file=` with `min_pass=`/`max_pass=`) lives in `tasks/deepcoder.py`;
+  the MBPP atlas is a difficulty record and a regression baseline, not an
+  input to the `code` task.

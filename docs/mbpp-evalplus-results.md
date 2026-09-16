@@ -249,9 +249,10 @@ EVALPLUS_MAX_MEMORY_BYTES=-1 /tmp/evalplus-venv/bin/evalplus.evaluate \
 - **In-loop eval reads ~1–4.5 points low** vs the official harness (souplate3
   0.265 → 0.310, souplate4 0.339 → 0.365): extraction here is
   last-fenced-block, theirs is AST-based.
-- **Two mlx-lm 0.31.3 bugs** are patched in `patches/` (run `make patch-venv`
-  after `uv sync`): `server.py` silently drops `--adapter-path`, and
-  `gemma2.py` cannot batch.
+- **Three mlx-lm 0.31.3 bugs** are patched in `patches/` (run
+  `make patch-venv` after `uv sync`): `server.py` silently drops
+  `--adapter-path`, `gemma2.py` cannot batch, and batched generation crashes
+  when only some requests carry logits processors.
 - **Eval completions are not logged** by `evaluate()`; inspecting what the
   model wrote requires reloading a checkpoint.
 - **Sampling is with replacement by default.** 150 steps × 4 prompts touched
