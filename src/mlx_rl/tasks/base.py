@@ -39,7 +39,7 @@ class Task(Protocol):
 
     def reward(self, example: Example, completion: str) -> RewardResult: ...
 
-    # Optional — tool-using tasks (see qa_arxiv). When `tools` is set the
+    # Optional — tool-using tasks (see honesty). When `tools` is set the
     # trainer samples segmented episodes (engine.rollout_episodes): the
     # policy's tool calls are executed by run_tool() and the response is
     # injected as context; grading goes through episode_reward().

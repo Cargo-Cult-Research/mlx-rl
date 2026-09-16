@@ -49,7 +49,7 @@ from .rollout import (
 )
 from .tasks import get_task
 from .tasks.base import Example
-from .tasks.qa_arxiv import parse_tool_call
+from .toolcall import parse_tool_call
 
 
 def _sample_batched(model, tokenizer, examples, cfg: TrainConfig, group_size, temperature, task=None):

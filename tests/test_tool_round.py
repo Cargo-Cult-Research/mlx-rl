@@ -21,7 +21,8 @@ def qtok():
 @pytest.mark.parametrize("thinking", [False, True])
 def test_spliced_tool_round_matches_template_render(qtok, thinking):
     from mlx_rl.rollout import tool_response_ids
-    from mlx_rl.tasks.qa_arxiv import WEB_SEARCH_TOOL, format_tool_call
+    from mlx_rl.toolcall import format_tool_call
+    from mlx_rl.webtools import WEB_SEARCH_TOOL
 
     kw = {"enable_thinking": thinking, "tools": [WEB_SEARCH_TOOL]}
     msgs = [{"role": "system", "content": "S. Today's date is 2026-08-16."},

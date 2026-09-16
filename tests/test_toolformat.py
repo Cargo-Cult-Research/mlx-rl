@@ -3,7 +3,7 @@ import random
 import pytest
 
 from mlx_rl.tasks import get_task
-from mlx_rl.tasks.qa_arxiv import format_tool_call
+from mlx_rl.toolcall import format_tool_call
 
 
 @pytest.fixture
