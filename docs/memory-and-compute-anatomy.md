@@ -1,10 +1,10 @@
 # Backward memory & compute anatomy of the GRPO loop
 
 Where the memory and compute actually go when GRPO/LoRA-training a hybrid
-linear-attention MoE (qwen36 = Qwen3.6-35B-A3B-4bit) on 96 GB of unified
-memory — derived first, then measured with `scripts/probe_backward.py` and
-the per-layer instruments `scripts/anatomy_gdn.py` / `scripts/anatomy_sched.py`.
-The probes are the source of truth for every number here; the derivations
+linear-attention MoE (**Qwen3.6-35B-A3B** 4-bit) on 96 GB of unified memory —
+derived first, then measured with a full-model backward probe and two
+per-layer instruments (one GDN layer, one scheduler). Those probes are not
+shipped in this repo, so the tables below are the record; the derivations
 explain their shape.
 
 **TL;DR**
@@ -72,7 +72,7 @@ there is a quadratic *transient* term in the backward.
   reason) — otherwise the process stays at its high-water mark and macOS
   eventually starts paging.
 
-## Measured: peak GiB vs sequence length (probe_backward.py)
+## Measured: peak GiB vs sequence length
 
 micro_batch 1, rank-16 LoRA last-12, one fwd + one fwd/bwd per length,
 `mx.clear_cache()` between — the exact training path, **stock GDN scan**
@@ -137,8 +137,7 @@ training mode every GDN layer abandons the fused Metal kernel (no VJP) for
 recurrent state is [B, 32, 128, 128] = **2.10 MB/token** (the residual
 stream is 4 KB/token — 500×). Under mx.grad every step's ~4 state-sized
 temporaries stay live for the backward. Isolated per-layer
-(`scripts/anatomy_gdn.py`, single synthetic layer with real config dims — no
-weights needed):
+(one synthetic layer with the real config dims — no weights needed):
 
 | S | one GDN layer bwd | one full-attn layer bwd |
 |---:|---:|---:|
@@ -155,8 +154,8 @@ move the peak (trunk-side, below the head), and why the curve looks
 "superlinear" (a huge linear term, 8.5 GB/1k-tokens/layer, stacked across
 overlapping layer backwards).
 
-**The MoE path is exonerated:** with the real 4-bit MoE mlp in the layer
-(`anatomy_gdn.py --moe`), GatherQMM adds only ~0.4 GiB to the layer backward.
+**The MoE path is exonerated:** with the real 4-bit MoE mlp in the same
+layer, GatherQMM adds only ~0.4 GiB to the layer backward.
 No hidden MoE term; the scan explanation stands.
 
 ## The fix: serial GDN scan (`src/mlx_rl/gdn_serial.py`, on by default)
@@ -167,7 +166,7 @@ hand-written VJP that walks the scan in `chunk`-sized segments in REVERSE,
 recomputing each segment's forward-for-VJP on the fly from kernel-computed
 boundary states.
 
-Two mechanism subtleties, both isolated in `scripts/anatomy_sched.py`:
+Two mechanism subtleties, both isolated in the scheduler probe:
 1. A naive segmented vjp graph is ALREADY cheap (1.4 GiB) when only one
    grad output is consumed — but inside the layer all five input grads are
    live outputs, and MLX's executor materializes one output concat tree at a
@@ -198,8 +197,8 @@ bool = True` in the config, `--no-gdn-serial` to opt out, `--gdn-chunk` for
 the segment length. Tests: `tests/test_gdn_serial.py` (fwd + all-five-primal
 grads vs stock ops, mask delegation, install idempotence).
 
-**Full-model probe with the fix** (probe_backward.py, last-4 rank-8 +
-grad-checkpoint, micro_batch 1, serial ON):
+**Full-model probe with the fix** (last-4 rank-8 + grad-checkpoint,
+micro_batch 1, serial ON):
 
 | L | fwd_s | bwd_s | peak GiB | swap | stock |
 |---:|---:|---:|---:|---:|---|
@@ -310,40 +309,3 @@ Two metric gotchas for anyone reading their own `metrics.jsonl` here:
 tags each example's task with weight 1.0), never per-task accuracy — the
 correctness signal is `eval_correct`; and at `eval_n=32` a 0.56→0.66 move is
 ~3 problems, so raise `--eval-n` to 128+ before reading plateaus.
-
-## Upstream landscape (checked 2026-07-14)
-
-mlx-lm main pays the stock GDN training-scan cost for every qwen3.5/3.6
-LoRA fine-tune, but two open PRs already target exactly this:
-[#1217](https://github.com/ml-explore/mlx-lm/pull/1217) (Metal backward VJP
-kernel + chunk-checkpointed Python fallback) and
-[#1389](https://github.com/ml-explore/mlx-lm/pull/1389) (chunk-parallel
-gated UT/WY formulation — the flash-linear-attention algorithm — per-chunk
-mx.checkpoint, GQA/mask/carried-state support). Both active and
-cross-verified by third parties (e.g. 27B QLoRA 117→39 GB, 3× throughput,
-four-way grad agreement ≤2.6e-7).
-
-Head-to-head on our anatomy harness (`scripts/pr1389/`, one training-mode
-GDN layer, real qwen36 dims):
-
-| S | gdn_serial (ours) | PR #1389 | stock |
-|---:|---|---|---|
-| 1024 | 0.94 GiB / 0.33 s | 0.90 GiB / 0.09 s | 8.8 GiB / 0.57 s |
-| 2048 | 1.19 GiB / 0.68 s | 1.56 GiB / 0.19 s | 17.2 GiB / 1.63 s |
-| 4096 | **2.10 GiB** / 1.38 s | 3.18 GiB / **0.39 s** | 34.1 GiB / 4.84 s |
-
-Grads byte-identical between the two fixes (both rel ~3e-3 vs stock = the
-recompute-noise class). Theirs: ~3.5× faster backward (parallel matmuls
-beat sequential recompute). Ours: lower memory at long S with a flatter
-slope (their in-graph checkpoint chunks retain more — the same executor
-retention family anatomy_sched.py isolated, milder because their per-chunk
-transients are small). Status: no third PR filed (redundant with two active
-ones); `gdn_serial` ships here until one merges upstream, at which point it
-can be deleted in favor of the upstream fix.
-
-## Operational note
-
-If you run the trainer with an external memory-lease command
-(`MLX_RL_MEMLEASE_CMD`) that pauses another service for the duration of the
-run: after release, verify the service is actually back with a real
-completion probe, not just its status files.

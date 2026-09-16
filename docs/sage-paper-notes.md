@@ -52,15 +52,11 @@ AMC23, OlympiadBench, Minerva (math only). Headline: MATH-500 +1.6% acc /
 −1967 tok; AIME24 +3.7% / −5057 tok. Token-efficiency +71–111%.
 
 **SAGE-RL operating point (from the paper):** RL **training budget 8,192
-tokens**; evaluation reported at
-**32,768**. G=8 with SAGE(2,2) (2 SAGE + 6 sampled). No curriculum or
-difficulty filtering mentioned. Baseline (pre-RL) response lengths for
-DS-1.5B: **MATH-500 ≈ 4,882 tok → 2,921 after SAGE-GSPO; AIME25 ≈ 11,669 →
-7,167** — i.e. ~1.6× compression, matching our measured 1.5–2× on solvable
-math. Implication for us: the paper never demands thinking fit 4,096 —
-even its easiest benchmark baseline (4.9k) would blow our 4096 cap; our
-uniform-DeepScaleR sampling is AIME/Olympiad-heavy relative to the MATH-500
-regime the headline numbers come from.
+tokens**; evaluation reported at **32,768**. G=8 with SAGE(2,2) (2 SAGE + 6
+sampled). No curriculum or difficulty filtering mentioned. Baseline (pre-RL)
+response lengths for DS-1.5B: **MATH-500 ≈ 4,882 tok → 2,921 after SAGE-GSPO;
+AIME25 ≈ 11,669 → 7,167** — i.e. ~1.6× compression, matching the 1.5–2×
+measured here on solvable math.
 
 ## Implementation pitfalls — plausible shortcuts that break the algorithm
 
