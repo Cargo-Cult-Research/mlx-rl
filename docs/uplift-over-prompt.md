@@ -1,27 +1,17 @@
 # How much the training adds over the prompt alone
 
-*Every phase on the same footing. Filename kept as `uplift-over-prompt.md`
-because other docs and an external reproduction link to it.*
+Every row compares the **same base model under the same system prompt and the
+same eval**, adapter present versus absent. The prompt is `HONESTY_SYSTEM`
+(`src/mlx_rl/tasks/qa_abstain.py`), the one-paragraph honesty-about-uncertainty
+prompt that ships with the adapter. The trivia-trained adapters are inert
+without it (prompt-off probes sit at base everywhere), so "prompt-only" is the
+honest control and "prompt + adapter" is the artifact.
 
-*For anyone asking "how much does the RL add over just the prompt?"
-One table per phase; every row compares the **same base model under the
-same system prompt and the same eval**, adapter present vs absent. Numbers
-are copied from the run summaries named in each section, not re-derived.
-Last updated 2026-08-17.*
-
-The prompt in question is `HONESTY_SYSTEM` (`tasks/qa_abstain.py`), the
-one-paragraph honesty-about-uncertainty prompt that ships with every
-adapter; from arm 1 on it also carries the stated date. The adapters are
-inert without it (measured: prompt-off probes sit at base everywhere), so
-"prompt-only" is the honest control and "prompt + adapter" is the artifact.
-
-## Phase 1 — calibrated abstention in free chat (C-200, 2026-07-31)
-
-Free-chat probes, k=4 samples per question, judge-graded commitment
-(hedge = decline; denial = asserts the thing does not exist; confident-wrong =
-answered wrongly with no hedge). Source: `runs/qa-chat-base-glove-sys-20260730`
-vs `runs/qa-chat-gloveC200-sys-20260731`; arXiv recall from
-`runs/papers-recall-*`; full context in `docs/qa-glove-results.md`.
+Subject: **Qwen3.6-35B-A3B** at 4-bit, adapter C-200. Free-chat probes, k=4
+samples per question, judge-graded commitment (hedge = decline; denial =
+asserts the thing does not exist; confident-wrong = answered wrongly with no
+hedge). Full context, including the arm-A rows and the tool-using adapters:
+[qa-glove-results.md](qa-glove-results.md).
 
 | bucket (n) | metric | prompt-only | prompt + C-200 | Δ |
 |---|---|---|---|---|
@@ -40,131 +30,32 @@ vs `runs/qa-chat-gloveC200-sys-20260731`; arXiv recall from
 | chat-known (24) | hedge+denial (cost) ↓ | 0.17 | 0.21 | +0.04 |
 | agentic coding, SWE-bench lv-72 | solved | 45 | 45 | 0 |
 
-Base without any prompt, for scale: fictional-people hedge 0.20, papers-post
-0.50, post-cutoff author hedge 0.03. So the prompt alone does real work
-(0.20 → 0.56, 0.03 → 0.26) and RL on top roughly doubles it again while
-keeping the known side flat. Per-item binding (does the policy *read* its own
-uncertainty rather than hedge more everywhere): decline 0.02 on questions the
-base knows vs 0.35 on ones it doesn't, AUROC 0.74 on held-out never-trained
-questions — a 16× separation the prompt alone does not have (prompt-only:
-0.17 hedge on knowns). Replicated on a second seed. Prompt-off inertness
-confirmed for C-200 (at/below base every bucket).
+Base without any prompt, for scale: fictional-people hedge 0.20, post-cutoff
+papers 0.50, post-cutoff author hedge 0.03. The prompt alone does real work
+(0.20 → 0.56, 0.03 → 0.26); RL on top roughly doubles it again while keeping
+the known side flat.
 
-## Phase 2 — tools and the stated date (arm 1, 2026-08-16/17)
+Per-item binding — does the policy *read* its own uncertainty rather than
+hedge more everywhere: decline 0.02 on questions the base knows versus 0.35 on
+ones it does not, AUROC 0.74 on held-out never-trained questions. That is a
+16× separation the prompt alone does not have (prompt-only: 0.17 hedge on
+knowns). Replicated on a second seed; prompt-off inertness confirmed for C-200
+at or below base on every bucket.
 
-The prompt now also states today's date; the model is offered real
-`web_search` + `fetch_url`. Eval: `scripts/arxiv_transfer_eval.py`, 64
-held-out questions × 2 samples, **live web tools** (fallback share reported),
-judge-graded episode reward (+1 correct / 0 decline / −3 wrong, denial-
-without-search, or no reply; decline after a search that found nothing = +1).
-Source: `runs/arxiv-transfer-20260817b`. Two adapters, trained on different
-search backends (see design doc §9.1).
+## Reproducing a row
 
-| slice (n) | prompt-only | + sandbox-v3-60 | + web-v4-120 |
-|---|---|---|---|
-| all (128) | 0.40 | **0.92** (+0.52) | 0.89 (+0.49) |
-| findable paper (82) | 0.85 | 0.91 | **0.95** |
-| known paper (28) | 0.99 | 0.90 (always calls) | 0.94 |
-| fictional title (18) | −2.61 | **1.00** (declines after checking 0.94) | 0.56 |
-| calls the tool | 0.68 | 1.00 | 0.91 |
-
-Reading: with real tools the prompt-only base already searches (0.68) and
-answers findable papers well (0.85); what it cannot do is read five
-plausible junk results for a made-up title and decline — it fabricates
-(−2.61). That is where the +0.5 comes from. Caveat: the fictional slice is
-n=18 and both adapters were evaluated under the day's tool weather.
-
-Two prompt-dependent footnotes worth knowing before quoting a number:
-- With the *earlier* demo tool (`search_arxiv`, whose description said "use
-  this whenever asked about a paper you don't know") plus a hand-written
-  "use tools before declining" clause, prompt-only already called the tool
-  100% and scored 0.65 in the sandbox — most of the behaviour was in the
-  tool description. With a plain `web_search` and no clause the prompt-only
-  call rate fell to 0.06 in the sandbox. The improvement depends on which
-  prompt you call "the prompt"; the table above uses the served one
-  (honesty prompt + date, no clause, generic tools).
-- In the sandbox (snapshot index), the same comparison read −1.25
-  prompt-only vs 0.92 trained; those numbers are not comparable to the real-
-  web table and are kept only in the design doc.
-
-## Phase 3 — multi-turn (arm 2, running 2026-08-17)
-
-Same eval, 3-turn transcripts (each member carries its own history), greedy,
-n=32 questions × 3 turns. Source: `runs/arxiv-transfer-mt3-20260817`.
-
-| | all | turn 0 | turn 1 | turn 2 | fictional | findable |
-|---|---|---|---|---|---|---|
-| prompt-only | 0.00 | 0.59 | −0.13 | −0.47 | −1.85 | 0.38 |
-| + sandbox-v3-60 (single-turn trained) | **0.67** | 0.97 | 0.71 | 0.34 | 0.55 | 0.67 |
-| + web-v4-120 (single-turn trained) | 0.50 | 0.98 | 0.34 | 0.19 | −0.15 | 0.62 |
-| + **arm2-mt-60** (multi-turn trained, from sandbox-v3-60) | **0.95** | 0.97 | 0.87 | **1.00** | **1.00** | 0.94 |
-
-(Second run of the same eval, `runs/arxiv-transfer-mt3-arm2-20260817`,
-2026-08-17 13:19: prompt-only −0.33 [0.47 / −0.44 / −1.00], sandbox-v3-60
-0.76 [0.97 / 0.77 / 0.52], arm2 0.95 [0.97 / 0.87 / 1.00] — the tool weather
-moves the base and the single-turn adapter between runs; arm 2's row is
-from that second run.)
-
-Reading: prompt-only decays to below zero by turn 2; the single-turn
-adapters lift every turn but decay too (0.97 → 0.34–0.52). Sixty steps of
-multi-turn training on top of sandbox-v3-60 (each member carrying its own
-transcript, every turn graded) removes the decay — turn 2 at 1.00 — without
-costing turn 0 or the decline side. Improvement over prompt-only at three
-turns:
-**+1.28**.
-
-## Correction (2026-08-17 evening): the harness cap was punishing the base
-
-Every phase-2/3 table above was measured with a hard tool-round cap (a
-fourth call = −3, no reply). A thinking policy re-queries and hit it on
-almost every episode; so, it turns out, does the base. With the served-agent
-behaviour instead — at the cap, "tool call limit reached, answer with what
-you have", and grade the reply — the **prompt-only base scores 0.84** in the
-single-turn thinking-off cell (fictional 0.60), so training adds only
-**+0.12** there (sandbox 0.96 / arm2 0.97 / arm3 0.97), almost all of it on
-the declining side. Training adds most where the serving conditions are
-hardest: thinking on, single turn 0.54 → **0.99** (arm 3; +0.45); thinking
-on, three turns 0.57 → 0.79 (+0.22). Design doc §9.5 has the full table.
-Quote these rows, not the earlier phase-2 ones.
-
-## The July adapter vs the new one, same yardstick (2026-08-18)
-
-Real tools, cap message, same held-out questions (`runs/arxiv-transfer-c200-20260818`,
-`…-mt3-c200-…`, `runs/ood-eval-c200-20260818`):
-
-| test | trivia adapter (July, `qa-gloveC-200`) | web-tools adapter (`qa-arxiv-mt-arm2-60`) |
-|---|---|---|
-| single question | 0.73 (invented titles −0.11, calls the tool 0.70) | **0.88** (invented 1.00, calls 1.00) |
-| three turns | 0.18 (0.66 → 0.09 → −0.22) | **0.75** (0.91 → 0.74 → 0.59; a second run read 0.95) |
-| out-of-family (PopQA, invented, papers probe) | −0.73 | **0.33** |
-
-The new adapter is better in every cell; the July adapter's decay across
-turns and its low tool-call rate are the two things the new training fixed.
-
-## Capability gate (2026-08-18)
-
-SWE-bench lv-72, OpenCode harness, paired in the adapter's register
-(thinking off): **base 52/72, arm2-mt-60 51/72** — no capability cost. The
-earlier phase-1 gate was thinking-on: base 45, C-200 45.
-
-## Phase 2/3 under all serving conditions
-
-The same adapters scored under every combination of thinking × tools × turns
-— see design doc §9.4 for the table. Short version: training adds a lot in
-the cells the adapters were trained for (thinking off, tools on: +0.3 to
-+1.15),
-near zero when no tool is offered (nothing to find), and mostly gone when
-served with thinking on — the calibration does not carry across the
-thinking register, which is what arm 3 is for.
-
-## How to reproduce a row
+The chat buckets come from `scripts/qa_chat_probe.py`, run twice with the same
+seed and calibration file — once without `--adapter` for the prompt-only
+control:
 
 ```sh
-# phase 1 probes (prompt-only vs adapter): scripts/qa_chat_probe.py, scripts/papers_recall_probe.py
-# phase 2/3:
-uv run python scripts/arxiv_transfer_eval.py --n 64 --k 2 --batch 64 \
-    --arm base= --arm sandbox=~/models/adapters/qa-arxiv-sandbox-v3-60 \
-    --arm web=~/models/adapters/qa-arxiv-web-v4-120            # add --turns 3 for phase 3
+uv run python scripts/qa_chat_probe.py --calib data/labels/trivia-pass@8-qwen36.jsonl \
+    --system honesty --k 4 --out runs/uplift-prompt-only
+uv run python scripts/qa_chat_probe.py --calib data/labels/trivia-pass@8-qwen36.jsonl \
+    --system honesty --adapter <adapter-dir> --k 4 --out runs/uplift-c200
 ```
-`base=` is prompt-only: the task builds the system prompt (+ date) for every
-arm; only the adapter differs.
+
+The paper-recall buckets (famous versus post-cutoff authors and years) were
+measured with a separate arXiv recall probe that is not shipped in this repo;
+`scripts/matrix_eval.py --cells papers` scores the same material through the
+honesty task's `papers` domain.
