@@ -369,7 +369,7 @@ def sage_completion(
 
 def _answer_phase(model, cand: _Cand, *, eos: set[int], max_new_tokens: int,
                   temperature: float, think_len: int) -> Completion:
-    if cand.pending in eos:  # turn already closed (think_end == eos, e.g. gemma)
+    if cand.pending in eos:  # turn already closed (think_end == eos)
         return Completion(cand.tokens, cand.logprobs, "stop", think_len)
     while len(cand.tokens) < max_new_tokens:
         lp = _next_lp(model, cand.pending, cand.cache)
@@ -381,17 +381,15 @@ def _answer_phase(model, cand: _Cand, *, eos: set[int], max_new_tokens: int,
 
 
 def _load_small_batch_kernel():
-    """The machine-local small-batch matmul kernel, if present.
+    """The small-batch matmul kernel named by MLX_RL_QMM_SMALL, if any.
 
-    MLX's 4-bit matmul is ~2x off its floor for 6-16 decode rows — the row
-    count a group of G=8-16 rollouts runs at (dense 27B decode step at 16
-    rows: 141 -> 86 ms). housekeeping/kernels/qmm_small.py patches
-    nn.QuantizedLinear for that window; it is discovered the way memlease is
-    (MLX_RL_QMM_SMALL=<path>, default ~/code/housekeeping/kernels/qmm_small.py,
-    empty/absent = off). The custom kernel has no gradient, so it is applied
-    only around generator steps, never the update pass."""
-    path = os.environ.get("MLX_RL_QMM_SMALL",
-                          os.path.expanduser("~/code/housekeeping/kernels/qmm_small.py"))
+    MLX's 4-bit matmul is ~2x off its floor for the 6-16 decode rows a group
+    of G=8-16 rollouts runs at (dense 27B decode step at 16 rows: 141 -> 86
+    ms). Point the variable at a module that patches nn.QuantizedLinear for
+    that window; unset or absent, this is a no-op. The kernel has no
+    gradient, so it is applied only around generator steps, never the update
+    pass."""
+    path = os.environ.get("MLX_RL_QMM_SMALL", "")
     if not path or not os.path.exists(path):
         return None
     spec = importlib.util.spec_from_file_location("qmm_small", path)

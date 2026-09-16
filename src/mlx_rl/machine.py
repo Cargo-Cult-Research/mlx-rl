@@ -7,15 +7,9 @@ point ``MLX_RL_MEMLEASE_CMD`` at it and mlx-rl will call it to acquire a lease
 before loading the model and release it when the run ends — even on crash, if
 your command is PID-aware.
 
-When ``MLX_RL_MEMLEASE_CMD`` is unset, a machine-local fallback is probed:
-if ``~/code/housekeeping/memlease.py`` exists it is used, so on a box that
-has the coordinator every launcher is managed by default — an unmanaged run
-next to a 22 GB inference server is exactly the co-residency swap abort of
-2026-07-29, and it happened because the one run script that forgot the
-export silently opted out. Set the env var (or pass --no-manage-machine)
-to override; on machines without the coordinator the run simply proceeds
-unmanaged and the in-process memory guard (memory.py) is still the safety
-net that refuses runs which do not fit.
+When ``MLX_RL_MEMLEASE_CMD`` is unset the run proceeds unmanaged, and the
+in-process memory guard (memory.py) is the safety net that refuses runs
+which do not fit. ``--no-manage-machine`` skips the lease for one run.
 
 The command is invoked as::
 
@@ -36,15 +30,7 @@ import subprocess
 import sys
 from contextlib import contextmanager
 
-def _default_cmd() -> list[str]:
-    path = os.path.expanduser("~/code/housekeeping/memlease.py")
-    if os.path.exists(path):
-        return [sys.executable, path]
-    return []
-
-
-_env = os.environ.get("MLX_RL_MEMLEASE_CMD")
-MEMLEASE_CMD = shlex.split(_env) if _env is not None else _default_cmd()
+MEMLEASE_CMD = shlex.split(os.environ.get("MLX_RL_MEMLEASE_CMD", ""))
 
 
 class MachineBusyError(RuntimeError):

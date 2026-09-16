@@ -1020,7 +1020,7 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
 def main() -> None:
     p = argparse.ArgumentParser(description="GRPO LoRA training on MLX")
     d = TrainConfig()
-    p.add_argument("--profile", default=None, help="named model profile: tiny | qwen36 | gemma26")
+    p.add_argument("--profile", default=None, help="named model profile: tiny | qwen36 | qwen38")
     p.add_argument("--model", default=None, help="model path/repo (overrides profile)")
     p.add_argument("--task", default=d.task)
     p.add_argument("--task-kwargs", default="{}", help='JSON, e.g. \'{"max_operand": 99}\'')

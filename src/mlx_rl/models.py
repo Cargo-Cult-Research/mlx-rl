@@ -107,8 +107,8 @@ def selective_logprobs(
         logits = lm.model.embed_tokens.as_linear(h)
     else:
         logits = lm.lm_head(h)
-    # mlx-lm gemma4_text applies final-logit softcapping inline in __call__;
-    # skipping it here shifts candidate logprobs by tens of nats.
+    # mlx-lm applies final-logit softcapping inline in __call__ for the
+    # models that declare it; skipping it here shifts logprobs by tens of nats.
     softcap = getattr(lm, "final_logit_softcapping", None)
     if softcap:
         logits = mx.tanh(logits / softcap) * softcap

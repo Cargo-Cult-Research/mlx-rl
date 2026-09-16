@@ -1,12 +1,11 @@
 """Model profiles: the per-model facts the trainer needs.
 
-Two first-class citizens (both MoE, both trainable within the ~30 GB weight
-ceiling a 96 GB machine affords): qwen36 and gemma26. Building for both
-keeps the engine honest — qwen36 exercises the hybrid
-GatedDeltaNet/ArraysCache path, gemma26 the sliding-window RotatingKVCache
-path.
+Two first-class citizens, both within the ~30 GB weight ceiling a 96 GB
+machine affords: qwen36 (Qwen3.6-35B-A3B, MoE) and qwen38 (Qwen3.8-27B,
+dense). Both run the hybrid GatedDeltaNet/full-attention layout, so they
+share a set of LoRA keys.
 
-NOTE: the qwen36/gemma26 profiles point at LOCAL model directories under
+NOTE: those two profiles point at LOCAL model directories under
 MLX_RL_MODELS_DIR (default ~/models/mlx) — they expect you to have converted
 or downloaded MLX 4-bit weights there yourself (e.g. with mlx_lm.convert).
 Only the `tiny` profile references a Hugging Face repo id that downloads
@@ -96,22 +95,6 @@ PROFILES: dict[str, ModelProfile] = {
         ),
         chat_kwargs={"enable_thinking": False},
         think_chat_kwargs={"enable_thinking": True},
-    ),
-    # Gemma 4 26B-A4B (gemma4): sliding-window RotatingKVCache + periodic
-    # full attention; standard proj names. extra_eos carries the config EOS
-    # list {1, 106, 50} — lose it and generation never stops (<turn|> runaway).
-    # ALWAYS thinks: the mlx conversion's chat template ignores
-    # enable_thinking (and thinking-off gemma26 is the known-pathological
-    # serving mode anyway), and it ruminates — budget max_new_tokens >= 768
-    # for arithmetic-class tasks or every completion truncates at reward 0.
-    "gemma26": ModelProfile(
-        name="gemma26",
-        model=os.path.join(MODELS_DIR, "gemma-4-26b-a4b-it-4bit"),
-        lora_keys=_ATTN,
-        extra_eos=(1, 106, 50),
-        # Thought channel closes with <channel|> = 101 (default template
-        # already thinks; no extra chat kwargs needed).
-        think_end=101,
     ),
 }
 

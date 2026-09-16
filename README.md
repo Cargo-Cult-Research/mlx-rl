@@ -19,55 +19,43 @@ training-weak machine is good at.
   cost one forward pass, not a second copy of the weights.
 - **In-process rollouts** — no server, one copy of the weights in memory.
   `engine.py` batches them: the group prompt is prefilled once and each
-  member gets a copy-on-write KV-cache clone (5.6–8.2× wall-clock speedup,
-  table below).
+  member gets a copy-on-write KV-cache clone (5.6× wall-clock, table below).
 - **Verifiable rewards only:** a `Task` supplies prompts and a programmatic
-  reward (see `src/mlx_rl/tasks/`). No reward models.
+  reward (`src/mlx_rl/tasks/`). No reward models.
 - **SAGE-RL hybrid rollouts** (arXiv 2602.08354): optionally generate r of
   the G group members with SAGE confidence-guided decoding — see the
   dedicated section below.
 - **Optional small-batch kernel:** a group of G=8–16 rollouts decodes at
   8–16 rows, where MLX's 4-bit matmul re-streams weights or pads to a 32-row
-  tile. If `~/code/housekeeping/kernels/qmm_small.py` exists (or
-  `MLX_RL_QMM_SMALL` points at it; set it empty to disable) the engine
-  applies its 8/16-row Metal tiles around generator steps only — the kernel
-  has no gradient, so the update pass never sees it. Dense 27B rollouts at 16
-  rows: 110 → 184 tok/s.
-- **Optional memory lease:** if you run something else memory-hungry on the
-  same box (e.g. a local inference server), point `MLX_RL_MEMLEASE_CMD` at an
-  external coordinator command and the trainer will call it to make room before
-  loading and hand it back on release — even on crash, if your command is
-  PID-aware (see `machine.py` for the exact CLI). When the env var is unset,
-  `~/code/housekeeping/memlease.py` is used if it exists (so on this box every
-  launcher is managed by default); with neither, runs proceed unmanaged.
-  Either way the in-process
-  guard (`memory.py`) is the final backstop — it refuses runs that don't fit
-  and a swap watchdog hard-aborts a run that starts paging to disk.
+  tile. Point `MLX_RL_QMM_SMALL` at a module supplying 8/16-row Metal tiles
+  and the engine applies them around generator steps only — the kernel has no
+  gradient, so the update pass never sees it. Set the variable empty to
+  disable.
+- **Optional memory lease:** if something else memory-hungry shares the box
+  (a local inference server, say), point `MLX_RL_MEMLEASE_CMD` at an external
+  coordinator command; the trainer calls it to make room before loading and
+  hands the lease back on release, including on crash if the command is
+  PID-aware (`machine.py` has the CLI). Unset, runs proceed unmanaged. Either
+  way the in-process guard (`memory.py`) is the backstop: it refuses runs that
+  do not fit, and a swap watchdog aborts a run that starts paging to disk.
 
-### Hard-won correctness details (do not regress these)
+### Invariants
 
 1. **Zero-variance groups are dropped, and signal-free steps are skipped.**
-   With all advantages zero, the residual "gradient" is fp16 kernel noise —
-   and Adam rescales any nonzero gradient to a full-size step. Updating on
-   noise is a destructive random walk (measured: format-following collapsed
-   0.875 → 0.0 in 3 steps before this fix).
-2. **old_lp is recomputed teacher-forced at update time**, not taken from
-   generation. The KV-cached incremental forward drifts from the padded batch
-   forward by up to 0.125 nats/token at fp16; trusting it injects spurious
-   importance ratios.
-3. **Masks are applied inside `exp()`** in the objective; garbage logprobs at
-   padded positions otherwise overflow to `inf * 0 = nan`.
-4. **Rollout temperature is 1.0 for training** — recorded logprobs are the
-   model's own distribution; a different sampling temperature would be
-   uncorrected off-policy sampling. (SAGE members are the deliberate
-   exception: off-policy injected demonstrations that enter the surrogate at
-   ratio 1 because old_lp is recomputed — invariant 2 is what makes them
-   legal.)
-5. **LoRA depth is the update-memory knob.** Backward retains activations
-   from the *deepest adapted layer* to the loss, so adapters on all 40 qwen36
-   layers peak at 85.5 GB (swap death on 96 GB) while the last 12 layers peak
-   at 49.4 GB for the same 576-token sequences. Prefer `--lora-layers 12` for
-   big models; go deeper only when the task demonstrably needs it.
+   With every advantage zero, the residual gradient is fp16 kernel noise, and
+   Adam rescales any nonzero gradient to a full-size step.
+2. **`old_lp` is recomputed teacher-forced at update time**, not carried over
+   from generation. The KV-cached incremental forward drifts from the padded
+   batch forward by up to 0.125 nats/token at fp16, which would inject
+   spurious importance ratios.
+3. **Rollout temperature is 1.0 for training**, so the recorded logprobs are
+   the model's own distribution. SAGE members are the deliberate exception:
+   off-policy demonstrations that enter the surrogate at ratio 1, which
+   invariant 2 is what makes legal.
+4. **LoRA depth is the update-memory knob.** Backward retains activations from
+   the deepest adapted layer down to the loss. On Qwen3.6-35B-A3B at 576-token
+   sequences, adapters on all 40 layers peak at 85.5 GB and the last 12 layers
+   peak at 49.4 GB. Use `--lora-layers 12` on big models.
 
 ## Install
 
@@ -84,11 +72,12 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
 
-The default model (`tiny` profile, Qwen2.5-0.5B) downloads from the Hugging
-Face Hub on first use. The big-model profiles (`qwen36`, `gemma26`) point at
-**local** MLX 4-bit model directories under `MLX_RL_MODELS_DIR` (default
-`~/models/mlx`) — convert or download those yourself first (e.g. with
-`mlx_lm.convert`); see `src/mlx_rl/profiles.py`.
+The default model (`tiny` profile, Qwen2.5-0.5B-Instruct) downloads from the
+Hugging Face Hub on first use. The big-model profiles (`qwen36` =
+Qwen3.6-35B-A3B, `qwen38` = Qwen3.8-27B) point at **local** MLX 4-bit model
+directories under `MLX_RL_MODELS_DIR` (default `~/models/mlx`) — convert or
+download those yourself first, e.g. with `mlx_lm.convert`. See
+`src/mlx_rl/profiles.py`.
 
 ## Quickstart
 
@@ -101,67 +90,52 @@ uv run mlx-rl-train --steps 3 --batch-prompts 2 --group-size 4 --out runs/smoke
 # Convergence demo on the toy task:
 uv run mlx-rl-train --steps 50 --batch-prompts 4 --group-size 8 \
   --task-kwargs '{"n_operands": 2, "max_operand": 99}' --out runs/convergence
-```
 
-For long unattended runs launch `.venv/bin/mlx-rl-train` directly instead of
-`uv run` (a stale uv environment lock has been observed to stall start-up; the
-venv entry point has no such dependency), and detach it properly:
-
-```sh
+# Multi-hour run, in its own session so it outlives the terminal:
 uv run python scripts/launch_detached.py --log runs/myrun.log -- \
   .venv/bin/mlx-rl-train --steps 200 --out runs/myrun
 ```
 
-That puts the run in its own session and process group, so it survives the
-terminal, the ssh connection, and any teardown aimed at whatever launched it —
-a 200-step run was once killed at step 17 by exactly that. `nohup cmd &` is not
-enough: it detaches from the terminal but leaves the child in the launcher's
-process group. And **macOS has no `setsid` binary**, so the usual shell answer
-does not exist here; the launcher calls `setsid(2)` from Python instead.
-
-Each run directory gets `config.json`, `metrics.jsonl` (per-step reward /
-KL / lengths / throughput / peak memory, plus periodic held-out greedy
-evals), `samples.jsonl` (raw completion groups — always look at these, not
-just the curves), and `adapters/` checkpoints.
+Each run directory gets `config.json`, `metrics.jsonl` (per-step reward / KL /
+lengths / throughput / peak memory, plus periodic held-out greedy evals),
+`samples.jsonl` (raw completion groups), and `adapters/` checkpoints.
 
 ## SAGE-RL (arXiv 2602.08354)
 
 **Premise:** reasoning models already "know" when to stop thinking — rank
 candidate reasoning chains by Φ = length-normalized cumulative logprob (mean
 per-token logprob of the whole chain) and the end-of-thinking token scores
-near the top long before greedy decoding would pick it (locally, one more
-sentence of reasoning always wins). **SAGE** is a step-wise beam over
-reasoning steps (`\n\n`-delimited): keep the top-m candidate chains by Φ;
-each iteration expands every candidate with 2m sampled steps and accepts a
-step ending in `</think>` when it ranks **within the top-h by Φ**, where
-`h = round(TR · 2m)` (`--sage-tr`, the paper's tolerance ratio) — a
-confidence gate against low-confidence early stops. **SAGE-RL** injects r
-SAGE-decoded members into each GRPO group of G; the verifier rewards their
-short-correct chains and the group-relative advantage teaches the policy to
-make that its default — at inference you run plain sampling, no beam.
+near the top long before greedy decoding would pick it. **SAGE** is a
+step-wise beam over reasoning steps (`\n\n`-delimited): keep the top-m
+candidate chains by Φ; each iteration expands every candidate with 2m sampled
+steps and accepts a step ending in `</think>` when it ranks **within the top-h
+by Φ**, where `h = round(TR · 2m)` (`--sage-tr`, the paper's tolerance ratio).
+**SAGE-RL** injects r SAGE-decoded members into each GRPO group of G; the
+verifier rewards their short-correct chains and the group-relative advantage
+teaches the policy to make that its default. At inference you run plain
+sampling, no beam.
 
 Implementation notes (`engine.py::sage_completion`):
 
 - Beams fork the KV cache with the same copy-on-write clone as group prompt
   sharing. The default batched variant runs all 2m² step expansions as rows
-  of one batched forward per token — ~4× over the per-beam reference (kept
-  as `batched=False`); sparse-MoE expert routing caps the win below a dense
-  model's, see `docs/memory-and-compute-anatomy.md`.
-- Steps are sampled at `--sage-think-temp` (default 1.0, the paper's
-  setting), so the r SAGE members of a group are not byte-identical; Φ
-  ranking always uses the true (untempered) logprobs.
+  of one batched forward per token — ~4× over the per-beam reference (kept as
+  `batched=False`); sparse-MoE expert routing caps the win below a dense
+  model's, see [docs/memory-and-compute-anatomy.md](docs/memory-and-compute-anatomy.md).
+- Steps are sampled at `--sage-think-temp` (default 1.0, the paper's setting),
+  so the r SAGE members of a group are not byte-identical; Φ ranking always
+  uses the true (untempered) logprobs.
 - Reasoning is hard-bounded at `max_new_tokens − --sage-answer-reserve`; if
-  the gate hasn't fired by then (or by `--sage-max-steps`), the end-of-think
+  the gate has not fired by then (or by `--sage-max-steps`), the end-of-think
   token is force-committed, so the answer phase always has room and the
-  completion can never exceed `--max-new-tokens`.
-- The end-of-think token comes from the model profile (`think_end`): qwen36
-  `</think>` = 248069 (thinking mode is switched on automatically when
-  `--sage-r > 0`); gemma26 `<channel|>` = 101. Gating on a turn-terminal
-  token (e.g. gemma's `<turn|>` = 106, via `--think-end`) is supported: the
-  completion then ends at the commit.
+  completion never exceeds `--max-new-tokens`.
+- The end-of-think token comes from the model profile (`think_end`):
+  Qwen3.6-35B-A3B `</think>` = 248069, with thinking mode switched on
+  automatically when `--sage-r > 0`. Gating on a turn-terminal token instead
+  (`--think-end`) is supported; the completion then ends at the commit.
 
 ```sh
-# qwen36 thinking mode, 2 of 8 group members SAGE-decoded
+# Qwen3.6-35B-A3B thinking mode, 2 of 8 group members SAGE-decoded
 .venv/bin/mlx-rl-train --profile qwen36 --steps 16 --batch-prompts 3 \
   --group-size 8 --sage-r 2 --sage-m 2 --sage-tr 0.5 \
   --micro-batch 1 --max-new-tokens 1024 --sage-answer-reserve 256 \
@@ -174,86 +148,59 @@ Hybrid-run metrics add `mean_len`, `mean_len_sage` / `mean_len_sampled`,
 `mean_think_len`, `reward_sage` / `reward_sampled`, and evals add
 `eval_mean_len` — the deployment metric (greedy, no beam).
 
-### Reward design: "answer appears in tags" is not "answers and stops"
+### Grading thinking-mode completions
 
-GRPO will find any hole in a reward. The canonical hole on thinking-mode
-tasks: a reward that greps for answer tags *anywhere* lets the policy
-**draft the tags inside the think block and ramble to the token ceiling** —
-reward collected, rumination fully intact, zero terminating completions. On
-the reward curve it looks like a triumph; a vanilla-GRPO arm once "won" an
-A/B exactly this way, with more measured reward than the SAGE-RL arm and
-not a single completion that actually stopped.
-
-Defenses built into this trainer:
+A reward that greps for answer tags anywhere is collectable from inside the
+think block, so:
 
 - Thinking-mode completions are graded **only on the visible reply after the
   final think-close marker** (`_visible_reply` in `train.py`); an unclosed
   think block is reward 0.
 - Runtime tripwires print a loud `[BUG]` line on positive reward with an
-  unclosed think (grader leak) and on SAGE budget breaches.
-- The optional length penalty (`--length-penalty`) is correctness-gated and
-  counts **total** tokens, so relocating reasoning out of `<think>` into
-  visible prose buys nothing.
+  unclosed think, and on SAGE budget breaches.
+- `--length-penalty` is correctness-gated and counts **total** tokens, so
+  moving reasoning out of `<think>` into visible prose buys nothing.
 - `samples.jsonl` gets the first prompt's whole completion group every step.
-  Every reward hack this project caught was found by reading samples —
-  none by curves. Look at your samples.
-
-**Model applicability:** gemma26 is currently *not* a SAGE-RL patient — under
-in-process mlx-lm it degenerates at temp 1 (broken arithmetic, character
-runs) and its stop-token confidence never enters the top-m in 1000+ tokens.
-That is a serving-stack root cause to fix, not a task knob.
+  Read them: reward hacks show up there, not in the curves.
 
 ## Validation results (96 GB M3 Ultra)
 
 | run | model | result |
 |---|---|---|
-| toy convergence | Qwen2.5-0.5B (1.7 GB peak) | held-out greedy 0.56 → 0.88 by step 10 |
-| positive control | qwen36, no thinking, 7-operand arithmetic, 384 budget | **0.00 → 1.00 by step 10** (all-40-layer LoRA peaked 85.5 GB — use `--lora-layers 12`) |
-| 180-step mixture run | qwen36, math+code+arithmetic, cap 2560 | eval_correct 0.56 → 0.66, plateau from ~step 40; see `docs/memory-and-compute-anatomy.md` |
+| toy convergence | Qwen2.5-0.5B-Instruct (1.7 GB peak) | held-out greedy 0.56 → 0.88 by step 10 |
+| positive control | Qwen3.6-35B-A3B, no thinking, 7-operand arithmetic, 384 budget | **0.00 → 1.00 by step 10** |
+| 180-step mixture run | Qwen3.6-35B-A3B, math+code+arithmetic, cap 2560 | eval_correct 0.56 → 0.66, plateau from ~step 40; see [docs/memory-and-compute-anatomy.md](docs/memory-and-compute-anatomy.md) |
 
 **Batched engine (`engine.py`), 4 prompts × group 8, vs one-at-a-time**
-(rollout-only):
+(rollout-only), Qwen3.6-35B-A3B:
 
-| Model | Batched wall | Sequential | Speedup | Peak (rollout) | Peak (training, all-layer LoRA) |
-|---|---|---|---|---|---|
-| qwen36 35B-A3B | 249 tok/s | 44 tok/s | 5.6× | 24.6 GB | 63.2 GB @96-tok budget (85.5 GB @384) |
-| gemma26 26B-A4B | 480 tok/s | 58 tok/s | 8.2× | 18.7 GB | 32.8 GB |
+| | Batched | Sequential | Speedup |
+|---|---|---|---|
+| throughput | 249 tok/s | 44 tok/s | 5.6× |
 
-LoRA backward is validated on both architectures — qwen36 exercises the
-hybrid GatedDeltaNet path, gemma26 the sliding-window path — but see the
-gemma26 generation caveat in the SAGE-RL section before training it.
+Peak memory: 24.6 GB rollout-only; 63.2 GB training at a 96-token budget and
+85.5 GB at 384, with all-layer LoRA.
 
 ## Adapter lifecycle & regression validation
 
 Run outputs under `runs/` are disposable (gitignored). An adapter that earned
 a name gets **promoted to an adapter library** (defaults to
-`~/models/adapters/<name>/`):
+`~/models/adapters/<name>/`, override with `MLX_RL_ADAPTERS_DIR`):
 
 ```sh
 uv run python scripts/promote_adapter.py runs/myrun --name sage-arith
 ```
-
-(The library location can be overridden with `MLX_RL_ADAPTERS_DIR`.)
-
-**Promotion is not publication.** The adapter library is a directory on one
-machine, gitignored and unbacked. An outside reproduction of one of our results
-reported the promoted deliverable as lost, because from where they stood it
-was. An artifact that earns a name also gets shipped somewhere downloadable the
-same day — see [docs/artifacts.md](docs/artifacts.md) for the two destinations
-and which one applies.
 
 This writes the adapter in **mlx-lm's native adapter format** — directly
 consumable by `mlx_lm.server --adapter-path` and `mlx_lm.load(adapter_path=...)`
 — plus a `MANIFEST.md` with full provenance (base model, run config, eval
 trajectory, mlx-rl commit) and a regression checklist.
 
-**RL on task X must not silently cost capability on task Y.** The KL leash
-and shallow LoRA make catastrophic forgetting unlikely, but this family of
-adapters *deliberately changes thinking behavior* — exactly the kind of
-change that could move agentic coding either way. So promotion is only step
-one; before an adapter is served for real, walk it through a few tiers of
-increasing cost, each against an already-measured base-model baseline. Serve
-the promoted adapter with `mlx_lm.server --adapter-path <dir>` and point an
+**RL on task X must not silently cost capability on task Y.** These adapters
+deliberately change thinking behaviour, which could move agentic coding either
+way, so promotion is step one. Before an adapter is served for real, walk it
+through tiers of increasing cost, each against an already-measured base-model
+baseline. Serve it with `mlx_lm.server --adapter-path <dir>` and point an
 external benchmark harness at it:
 
 | tier | what | cost |
@@ -270,38 +217,36 @@ ticking the manifest checklist with numbers and run-dir pointers.
 
 Nine tasks ship, all with programmatic rewards (`--task <name>`). For the
 corpora behind them — provenance, licensing, and the measured per-problem
-difficulty atlases that drive curriculum bands — see
-[DATASETS.md](DATASETS.md).
+difficulty atlases that drive curriculum bands — see [DATASETS.md](DATASETS.md).
 
 - **`arithmetic`** — toy multi-operand integer arithmetic with difficulty
-  knobs (`n_operands`, `max_operand`). The reward reads the LAST answer-tag
-  match so thinking-mode drafts don't confuse it.
+  knobs (`n_operands`, `max_operand`). The reward reads the last answer-tag
+  match, so thinking-mode drafts do not confuse it.
 - **`math`** — competition math from
   [agentica-org/DeepScaleR-Preview-Dataset](https://huggingface.co/datasets/agentica-org/DeepScaleR-Preview-Dataset)
   (MIT; fetched from the HF Hub on first use, filtered to ~25k numerically
-  verifiable answers, fixed held-out split). Reward: last `\boxed{}` value
+  verifiable answers, fixed held-out split). Reward: the last `\boxed{}` value
   matches the reference exactly.
 - **`code`** — sanitized MBPP (427 problems, shipped in `data/` — see
-  [data/README.md](data/README.md) for provenance/license). Reward: the
-  model's function passes the hidden asserts. Candidate code runs under
-  macOS `sandbox-exec` by default (network denied, writes confined to its
-  temp dir) with rlimits on CPU/file-size/fds/procs and a scrubbed env.
+  [data/README.md](data/README.md) for provenance and license). Reward: the
+  model's function passes the hidden asserts. Candidate code runs under macOS
+  `sandbox-exec` by default (network denied, writes confined to its temp dir)
+  with rlimits on CPU, file size, fds and procs, and a scrubbed env.
   `--task_kwargs '{"sandbox": false}'` disables the Seatbelt layer — ⚠️
   candidate code then runs with your user's filesystem and network access.
-  Memory is not capped either way (Darwin rejects `RLIMIT_DATA`); the 8s
-  timeout bounds blowups. For untrusted prompts or third-party models, use
-  a container/VM.
+  Memory is not capped either way (Darwin rejects `RLIMIT_DATA`); the 8 s
+  timeout bounds blowups. For untrusted prompts or third-party models, use a
+  container or VM.
 - **`kodcode`** — the leaderboard-comparable coding task. Trains on
   KodCode-Light-RL-10K (execution-verified, decontaminated against
   MBPP/HumanEval by its authors) and evaluates on `evalplus/mbppplus` — the
   exact 378 tasks behind the EvalPlus leaderboard, never trained on.
   `eval_sample` cycles in dataset order rather than drawing with replacement,
   so `--eval-n 378` is exactly one full pass over the benchmark, and the eval
-  prompt byte-matches EvalPlus's own chat backend (a test asserts it — an
-  unfenced variant once collapsed the policy to prompt-echoing at ~0.06 under
-  the official harness). Same Seatbelt sandbox as `code`. ⚠️ KodCode is
-  **CC BY-NC 4.0** (non-commercial); it is fetched from the HF cache, never
-  redistributed here. Results and method:
+  prompt byte-matches EvalPlus's own chat backend (a test asserts it). Same
+  Seatbelt sandbox as `code`. ⚠️ KodCode is **CC BY-NC 4.0**
+  (non-commercial); it is fetched from the HF cache, never redistributed here.
+  Results and method:
   [docs/mbpp-evalplus-results.md](docs/mbpp-evalplus-results.md).
 - **`deepcoder`** — competition programming (TACO / SYNTHETIC-1 / pre-cutoff
   LiveCodeBench, via
@@ -309,107 +254,92 @@ difficulty atlases that drive curriculum bands — see
   filtered to stdin/stdout problems for one unambiguous judge: 18,983 train /
   175 test, fetched by `scripts/fetch_deepcoder.py`. Reward: the emitted
   program matches every stored test case. Supports a difficulty curriculum via
-  `labels_file=` + `min_pass=`/`max_pass=` from a `difficulty_sweep.py` run.
-  This is the corpus with headroom — qwen36 scores 0.52 pass@3 where MBPP is
-  saturated at 0.97 — but it needs a ≥32k token cap to measure honestly
-  ([DATASETS.md](DATASETS.md)). ⚠️ **Unlike `code`, this still executes
-  model-generated code in a plain subprocess — NOT sandboxed.** It predates
-  the Seatbelt path and has not been wired to it, so it runs with your
-  user's filesystem and network access; use a container/VM.
-- **`qa_abstain`** — calibrated factuality: answer a short factual question
-  in `<answer>` tags or reply `<abstain/>`. Reward: correct +1, abstain 0,
-  wrong/malformed −penalty — the penalty sets the implied confidence
-  threshold (default 3.0 → answer iff p(correct) > 0.75). Trains "know when
-  you don't know" with a fully verifiable reward. TriviaQA (Apache-2.0,
-  ~138k) to train; PopQA (MIT) as the out-of-distribution transfer eval.
-  `scripts/qa_calibrate.py` probes per-question pass@k so a `calib_file` +
-  `band_mix` curriculum can keep decision variance inside GRPO groups.
-  Use `--inject-r 1` with this task: the base policy almost never samples
-  `<abstain/>` (measured 0 in 152 pilot rollouts), and GRPO cannot reinforce
-  what is never sampled — injection supplies the missing off-policy
-  demonstration, made legal by the recomputed-old_lp invariant (correctness
-  detail 2). The injected member is the per-question *calibration oracle*
-  (gold answer on high-pass-rate questions, `<abstain/>` otherwise), not a
-  blanket abstention: one-sided injection makes all-abstain an absorbing
-  state — every group matches the demonstration, goes zero-variance, and is
-  dropped, so the collapse is gradient-free and permanent (measured: a
-  200-step run frozen from step 4). Symmetric demonstrations make both
-  collapse directions self-correcting; pair with
-  `--abort-inactive-window 30` as the backstop.
-  Prior work and positioning:
+  `labels_file=` with `min_pass=`/`max_pass=`. This is the corpus with
+  headroom — Qwen3.6-35B-A3B scores 0.52 pass@3 where MBPP is saturated at
+  0.97 — and it needs a ≥32k token cap to measure honestly
+  ([DATASETS.md](DATASETS.md)). ⚠️ **Unlike `code`, this executes
+  model-generated code in a plain subprocess, with your user's filesystem and
+  network access. Use a container or VM.**
+- **`honesty`** — check before you answer, decline when the check comes back
+  empty. Two domains: `papers` (arXiv author/year questions over a frozen
+  metadata snapshot, answered from real search results captured once and
+  frozen) and `trivia` (TriviaQA with alias gold and live web tools). Every
+  item carries a regime the reward can see — does the base model know it
+  (measured pass rate, `data/labels/`), is it published on or before the
+  stated date, is it real at all. Reward: a correct answer +1, less the cost
+  of a search it did not need; a decline 0, or +1 when declining is right and
+  an empty search backs it up; a wrong answer or a flat denial −penalty.
+  Train on one domain and score the other with `--eval-cells`: the held-out
+  subject is what separates learning to check from memorising one domain's
+  surface. Commitment is judge-graded (`--judge-backend local` runs the judge
+  on the resident base model). Results:
+  [docs/qa-glove-results.md](docs/qa-glove-results.md).
+- **`qa_abstain`** — the tagged form of the same question: answer a short
+  factual question in `<answer>` tags or reply `<abstain/>`, graded against
+  alias gold with no judge. Reward: correct +1, abstain 0, wrong or malformed
+  −penalty — the penalty sets the implied confidence threshold (default 3.0 →
+  answer iff p(correct) > 0.75). TriviaQA (Apache-2.0, ~138k) to train, PopQA
+  (MIT) as the out-of-distribution transfer eval. `scripts/qa_calibrate.py`
+  probes per-question pass@k so a `calib_file` and `band_mix` curriculum keeps
+  decision variance inside GRPO groups. Use `--inject-r 1`: the base policy
+  almost never samples `<abstain/>`, and GRPO cannot reinforce what is never
+  sampled, so injection supplies the off-policy demonstration that invariant 2
+  makes legal. The injected member is the per-question calibration oracle
+  (gold answer on high-pass-rate questions, `<abstain/>` otherwise); keep it
+  symmetric so both collapse directions stay self-correcting, and pair it with
+  `--abort-inactive-window 30`. Prior work and positioning:
   [docs/qa-abstain-related-work.md](docs/qa-abstain-related-work.md).
-  **Uplift over prompt-only, every phase, one table each:**
-  [docs/uplift-over-prompt.md](docs/uplift-over-prompt.md).
-- **`toolformat`** — canonical tool-call format + tool/arg correctness;
-  doubles as a format regression detector for adapters.
+- **`toolformat`** — canonical tool-call format plus tool and argument
+  correctness; doubles as a format regression detector for adapters.
 - **`mixture`** — samples a weighted mix of the above per example (e.g.
   `{"weights": {"math": 0.35, "code": 0.35, "arithmetic": 0.3}}`), so the
-  policy isn't shaped by a single distribution.
+  policy is not shaped by a single distribution.
 
 ### Adding a task
 
 Implement `sample(rng) -> Example` and `reward(example, completion) ->
 RewardResult` in `src/mlx_rl/tasks/`, decorate with `@register`, import it in
-`tasks/__init__.py`. Rewards must be verifiable (computed, not judged).
+`tasks/__init__.py`. Rewards must be verifiable: computed, not judged.
 
 ## Scaling notes (96 GB unified memory)
 
-- Tiny models (≤1B): run anywhere; if a lease command is configured it leaves
-  any co-resident server up.
-- qwen36 / gemma26 class (~16–22 GB 4-bit): a configured lease displaces and
-  restores a co-resident server automatically. Use `--lora-layers 12` (see
-  correctness detail 5) and `--micro-batch 1` for ≥384-token budgets.
-- For sequence budgets past ~1536, `--grad-checkpoint` (recompute instead of
+- Tiny models (≤1B): run anywhere; a configured lease leaves any co-resident
+  server up.
+- Qwen3.6-35B-A3B / Qwen3.8-27B class (~16–22 GB 4-bit): a configured lease
+  displaces and restores a co-resident server automatically. Use
+  `--lora-layers 12` (invariant 4) and `--micro-batch 1` for ≥384-token
+  budgets.
+- Past ~1536-token budgets, `--grad-checkpoint` (recompute instead of
   retaining activations) and the serial GatedDeltaNet backward (`gdn_serial`,
-  on by default for qwen36-class models) are what make it fit: the full
-  memory anatomy, measured, is in
-  [docs/memory-and-compute-anatomy.md](docs/memory-and-compute-anatomy.md) —
-  with them, an 8192-token backward costs less than a 2560-token one did
-  stock.
-- gpt-oss-120b (~59 GB): out of reach for training on 96 GB; don't try.
+  on by default for this model class) are what make it fit: with them an
+  8192-token backward costs less than a 2560-token one did stock. The measured
+  memory anatomy is in
+  [docs/memory-and-compute-anatomy.md](docs/memory-and-compute-anatomy.md).
 
-`mlx-rl-train --help` documents the full CLI, including the
-efficiency levers (`--group-stage1`/`--stage1-skip`, `--update-adv-frac`,
-`--token-subset-frac`) and the length-shaping reward knobs
-(`--length-penalty`, `--length-budget`).
+`mlx-rl-train --help` documents the full CLI, including the efficiency levers
+(`--group-stage1`/`--stage1-skip`, `--update-adv-frac`, `--token-subset-frac`)
+and the length-shaping reward knobs (`--length-penalty`, `--length-budget`).
 
-## Docs & scripts
+## Docs
 
-[DATASETS.md](DATASETS.md) — what corpora the tasks draw on and why, plus the
-measured difficulty atlases (MBPP pass@5 across three temperatures; the
-DeepCoder pilot and the token cap it needs).
-
-Technical notes in [docs/](docs/):
+[DATASETS.md](DATASETS.md) — what corpora the tasks draw on, plus the measured
+difficulty atlases (MBPP pass@5 across three temperatures; the DeepCoder pilot
+and the token cap it needs).
 
 - [memory-and-compute-anatomy.md](docs/memory-and-compute-anatomy.md) — where
-  backward memory actually goes on a hybrid-attention MoE; the GDN-scan root
-  cause and the serial-scan fix (34.3 → 2.37 GiB per layer @4096).
+  backward memory goes on a hybrid-attention MoE; the GDN-scan root cause and
+  the serial-scan fix (34.3 → 2.37 GiB per layer @4096).
 - [sage-paper-notes.md](docs/sage-paper-notes.md) — close reading of the SAGE
   paper and the exact algorithm this repo implements.
+- [qa-glove-results.md](docs/qa-glove-results.md) — the honesty program:
+  teaching a 35B model to decline questions it cannot answer, in ordinary
+  conversation, and what that costs on the ones it can.
 - [qa-abstain-related-work.md](docs/qa-abstain-related-work.md) — prior work
-  on abstention/calibration training and what the `qa_abstain` task does and
-  does not add.
-- [qa-glove-results.md](docs/qa-glove-results.md) — results for the
-  `qa_abstain` program: teaching a 35B model to decline questions it cannot
-  answer, in ordinary conversation, and what that costs on the ones it can.
+  on abstention and calibration training, and where these tasks sit in it.
 - [mbpp-evalplus-results.md](docs/mbpp-evalplus-results.md) — the code line's
   training and EvalPlus-comparable evaluation.
-- [artifacts.md](docs/artifacts.md) — where the trained adapters and the
-  reproduction inputs are published, and why the split is what it is.
-- [glossary.md](docs/glossary.md) — this repo's private vocabulary, translated.
-  Read it before writing docs; prefer the plain-English column.
-
-Code is split by stability (2026-08-22): [scripts/](scripts/) holds only the
-load-bearing, expected-to-work surface — `rl_dash.py` (labbook server),
-`matrix_eval.py`, `promote_adapter.py`, `launch_detached.py` (start a
-multi-hour run in its own session so nothing but the run can kill it), the
-`*_calibrate.py` / `fetch_*.py` data instruments, `apply_patches.sh`, and
-`bundle_artifacts.sh` (package adapters + reproduction inputs for release).
-Everything built for one experiment — probes (`probe_backward.py`,
-`anatomy_*.py`, `bench_rollout.py`, `oracle_sage.py`, `think_length.py`),
-per-arc drivers, `sage_server.py` — lives in
-[experimental/](experimental/), which nothing in the core depends on. Each
-file has a docstring with usage; see `experimental/README.md` for the rule.
+- [uplift-over-prompt.md](docs/uplift-over-prompt.md) — what the training adds
+  over prompting alone.
 
 ## License
 
