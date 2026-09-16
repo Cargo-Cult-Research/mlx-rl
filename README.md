@@ -84,12 +84,8 @@ download those yourself first, e.g. with `mlx_lm.convert`. See
 ```sh
 uv run pytest                      # fast, no model needed
 
-# Smoke (0.5B, downloads ~300 MB on first use):
+# Three steps on the default 0.5B model (downloads ~300 MB on first use):
 uv run mlx-rl-train --steps 3 --batch-prompts 2 --group-size 4 --out runs/smoke
-
-# Convergence demo on the toy task:
-uv run mlx-rl-train --steps 50 --batch-prompts 4 --group-size 8 \
-  --task-kwargs '{"n_operands": 2, "max_operand": 99}' --out runs/convergence
 
 # Multi-hour run, in its own session so it outlives the terminal:
 uv run python scripts/launch_detached.py --log runs/myrun.log -- \
@@ -163,23 +159,49 @@ think block, so:
 - `samples.jsonl` gets the first prompt's whole completion group every step.
   Read them: reward hacks show up there, not in the curves.
 
-## Validation results (96 GB M3 Ultra)
+## Does it learn?
 
-| run | model | result |
-|---|---|---|
-| toy convergence | Qwen2.5-0.5B-Instruct (1.7 GB peak) | held-out greedy 0.56 → 0.88 by step 10 |
-| positive control | Qwen3.6-35B-A3B, no thinking, 7-operand arithmetic, 384 budget | **0.00 → 1.00 by step 10** |
-| 180-step mixture run | Qwen3.6-35B-A3B, math+code+arithmetic, cap 2560 | eval_correct 0.56 → 0.66, plateau from ~step 40; see [docs/memory-and-compute-anatomy.md](docs/memory-and-compute-anatomy.md) |
+One run answers that, on a model that downloads itself, so the claim is
+checkable without any local weights.
 
-**Batched engine (`engine.py`), 4 prompts × group 8, vs one-at-a-time**
-(rollout-only), Qwen3.6-35B-A3B:
+**The task.** `arithmetic` asks for a two-operand sum or difference:
+*"Compute 47 + 82. Think step by step, then end your reply with the final
+integer wrapped in answer tags, like `<answer>7</answer>`."* Reward is 1.0 for
+the correct integer in the last answer tag, 0.2 for well-formed tags around a
+wrong value, 0 otherwise. Operands up to 99 leave Qwen2.5-0.5B-Instruct
+mediocre at the start, which is the point: a group whose members disagree is a
+group with gradient in it.
 
-| | Batched | Sequential | Speedup |
-|---|---|---|---|
-| throughput | 249 tok/s | 44 tok/s | 5.6× |
+```sh
+uv run mlx-rl-train --steps 50 --batch-prompts 4 --group-size 8 \
+  --max-new-tokens 80 --eval-every 10 --eval-n 32 \
+  --task-kwargs '{"n_operands": 2, "max_operand": 99}' --out runs/convergence
+```
 
-Peak memory: 24.6 GB rollout-only; 63.2 GB training at a 96-token budget and
-85.5 GB at 384, with all-layer LoRA.
+Held-out greedy accuracy, `eval_correct` in `runs/convergence/metrics.jsonl`,
+32 problems the policy never trains on, 4-bit Qwen2.5-0.5B-Instruct, 1.8 GB
+peak:
+
+| step | 0 | 10 | 20 | 30 | 40 | 50 |
+|---|---|---|---|---|---|---|
+| held-out accuracy | 0.56 | 0.88 | 0.91 | 0.84 | 0.81 | 0.78 |
+
+It learns, it peaks at step 20, and it gives some of that back. Both halves
+matter. Step 10 clear of step 0 is the smoke test: if that gap is not there,
+something is wrong before the task is. And the last checkpoint is not the best
+one, which is what `promote_adapter.py --step` is for — it takes the newest
+checkpoint unless you name the one the curve prefers.
+
+**At scale**, on models that need local MLX 4-bit weights: Qwen3.6-35B-A3B
+with thinking off goes from 0.00 to 1.00 held-out on 7-operand arithmetic
+within 10 steps at a 384-token budget; a 180-step mixture run over math, code
+and arithmetic at a 2560-token cap moves `eval_correct` 0.56 → 0.66, with the
+plateau from about step 40.
+
+**Batched engine** (`engine.py`), 4 prompts × group 8 versus one-at-a-time,
+rollout only, Qwen3.6-35B-A3B: 249 tok/s against 44 tok/s, a 5.6× speedup, at
+24.6 GB peak. Training the same model peaks at 63.2 GB for a 96-token budget
+and 85.5 GB for 384, with LoRA on every layer.
 
 ## Adapter lifecycle & regression validation
 
