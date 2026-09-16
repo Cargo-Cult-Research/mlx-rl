@@ -632,7 +632,6 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
     model, tokenizer, info = load_policy(
         cfg.model, cfg.lora, cfg.activation_headroom_gb,
         grad_checkpoint=cfg.grad_checkpoint, required_gb=cfg.required_gb,
-        vlm=cfg.vlm_policy,
     )
     print(f"loaded {cfg.model}: {info}")
     # Let a judge_backend=local judge generate on THIS model with adapters
@@ -654,11 +653,6 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
               flush=True)
         if matched == 0:
             raise RuntimeError("init adapter matched no trainable parameters — LoRA config mismatch?")
-    # Model-graded tasks (telephone's frozen-listener reward) need the live
-    # model; tasks are constructed before load, so hand it over here.
-    bind = getattr(task, "bind_model", None)
-    if bind is not None:
-        bind(model, tokenizer)
     pad_id = next(iter(sorted(tokenizer.eos_token_ids)))
 
     # Fail loud, not slow: hard-abort if a backward spills to swap.
@@ -1179,7 +1173,6 @@ def main() -> None:
     cfg = TrainConfig(
         **{k: v for k, v in vars(a).items() if k in field_names},
         model=model,
-        vlm_policy=prof.vlm if prof else False,
         extra_eos=tuple(prof.extra_eos) if prof else (),
         task_kwargs=json.loads(a.task_kwargs),
         chat_kwargs=chat_kwargs,

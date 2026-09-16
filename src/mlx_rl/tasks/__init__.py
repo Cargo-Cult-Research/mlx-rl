@@ -8,7 +8,6 @@ from . import (  # noqa: F401  (registers the tasks)
     mixture,
     qa_abstain,
     qa_arxiv,
-    telephone,
     toolformat,
 )
 from .base import Example, RewardResult, Task, get_task

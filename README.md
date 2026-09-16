@@ -342,12 +342,6 @@ difficulty atlases that drive curriculum bands — see
   [docs/uplift-over-prompt.md](docs/uplift-over-prompt.md).
 - **`toolformat`** — canonical tool-call format + tool/arg correctness;
   doubles as a format regression detector for adapters.
-- **`telephone`** — emergent-code game: the policy must transmit a secret
-  drawn from 48 chord labels (~5.6 bits) through a k-token channel to a frozen
-  copy of itself (adapters disabled — the GRPO reference trick). Reward is the
-  frozen listener's contrastive forced-choice probability of the true label.
-  No natural single token names both quality and root, so beating the
-  natural-language ceiling requires mining the listener's prior.
 - **`mixture`** — samples a weighted mix of the above per example (e.g.
   `{"weights": {"math": 0.35, "code": 0.35, "arithmetic": 0.3}}`), so the
   policy isn't shaped by a single distribution.

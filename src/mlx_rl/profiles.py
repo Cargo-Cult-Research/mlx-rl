@@ -39,9 +39,6 @@ class ModelProfile:
     # chat kwargs that put the template into thinking mode.
     think_end: int | None = None
     think_chat_kwargs: dict = field(default_factory=dict)
-    # Multimodal checkpoint loaded via mlx-vlm (VLMTextPolicy wrapper);
-    # text-only rollouts, towers frozen in the tree for Phase-2 audio.
-    vlm: bool = False
 
     def think_close(self, tokenizer) -> str | None:
         """The decoded end-of-thinking marker when this profile generates in
@@ -115,18 +112,6 @@ PROFILES: dict[str, ModelProfile] = {
         # Thought channel closes with <channel|> = 101 (default template
         # already thinks; no extra chat kwargs needed).
         think_end=101,
-    ),
-    # gemma-4-E4B, the ears-project model (gemma4 E-series LM: altup,
-    # per-layer embeddings, 18 KV-shared layers — those have no k/v_proj of
-    # their own, attn-key LoRA simply skips them there; plus the audio/vision
-    # towers, frozen). Loaded via mlx-vlm so Phase-2 audio RL is a
-    # forward-path change, not an infra change.
-    "e4b": ModelProfile(
-        name="e4b",
-        model=os.path.join(MODELS_DIR, "gemma-4-E4B-it-8bit"),
-        lora_keys=_ATTN,
-        extra_eos=(1, 106, 50),
-        vlm=True,
     ),
 }
 

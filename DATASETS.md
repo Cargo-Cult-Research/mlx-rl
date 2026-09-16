@@ -33,7 +33,6 @@ band in between where the gradient actually lives.
 | `qa_abstain` | TriviaQA `rc.nocontext` (train), PopQA (OOD eval) | ~138k / ~14k | +1 correct, 0 abstain, −penalty wrong | HF Hub on first use, Apache-2.0 / MIT |
 | `arithmetic` | synthetic | unbounded | exact answer in tags | generated |
 | `toolformat` | synthetic | unbounded | canonical tool-call form + right tool/args | generated |
-| `telephone` | synthetic (48 chord labels) | unbounded | frozen twin's forced-choice probability | generated |
 | `mixture` | router over the above | — | delegates to the sub-task | — |
 
 Only MBPP is redistributed in this repository. Everything else is either

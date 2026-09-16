@@ -26,45 +26,12 @@ def resolve_model_path(model_id: str) -> Path:
     return Path(snapshot_download(model_id))
 
 
-class VLMTextPolicy(nn.Module):
-    """An mlx-vlm multimodal model driven through the mlx-lm text-model
-    contract the rest of this trainer speaks: `model(inputs, cache=...)` ->
-    bare logits, `.layers`, `.make_cache()`, `.language_model` nesting.
-
-    Text rollouts call straight into the language model (which self-computes
-    its per-layer embeddings from token ids); the frozen towers ride along
-    in the module tree so Phase-2 multimodal prefill is a forward-path
-    change, not a reload. Adapter weights saved from this wrapper carry a
-    leading `vlm.` on their keys.
-    """
-
-    def __init__(self, vlm: nn.Module):
-        super().__init__()
-        self.vlm = vlm
-
-    @property
-    def language_model(self):
-        return self.vlm.language_model
-
-    @property
-    def layers(self):
-        return self.vlm.language_model.layers
-
-    def make_cache(self):
-        return self.vlm.language_model.make_cache()
-
-    def __call__(self, inputs: mx.array, cache=None, mask=None):
-        out = self.vlm.language_model(inputs, cache=cache, mask=mask)
-        return out.logits if hasattr(out, "logits") else out
-
-
 def load_policy(
     model_id: str,
     lora: LoraConfig,
     headroom_gb: float = 4.0,
     grad_checkpoint: bool = False,
     required_gb: float = 0.0,
-    vlm: bool = False,
 ):
     """Load base weights, freeze them, attach trainable LoRA adapters.
 
@@ -75,36 +42,12 @@ def load_policy(
     from its calibration regime (e.g. 1-token rollouts). The claim is
     checked, not trusted: assert_fits still gates the load and the SwapGuard
     hard-aborts the run if the real peak proves the override wrong.
-
-    vlm=True loads a multimodal checkpoint via mlx-vlm and wraps it in
-    VLMTextPolicy; the tokenizer still comes from mlx-lm's loader so the
-    trainer sees its usual TokenizerWrapper (eos_token_ids etc.).
     """
     path = resolve_model_path(model_id)
     weights_gb = model_disk_gb(path)
     assert_fits(required_gb or estimate_run_gb(weights_gb, headroom_gb))
 
-    if vlm:
-        from mlx_lm.utils import load_tokenizer
-        from mlx_vlm import load as vlm_load
-
-        inner, _processor = vlm_load(str(path))
-        # mlx-vlm gemma4's audio tower stores AudioRelativePositionEmbedding
-        # as a private `_rel_pos` attribute; those instances end up without
-        # nn.Module's bookkeeping attrs and crash freeze(). Repair the
-        # bookkeeping — they're frozen inference-only modules either way.
-        for _, mod in inner.named_modules():
-            if not hasattr(mod, "_no_grad"):
-                object.__setattr__(mod, "_no_grad", set())
-            if not hasattr(mod, "_training"):
-                object.__setattr__(mod, "_training", True)
-        model = VLMTextPolicy(inner)
-        # Multimodal consumers (audio/vision prompts) need the processor for
-        # feature extraction; plain attribute, invisible to the param tree.
-        object.__setattr__(model, "processor", _processor)
-        tokenizer = load_tokenizer(path)
-    else:
-        model, tokenizer = mlx_load(str(path))
+    model, tokenizer = mlx_load(str(path))
     model.freeze()
     num_layers = lora.num_layers if lora.num_layers > 0 else len(model.layers)
     linear_to_lora_layers(
@@ -160,17 +103,12 @@ def selective_logprobs(
     lm = getattr(model, "language_model", model)
     h = lm.model(inp)  # [B, L, hidden] — full-seq trunk, incl. final norm
     h = mx.take_along_axis(h, sel_idx[..., None], axis=1)  # [B, K, hidden]
-    if hasattr(lm, "logits_from_hidden"):
-        # mlx-vlm gemma4 exposes the full head (tied embeddings + softcap)
-        logits = lm.logits_from_hidden(h)
-        return -nn.losses.cross_entropy(logits, tgt_sel, reduction="none")
     if getattr(lm.args, "tie_word_embeddings", False):
         logits = lm.model.embed_tokens.as_linear(h)
     else:
         logits = lm.lm_head(h)
     # mlx-lm gemma4_text applies final-logit softcapping inline in __call__;
-    # skipping it here shifted candidate logprobs by up to 28 nats on E4B
-    # (caught 2026-08-03 by the text-vs-vlm A/B rig).
+    # skipping it here shifts candidate logprobs by tens of nats.
     softcap = getattr(lm, "final_logit_softcapping", None)
     if softcap:
         logits = mx.tanh(logits / softcap) * softcap

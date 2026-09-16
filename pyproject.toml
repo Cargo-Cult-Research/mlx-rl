@@ -15,7 +15,6 @@ dependencies = [
     "ddgs>=9.15.0",
     "mlx>=0.31.2",
     "mlx-lm==0.31.3",
-    "mlx-vlm==0.6.8",
     "numpy>=2.5.1",
     "psutil>=7.2.2",
     "pyarrow>=25.0.0",
