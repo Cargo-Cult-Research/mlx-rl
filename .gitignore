@@ -33,5 +33,4 @@ wandb/
 # OS
 .DS_Store
 data/deepcoder/
-scripts/.rl-dash-public-until
 runs/human-review/labels.jsonl
