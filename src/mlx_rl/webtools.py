@@ -144,10 +144,9 @@ def relevance(query: str, results: list[dict]) -> float:
 
     Deliberately query-only. Scoring against the gold ANSWER would make the
     tool an oracle -- "the search agreed with the grader" and "the policy
-    checked" would be the same event, which is the defect that sank
-    pypi_lookup. Relevance to the query is information the caller already
-    has, so using it leaks nothing: it is the same judgement a person makes
-    glancing at a result page before reading it.
+    checked" would be the same event. Relevance to the query is information
+    the caller already has, so using it leaks nothing: it is the same
+    judgement a person makes glancing at a result page before reading it.
 
     Content words only, title + snippet. A search for "Delta Score:
     Improving the Binding Assessment of Structure-Based Drug Design Methods"

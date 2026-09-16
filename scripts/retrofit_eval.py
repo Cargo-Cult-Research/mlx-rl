@@ -2,7 +2,7 @@
 
     uv run python scripts/retrofit_eval.py --run runs/curve/20260822-trivia-v3 \
         --also runs/curve/20260822-trivia-v3-to120 \
-        --cells papers:single,packages:single --every 10 --n 64
+        --cells papers:single,trivia:single --every 10 --n 64
 
 A run only ever scored the subject it trained on, so it cannot tell learning
 from memorising: a policy that picks up one domain's surface quirks and one
@@ -54,7 +54,7 @@ def main() -> None:
     ap.add_argument("--run", required=True, help="run dir holding config.json")
     ap.add_argument("--also", action="append", default=[],
                     help="extra run dirs whose checkpoints continue the same curve")
-    ap.add_argument("--cells", required=True, help="e.g. papers:single,packages:single")
+    ap.add_argument("--cells", required=True, help="e.g. papers:single,trivia:single")
     ap.add_argument("--every", type=int, default=10)
     ap.add_argument("--n", type=int, default=64)
     ap.add_argument("--profile", default="qwen36")

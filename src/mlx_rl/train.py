@@ -1093,7 +1093,7 @@ def main() -> None:
     p.add_argument("--eval-n", type=int, default=d.eval_n)
     p.add_argument("--eval-cells", default=d.eval_cells,
                    help="extra held-out subjects scored every eval, e.g. "
-                        "'papers:single,packages:single' (never trained on)")
+                        "'papers:single,trivia:single' (never trained on)")
     p.add_argument("--eval-cells-n", type=int, default=d.eval_cells_n,
                    help="items per extra subject (0 = --eval-n)")
     p.add_argument("--checkpoint-every", type=int, default=d.checkpoint_every)

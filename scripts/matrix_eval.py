@@ -88,7 +88,7 @@ def main() -> None:
     tasks, examples = {}, {}
     for domain, situation, kw in cells:
         key = f"{domain}:{situation}" + ("@" + ",".join(f"{k}={v}" for k, v in kw.items()) if kw else "")
-        if domain in CALIB:          # packages needs no calibration file
+        if domain in CALIB:
             kw = {"calib_file": CALIB[domain], **kw}
         t = HonestyTask(domain=domain, situation=situation, **kw)
         rng = random.Random(a.seed)
