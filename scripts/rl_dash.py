@@ -368,17 +368,17 @@ function charts(steps,evals){
   // Any eval_<subject>_reward key is a subject this run did NOT train on --
   // scored live via --eval-cells, or retrofitted from checkpoints afterwards.
   const subs=[...new Set(evals.flatMap(e=>Object.keys(e))
-    .map(k=>/^eval_([a-z0-9]+_(?:single|toolfail|swamp))_reward$/.exec(k))
+    .map(k=>/^eval_([a-z0-9]+)_reward$/.exec(k))
     .filter(Boolean).map(m=>m[1]))].sort();
   if(subs.length){
     const C=["#3fb950","#d29922","#a371f7","#58a6ff"];
     out+=panel("held-out subjects — reward",[
       {pts:E("eval_reward"),kind:"line",color:"#8b949e",label:"trained subject"},
       ...subs.map((s,i)=>({pts:E(`eval_${s}_reward`),kind:"line",color:C[i%C.length],
-                           label:s.replace(/_single$/,"")}))]);
+                           label:s}))]);
     out+=panel("held-out subjects — calls tool",
       subs.map((s,i)=>({pts:E(`eval_${s}_called`),kind:"line",color:C[i%C.length],
-                        label:s.replace(/_single$/,"")})),{ymin:0,ymax:1});
+                        label:s})),{ymin:0,ymax:1});
   }
   out+=panel("KL from base",[{pts:S("kl"),kind:"line",color:"#f85149",label:"per step"}],{ymin:0});
   out+=panel("gradient norm (clip at 1.0)",[
@@ -603,7 +603,7 @@ td{padding:0;min-width:86px}
 select{background:#161b22;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;padding:2px 6px;font:inherit}
 </style></head><body>
 <h1>transfer matrix <span id="run" class="dim"></span></h1>
-<div class="dim">rows = adapters (and stacks), columns = cells (domain:situation). Colour = <b>change over the prompt-only base</b> in that cell (green better, red worse); number = reward; small = base. Dashed outline = the adapter was <b>trained</b> on that cell — the diagonal; everything else is transfer. <select id="pick"></select></div>
+<div class="dim">rows = adapters (and stacks), columns = cells (one per domain). Colour = <b>change over the prompt-only base</b> in that cell (green better, red worse); number = reward; small = base. Dashed outline = the adapter was <b>trained</b> on that cell — the diagonal; everything else is transfer. <select id="pick"></select></div>
 <div id="grid"></div>
 <div class="legend"><span class="sw" style="background:#b62324"></span>−1.5 <span class="sw" style="background:#5a1e1e"></span>−0.5 <span class="sw" style="background:#21262d"></span>0 <span class="sw" style="background:#1f4d2b"></span>+0.5 <span class="sw" style="background:#2ea043"></span>+1.5 &nbsp;·&nbsp; base row shown in grey with the absolute reward</div>
 <script>
@@ -616,7 +616,7 @@ function render(res){const cells=res.cells;const arms=Object.keys(res.arms);cons
  for(const a of arms){h+=`<tr><td class=arm>${esc(a)}</td>`;const base=res.arms.base?res.arms.base.cells:{};
   for(const c of cells){const v=res.arms[a].cells[c];if(!v){h+="<td><div class=cell style='background:#161b22'>—</div></td>";continue}
    const d=(a==="base"||!base[c])?null:v.reward-base[c].reward;const tr=(trained[a]||[]).includes(c);
-   const tip=`called ${v.called?.toFixed(2)} correct ${v.correct?.toFixed(2)} abstain ${v.abstain?.toFixed(2)} denial ${v.denial?.toFixed(2)} fab-prov ${v.fabricated_provenance?.toFixed(2)} n=${v.n}`;
+   const tip=`called ${v.called?.toFixed(2)} correct ${v.correct?.toFixed(2)} abstain ${v.abstain?.toFixed(2)} denial ${v.denial?.toFixed(2)} n=${v.n}`;
    h+=`<td><div class="cell ${tr?"trained":""}" style="background:${a==="base"?"#30363d":col(d)}" title="${esc(tip)}">${v.reward>=0?"+":""}${v.reward.toFixed(2)}${a!=="base"&&base[c]?`<small>Δ ${d>=0?"+":""}${d.toFixed(2)}</small>`:`<small>${a==="base"?"base":""}</small>`}</div></td>`}
   h+="</tr>"}
  document.getElementById("grid").innerHTML=h+"</table>"}
@@ -799,7 +799,7 @@ def _discover_runs() -> list[dict]:
         kw = cfg.get("task_kwargs") or {}
         cell = None
         if kw.get("domain"):
-            cell = f"{kw['domain']}:{kw.get('situation', 'single')}"
+            cell = kw["domain"]
         last_step, stamps = None, []
         for row in _tail_jsonl(m, 12):   # enough to pace the stall window
             if row.get("ts"):

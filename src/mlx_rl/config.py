@@ -174,7 +174,7 @@ class TrainConfig:
     # training cap; running it higher measures whether learned termination
     # generalizes past the training-time budget wall.
     eval_max_new_tokens: int = 0
-    # Extra held-out subjects to score at every eval, as "domain:situation"
+    # Extra held-out subjects to score at every eval, by domain name
     # (comma-separated), alongside the subject being trained. The trained
     # subject alone cannot distinguish learning from overfitting: a policy
     # that memorises one domain's quirks and one that learns to check before

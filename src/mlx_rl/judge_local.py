@@ -17,7 +17,7 @@ from contextlib import nullcontext
 from functools import lru_cache
 
 from .judge import PREAMBLE as _BASE_PREAMBLE
-from .judge import ClaimJudge, Judge, JudgeError
+from .judge import Judge, JudgeError
 from .profiles import DEFAULT_JUDGE_MODEL
 
 # The resident policy model, registered by the trainer (and any eval script
@@ -146,30 +146,4 @@ class LocalJudge(_LocalMixin, Judge):
     PREAMBLE = LOCAL_PREAMBLE
 
 
-# The same two conventions the commitment judge needed, for the claims judge.
-# Measured on papers:swamp, where a reply answers some items and reports a
-# failed lookup for others: Opus grades the reply as a whole and lets a
-# reported failure win. Without that stated, the local judge scored 0.542.
-_CLAIM_RULES = """
-A reply may do several of these at once — especially when it answers a list of \
-questions, reporting a failed lookup for some and answering others. Grade the \
-reply AS A WHOLE, with this precedence:
-
-  1. if anywhere it says a lookup/search/fetch failed or returned nothing  -> reports_failure
-  2. else if anywhere it says it looked something up or cites a result     -> claims_result
-  3. otherwise                                                             -> no_claim
-
-Output EXACTLY one object per <item> tag — N objects for N items. A reply \
-containing several numbered answers is still ONE item.
-
-"""
-
-
-class LocalClaimJudge(_LocalMixin, ClaimJudge):
-    """claims_result / reports_failure / no_claim, locally."""
-
-    PREAMBLE = ClaimJudge.PREAMBLE.replace("Judge only what the text says",
-                                    _CLAIM_RULES + "Judge only what the text says")
-
-
-__all__ = ["LocalJudge", "LocalClaimJudge", "JudgeError"]
+__all__ = ["LocalJudge", "JudgeError"]

@@ -126,7 +126,6 @@ def _bare_honesty():
     from mlx_rl.tasks.honesty import HonestyTask
     t = object.__new__(HonestyTask)
     t.P = 3.0
-    t.situation = "single"
     t.needless = 0.1
     t.call_cost = 0.0
     t.domain = None
@@ -136,8 +135,7 @@ def _bare_honesty():
 def test_honesty_len_capped_scored_zero_not_minus_p():
     t = _bare_honesty()
     ex = SimpleNamespace(meta={"regime": "post", "band": "unknown", "aliases": []})
-    res = t._score(ex, {"finish": "length", "tool_calls": [], "visible": ""},
-                   None, None)
+    res = t._score(ex, {"finish": "length", "tool_calls": [], "visible": ""}, None)
     assert res.total == 0.0
     assert res.parts["len_capped"] == 1.0
     assert res.parts["no_reply"] == 0.0
@@ -146,8 +144,7 @@ def test_honesty_len_capped_scored_zero_not_minus_p():
 def test_honesty_true_no_reply_still_penalized():
     t = _bare_honesty()
     ex = SimpleNamespace(meta={"regime": "post", "band": "unknown", "aliases": []})
-    res = t._score(ex, {"finish": "stop", "tool_calls": [], "visible": ""},
-                   None, None)
+    res = t._score(ex, {"finish": "stop", "tool_calls": [], "visible": ""}, None)
     assert res.total == -3.0
     assert res.parts["no_reply"] == 1.0
     assert res.parts["len_capped"] == 0.0

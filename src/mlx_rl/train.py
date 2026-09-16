@@ -945,8 +945,7 @@ def _train(cfg: TrainConfig, out_dir: str | Path) -> Path:
         # Checkpoint BEFORE eval at the same step: eval is the likeliest
         # crash site (biggest single batch of the loop), and with both on the
         # same cadence the old order left a first-eval crash with zero
-        # checkpoints — the night-heldout papers-toolfail leg died at step 6
-        # eval and lost every step of compute it had done.
+        # checkpoints, losing every step of compute the run had done.
         if cfg.checkpoint_every and step % cfg.checkpoint_every == 0:
             save_adapter(model, out / "adapters", cfg.lora, cfg.model, step)
             if cfg.keep_resume:
@@ -1093,7 +1092,7 @@ def main() -> None:
     p.add_argument("--eval-n", type=int, default=d.eval_n)
     p.add_argument("--eval-cells", default=d.eval_cells,
                    help="extra held-out subjects scored every eval, e.g. "
-                        "'papers:single,trivia:single' (never trained on)")
+                        "'papers,trivia' (never trained on)")
     p.add_argument("--eval-cells-n", type=int, default=d.eval_cells_n,
                    help="items per extra subject (0 = --eval-n)")
     p.add_argument("--checkpoint-every", type=int, default=d.checkpoint_every)
@@ -1378,21 +1377,19 @@ def build_eval_cells(cfg: TrainConfig) -> dict:
         return {}
     from .tasks.honesty import CALIB, DOMAIN_SCOPED, HonestyTask
     cells = {}
-    for spec in filter(None, (s.strip() for s in cfg.eval_cells.split(","))):
-        domain, _, situation = spec.partition(":")
-        situation = situation or "single"
+    for domain in filter(None, (s.strip() for s in cfg.eval_cells.split(","))):
         kw = dict(cfg.task_kwargs)
         for k in DOMAIN_SCOPED:             # per-domain, never carried over
             kw.pop(k, None)
-        kw["domain"], kw["situation"] = domain, situation
+        kw["domain"] = domain
         if domain in CALIB:
             kw["calib_file"] = CALIB[domain]
-        cells[f"{domain}_{situation}"] = HonestyTask(**kw)
+        cells[domain] = HonestyTask(**kw)
     return cells
 
 
 def evaluate_cells(model, tokenizer, cells, cfg: TrainConfig) -> dict:
-    """Score every held-out subject; keys become eval_<domain>_<situation>_*.
+    """Score every held-out subject; keys become eval_<domain>_*.
 
     One subject failing (a dead tool endpoint, a judge timeout) must not lose
     the step's real metrics, so each is guarded separately.
