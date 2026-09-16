@@ -107,8 +107,7 @@ def _tail_jsonl(path: Path, n: int, max_bytes: int = 4_000_000) -> list[dict]:
 def scan_anomalies(cfg: dict, metrics: list[dict], samples: list[dict], run: Path) -> list[dict]:
     """Each anomaly: {level: error|warn|info, step, msg}. Tuned to observed
     failure classes, not hypothetical ones -- the grader-leak and SAGE-breach
-    checks are how those bugs were caught the first time (ported from the
-    retired experimental/dashboard.py so they stay reachable)."""
+    checks are how those bugs were caught the first time."""
     a: list[dict] = []
     cap = cfg.get("max_new_tokens") or 0
     train = [m for m in metrics if "reward_mean" in m]

@@ -36,9 +36,7 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.1.1",
 ]
-# Used only by experimental/deepcoder_judge_check.py and
-# scripts/fetch_deepcoder.py. Declared so `uv sync --group data` restores
-# them — they were installed ad hoc, and a bare `uv sync` removed them.
+# Dataset fetching (scripts/fetch_deepcoder.py); `uv sync --group data`.
 data = [
     "datasets>=5.0",
 ]
