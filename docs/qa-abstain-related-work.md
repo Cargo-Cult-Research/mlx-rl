@@ -1,6 +1,6 @@
 # qa_abstain — prior work and what is (and isn't) new here
 
-Positioning notes for the calibrated-factuality task (`tasks/qa_abstain.py`):
+Positioning notes for the calibrated-factuality task (`src/mlx_rl/tasks/qa_abstain.py`):
 teach a model to answer short factual questions when it knows and emit
 `<abstain/>` when it doesn't, with a fully verifiable reward. This note maps
 the prior work so the contribution is stated honestly — the core idea is

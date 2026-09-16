@@ -98,7 +98,7 @@ T=1.0 costs about two points of per-sample accuracy in exchange for the
 group diversity GRPO needs.
 
 **The train/eval split is not leaking.** Eval tracks train within noise at
-every temperature, which is what the fixed seeded split in `tasks/code.py` is
+every temperature, which is what the fixed seeded split in `src/mlx_rl/tasks/code.py` is
 supposed to guarantee.
 
 **MBPP is saturated for this policy.** Only **4 of 427** problems failed all
@@ -163,13 +163,13 @@ Two rules the sweeps follow:
 ## Two gotchas when using a label file
 
 - **`labels_file` keeps only the last row per `task_id`.** The loader in
-  `tasks/deepcoder.py` does a plain dict assignment, so pointing it at a
+  `src/mlx_rl/tasks/deepcoder.py` does a plain dict assignment, so pointing it at a
   multi-leg file like `data/labels/mbpp-pass@5-qwen36.jsonl` keeps the T=0.6
   leg and discards T=1.0 and T=0.8. For 170 of 427 MBPP problems (39.8%) the
   legs disagree on `n_pass`, and training rollouts sample at T=1.0, so the
   band would be built from the wrong temperature. Filter the label file to one
   leg before use, or select on `temperature` in the loader.
 - **`code` has no `labels_file` parameter.** The label-file curriculum
-  (`labels_file=` with `min_pass=`/`max_pass=`) lives in `tasks/deepcoder.py`;
+  (`labels_file=` with `min_pass=`/`max_pass=`) lives in `src/mlx_rl/tasks/deepcoder.py`;
   the MBPP atlas is a difficulty record and a regression baseline, not an
   input to the `code` task.
