@@ -18,9 +18,8 @@ where the judge and a human reader disagree about what is asserted; watch
 samples.jsonl for it. The judge never sees gold answers, so it cannot leak
 them or drift toward them.
 
-Mechanics: one batched call per rollout batch through the Claude Code CLI on
-the subscription plan (NOT the API — same channel as the nightly headless
-jobs). Verdicts are cached by sha256(question, reply) so GRPO's repeated
+Mechanics: one batched call per rollout batch, shelled out to the Claude Code
+CLI rather than an API key. Verdicts are cached by sha256(question, reply) so GRPO's repeated
 sampling of identical short replies is free after first sight, and every
 uncached call is appended to an audit log. Failures BLOCK with backoff and
 eventually raise — a defaulted reward of 0 is indistinguishable from
@@ -81,8 +80,7 @@ Output ONLY a JSON array, no prose, one object per item, in order:
 
 
 def _claude_bin() -> str:
-    """Resolve the claude CLI robustly: detached runs (launchd/nohup) may have
-    a bare PATH."""
+    """Resolve the claude CLI robustly: a detached run may have a bare PATH."""
     found = shutil.which("claude")
     if found:
         return found

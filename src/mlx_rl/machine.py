@@ -96,10 +96,9 @@ def acquire(required_gb: float, wait_s: float = 0, note: str = "",
         note,
     ]
     if block == "exclusive":
-        # --ensure-gb displaces :8084 and is exclusive-only by design — the
-        # experiments block coexists with the serving slot, and memlease
-        # rejects the flag there outright. assert_fits() still gates the
-        # load either way.
+        # --ensure-gb asks the coordinator to free memory, which only the
+        # exclusive block may do; the coexisting block rejects the flag.
+        # assert_fits() still gates the load either way.
         cmd += ["--ensure-gb", str(round(required_gb / SAFETY_FRACTION, 1))]
     rc = _run(cmd)
     if rc != 0:

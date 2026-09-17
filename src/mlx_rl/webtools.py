@@ -1,9 +1,8 @@
 """Real web tools for tool-using tasks: `web_search` (DuckDuckGo) and
 `fetch_url` (HTTP GET, browser User-Agent, HTML reduced to text).
 
-Train like you serve — these are the same tools the deployed assistant gets
-(the shape and backend Moss used, `moss/scripts/tools.py`), and the web is
-noisy on purpose: near-misses, SEO junk, paywalls, timeouts. Making sense of
+Train like you serve — these are the shape of tool a deployed assistant gets,
+and the web is noisy on purpose: near-misses, SEO junk, paywalls, timeouts. Making sense of
 that is what the policy is being trained to do; nothing here cleans it up
 beyond what a real harness would (HTML -> visible text, size caps).
 
@@ -18,10 +17,10 @@ Two things a training loop needs on top of the served tools:
   briefly (an empty page for a famous paper is usually throttling, not
   truth), so a rate-limited engine is not hammered but a bad first answer
   is not frozen either.
-* **A fetch blocklist.** The policy chooses the URLs. Anything that resolves
-  to loopback / RFC1918 / link-local / the tailnet CGNAT range is refused —
-  this box serves private pages on those addresses. http(s) only, size and
-  time capped, no redirects to blocked ranges.
+* **A fetch blocklist.** The policy chooses the URLs, so anything resolving
+  to loopback, RFC1918, link-local or the CGNAT range is refused: those are
+  where a machine's own private services live. http(s) only, size and time
+  capped, no redirects to blocked ranges.
 
 Live calls are paced (DuckDuckGo rate-limits bursts) and each one runs
 under a HARD wall-clock timeout in a helper thread: the HTTP client has been

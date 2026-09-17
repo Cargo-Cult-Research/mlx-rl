@@ -1112,8 +1112,9 @@ def main() -> None:
                    help="seconds to wait for the machine lease")
     p.add_argument("--lease-block", default=d.lease_block,
                    choices=["exclusive", "experiments"],
-                   help="memlease block: experiments coexists with the :8084 "
-                        "serving slot (use for runs that fit in ~40 GB)")
+                   help="lease block to request: experiments coexists with "
+                        "whatever else holds memory (use it for runs that fit "
+                        "alongside)")
     p.add_argument("--required-gb", type=float, default=d.required_gb,
                    help="override the worst-case run-size estimate (0 = "
                         "estimator); guard + swap watchdog still enforce it")

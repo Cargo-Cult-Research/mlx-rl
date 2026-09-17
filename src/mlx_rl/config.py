@@ -38,11 +38,10 @@ class TrainConfig:
     share_prompt: bool = True  # prefill group prompt once, fork KV per member
     manage_machine: bool = True  # take the host memory lease for the run
     lease_wait_s: float = 0.0  # how long to wait if another agent holds it
-    # Which memlease block to hold. "exclusive" (default) may displace the
-    # serving slot to make room; "experiments" coexists with :8084 by
-    # construction — use it for any run that fits in ~40 GB so a small run
-    # never takes the box's serving backend down (2026-08-03: a 1.8 GB tiny
-    # smoke displaced a backend mid-load-test through the exclusive default).
+    # Which lease block to ask the coordinator for. "exclusive" (default) may
+    # displace whatever else holds memory; "experiments" is the block that
+    # coexists with it. Use "experiments" for any run that fits alongside, so
+    # a small run cannot evict a co-resident server.
     lease_block: str = "exclusive"
     # 0 = size the run with the worst-case estimator (measured on full CoT
     # rollouts). Set explicitly for workloads far from that regime (1-token
