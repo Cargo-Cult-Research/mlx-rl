@@ -1,6 +1,6 @@
 """Pre-load sanity checks on a requested run configuration.
 
-Runs BEFORE the model loads and before the memlease is taken, so a config
+Runs BEFORE the model loads and before the memory lease is taken, so a config
 that cannot work dies in under a second with a one-line reason — not forty
 minutes in with a Metal OOM, and not silently (a weaker agent babysitting a
 run must be able to read the failure off the first line of the log).
