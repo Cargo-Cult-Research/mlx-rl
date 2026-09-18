@@ -281,7 +281,8 @@ class QAAbstainTask:
         # CUTOVER 2026-08-17: eval_correct / frac_answered from runs before
         # this commit are not strictly comparable with runs after it. The
         # difference is small (same distribution, less noise) but it is a
-        # difference; see docs/qa-glove-results.md for which runs are which.
+        # difference — check a run's date against this commit before
+        # comparing it with an older one.
         row = self._eval[self._eval_i % len(self._eval)]
         self._eval_i += 1
         return self._example(row, rng)

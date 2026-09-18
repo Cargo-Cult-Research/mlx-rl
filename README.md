@@ -268,8 +268,6 @@ difficulty atlases that drive curriculum bands — see [DATASETS.md](DATASETS.md
   prompt byte-matches EvalPlus's own chat backend (a test asserts it). Same
   Seatbelt sandbox as `code`. ⚠️ KodCode is **CC BY-NC 4.0**
   (non-commercial); it is fetched from the HF cache, never redistributed here.
-  Results and method:
-  [docs/mbpp-evalplus-results.md](docs/mbpp-evalplus-results.md).
 - **`deepcoder`** — competition programming (TACO / SYNTHETIC-1 / pre-cutoff
   LiveCodeBench, via
   [agentica-org/DeepCoder-Preview-Dataset](https://huggingface.co/datasets/agentica-org/DeepCoder-Preview-Dataset)),
@@ -294,8 +292,7 @@ difficulty atlases that drive curriculum bands — see [DATASETS.md](DATASETS.md
   Train on one domain and score the other with `--eval-cells`: the held-out
   subject is what separates learning to check from memorising one domain's
   surface. Commitment is judge-graded (`--judge-backend local` runs the judge
-  on the resident base model). Results:
-  [docs/qa-glove-results.md](docs/qa-glove-results.md).
+  on the resident base model).
 - **`qa_abstain`** — the tagged form of the same question: answer a short
   factual question in `<answer>` tags or reply `<abstain/>`, graded against
   alias gold with no judge. Reward: correct +1, abstain 0, wrong or malformed
@@ -353,15 +350,8 @@ and the token cap it needs).
   the serial-scan fix (34.3 → 2.37 GiB per layer @4096).
 - [sage-paper-notes.md](docs/sage-paper-notes.md) — close reading of the SAGE
   paper and the exact algorithm this repo implements.
-- [qa-glove-results.md](docs/qa-glove-results.md) — the honesty program:
-  teaching a 35B model to decline questions it cannot answer, in ordinary
-  conversation, and what that costs on the ones it can.
 - [qa-abstain-related-work.md](docs/qa-abstain-related-work.md) — prior work
   on abstention and calibration training, and where these tasks sit in it.
-- [mbpp-evalplus-results.md](docs/mbpp-evalplus-results.md) — the code line's
-  training and EvalPlus-comparable evaluation.
-- [uplift-over-prompt.md](docs/uplift-over-prompt.md) — what the training adds
-  over prompting alone.
 
 ## License
 

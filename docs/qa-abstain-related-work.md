@@ -101,5 +101,4 @@ probing (Cheng et al.).
 
 The honest headline is "TruthRL-style calibration training, reproduced
 end-to-end on consumer hardware, with a curriculum that makes it
-sample-efficient enough to be practical there" — not a new algorithm. The
-measured outcome is in [qa-glove-results.md](qa-glove-results.md).
+sample-efficient enough to be practical there" — not a new algorithm.
